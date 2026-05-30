@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Inspector</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/css/litegraph.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      background: #181825;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+    #toolbar label { color: #a6adc8; }
+    #toolbar input[type=file] {
+      font-size: 11px;
+      color: #cdd6f4;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 3px;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    #toolbar button {
+      padding: 3px 10px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    #toolbar button:hover:not(:disabled) { background: #45475a; }
+    #toolbar button:disabled { opacity: 0.4; cursor: default; }
+    #breadcrumb {
+      flex: 1;
+      font-size: 11px;
+      color: #6c7086;
+      padding-left: 4px;
+    }
+    #breadcrumb .crumb { color: #89b4fa; cursor: pointer; }
+    #breadcrumb .crumb:hover { text-decoration: underline; }
+    #breadcrumb .crumb-current { color: #cdd6f4; }
+    #world-info { font-size: 10px; color: #585b70; }
+
+    /* ── Main layout ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Graph area ── */
+    #graph-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #graph-canvas { display: block; }
+
+    #drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(30, 30, 46, 0.95);
+      z-index: 10;
+      font-size: 14px;
+      color: #a6adc8;
+      pointer-events: none;
+    }
+    #drop-overlay.hidden { display: none; }
+    #drop-overlay .title { font-size: 20px; color: #cdd6f4; }
+    #drop-overlay .hint { font-size: 11px; color: #585b70; margin-top: 4px; }
+
+    /* ── Inspector panel ── */
+    #inspector {
+      width: 370px;
+      min-width: 260px;
+      background: #181825;
+      border-left: 1px solid #313244;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #inspector-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #313244;
+      background: #1e1e2e;
+      flex-shrink: 0;
+    }
+    #inspector-name {
+      font-size: 14px;
+      font-weight: bold;
+      color: #cdd6f4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #inspector-id {
+      font-size: 10px;
+      color: #585b70;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #inspector-kind {
+      font-size: 11px;
+      margin-top: 3px;
+      color: #a6adc8;
+    }
+
+    #inspector-body {
+      flex: 1;
+      overflow-y: auto;
+    }
+    #inspector-body::-webkit-scrollbar { width: 6px; }
+    #inspector-body::-webkit-scrollbar-track { background: #181825; }
+    #inspector-body::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
+
+    #inspector-empty {
+      padding: 20px;
+      text-align: center;
+      color: #585b70;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    /* ── Component sections ── */
+    .comp-section {
+      border-bottom: 1px solid #1e1e2e;
+    }
+    .comp-section > summary {
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #89dceb;
+      background: #1e1e2e;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .comp-section > summary::before { content: '▶'; font-size: 9px; color: #45475a; }
+    .comp-section[open] > summary::before { content: '▼'; }
+    .comp-section > summary:hover { background: #252535; }
+    .comp-section[open] > summary { color: #89b4fa; }
+
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .comp-table tr { border-bottom: 1px solid #1a1a2a; }
+    .comp-table tr:hover { background: #1e1e2e; }
+    .comp-table td {
+      padding: 2px 8px;
+      vertical-align: top;
+    }
+    .comp-table td.key {
+      color: #89b4fa;
+      width: 42%;
+      white-space: nowrap;
+      padding-right: 4px;
+      padding-left: 20px;
+    }
+    .comp-table td.val { color: #cdd6f4; word-break: break-word; }
+
+    .val-null { color: #585b70; font-style: italic; }
+    .val-bool-t { color: #a6e3a1; }
+    .val-bool-f { color: #f38ba8; }
+    .val-num { color: #fab387; }
+    .val-str { color: #a6e3a1; }
+
+    /* nested object inside a table cell */
+    .sub-table { margin: 2px 0 2px 8px; }
+    .sub-table td.key { padding-left: 4px; color: #74c7ec; }
+
+    /* ── Relationships section ── */
+    .rel-section {
+      padding: 5px 10px 8px 10px;
+      border-bottom: 1px solid #1e1e2e;
+    }
+    .rel-title {
+      font-size: 11px;
+      color: #89dceb;
+      margin-bottom: 4px;
+    }
+    .rel-row {
+      font-size: 10px;
+      color: #a6adc8;
+      padding: 1px 0 1px 10px;
+      line-height: 1.5;
+    }
+    .rel-edge-type { color: #89dceb; }
+    .rel-target { color: #89b4fa; cursor: pointer; }
+    .rel-target:hover { text-decoration: underline; }
+    .rel-edge-data { color: #6c7086; }
+
+    /* ── Meter bars (for hunger, thirst, etc.) ── */
+    .meter-bar-row td.val { padding-top: 1px; }
+    .meter-bar {
+      display: inline-block;
+      height: 6px;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label for="file-input">Snapshot:</label>
+  <input type="file" id="file-input" accept=".json">
+  <button id="btn-back" disabled>← Back</button>
+  <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
+  <span id="world-info"></span>
+</div>
+
+<div id="main">
+  <div id="graph-wrapper">
+    <canvas id="graph-canvas"></canvas>
+    <div id="drop-overlay">
+      <div class="title">🐰 Bunnyland Inspector</div>
+      <div>Load a world snapshot JSON to begin</div>
+      <div class="hint">Use the file picker above, or drag &amp; drop a .json file here</div>
+    </div>
+  </div>
+  <div id="inspector">
+    <div id="inspector-header">
+      <div id="inspector-name">No entity selected</div>
+      <div id="inspector-id"></div>
+      <div id="inspector-kind"></div>
+    </div>
+    <div id="inspector-body">
+      <div id="inspector-empty">
+        Load a snapshot and click any node<br>to inspect its ECS components.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
+<script>
+'use strict';
+
+// ── Snapshot parsing ─────────────────────────────────────────────────────────
+
+function parseSnapshot(json) {
+  const entities = {};
+  for (const id of Object.keys(json.entities || {})) {
+    entities[id] = { id, components: {}, relationships: {} };
+  }
+  for (const [ctype, table] of Object.entries(json.components || {})) {
+    for (const [eid, fields] of Object.entries(table)) {
+      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
+      entities[eid].components[ctype] = fields;
+    }
+  }
+  for (const [rtype, table] of Object.entries(json.relationships || {})) {
+    for (const [eid, edges] of Object.entries(table)) {
+      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
+      entities[eid].relationships[rtype] = edges;
+    }
+  }
+  return {
+    entities,
+    meta: json.bunnyland || {},
+    epoch: json.metadata?.epoch || 0,
+  };
+}
+
+function entityType(entity) {
+  const c = entity.components;
+  if (c.RoomComponent) return 'room';
+  if (c.CharacterComponent) return 'character';
+  if (c.ContainerComponent) return 'container';
+  if (c.PortableComponent) return 'item';
+  return 'other';
+}
+
+function entityDisplayName(entity) {
+  const c = entity.components;
+  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
+  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
+  return entity.id.slice(0, 24);
+}
+
+function entitySubtitle(entity) {
+  const c = entity.components;
+  if (c.RoomComponent) {
+    const r = c.RoomComponent;
+    return [r.biome, r.indoor ? 'indoor' : 'outdoor'].filter(Boolean).join(' · ');
+  }
+  if (c.CharacterComponent) return c.CharacterComponent.species || '';
+  if (c.DescriptionComponent) return c.DescriptionComponent.short || '';
+  if (c.IdentityComponent) return c.IdentityComponent.kind || '';
+  return '';
+}
+
+// ── Room layout ──────────────────────────────────────────────────────────────
+
+const DIR_OFFSET = {
+  north:     [0, -1], south:     [0,  1],
+  east:      [1,  0], west:     [-1,  0],
+  northeast: [1, -1], northwest: [-1, -1],
+  southeast: [1,  1], southwest: [-1,  1],
+  up:        [0, -1], down:      [0,  1],
+};
+const ROOM_SPACING = 280;
+
+function layoutRooms(world, roomIds) {
+  const positions = {};
+  const visited = new Set();
+  if (!roomIds.length) return positions;
+
+  const queue = [{ id: roomIds[0], x: 0, y: 0 }];
+  while (queue.length) {
+    const { id, x, y } = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    positions[id] = [x, y];
+
+    for (const { target, edge } of (world.entities[id]?.relationships.ExitTo || [])) {
+      if (visited.has(target)) continue;
+      const dir = (edge.direction || '').toLowerCase();
+      const [dx, dy] = DIR_OFFSET[dir] || [1, 0];
+      queue.push({ id: target, x: x + dx * ROOM_SPACING, y: y + dy * ROOM_SPACING });
+    }
+  }
+
+  // Disconnected rooms fall below
+  let col = 0;
+  for (const id of roomIds) {
+    if (!positions[id]) {
+      positions[id] = [col * ROOM_SPACING, ROOM_SPACING * 2];
+      col++;
+    }
+  }
+
+  // Shift everything to start at (80, 60)
+  const xs = Object.values(positions).map(p => p[0]);
+  const ys = Object.values(positions).map(p => p[1]);
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  for (const id of Object.keys(positions)) {
+    positions[id] = [positions[id][0] - minX + 80, positions[id][1] - minY + 60];
+  }
+  return positions;
+}
+
+// ── LiteGraph node types ─────────────────────────────────────────────────────
+
+const ENTITY_STYLE = {
+  room:      { color: '#1a5f7a', bgcolor: '#0e3f52', titleColor: '#74c7ec', icon: '🏠' },
+  character: { color: '#2a6a3a', bgcolor: '#1a4228', titleColor: '#a6e3a1', icon: '🐰' },
+  container: { color: '#6a4a1a', bgcolor: '#402e0a', titleColor: '#fab387', icon: '📦' },
+  item:      { color: '#4a3a6a', bgcolor: '#2a2048', titleColor: '#cba6f7', icon: '✦' },
+  other:     { color: '#383848', bgcolor: '#222232', titleColor: '#a6adc8', icon: '⬡' },
+};
+
+// Register one generic node type used for all entity kinds.
+// We apply color/icon/widgets dynamically after creation.
+(function registerNodeTypes() {
+  for (const [kind, style] of Object.entries(ENTITY_STYLE)) {
+    function EntityNode() {
+      this.addInput('←', '');
+      this.addOutput('→', '');
+    }
+    EntityNode.title = kind;
+    EntityNode.prototype = Object.create(LGraphNode.prototype);
+    EntityNode.prototype.constructor = EntityNode;
+    LiteGraph.registerNodeType(`bunnyland/${kind}`, EntityNode);
+  }
+})();
+
+// ── Inspector rendering ───────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderScalar(v) {
+  if (v === null || v === undefined) return '<span class="val-null">null</span>';
+  if (typeof v === 'boolean') return `<span class="${v ? 'val-bool-t' : 'val-bool-f'}">${v}</span>`;
+  if (typeof v === 'number') return `<span class="val-num">${v}</span>`;
+  if (typeof v === 'string') return `<span class="val-str">"${esc(v)}"</span>`;
+  return esc(String(v));
+}
+
+function renderValue(v, depth) {
+  if (depth === undefined) depth = 0;
+  if (v === null || v === undefined) return '<span class="val-null">null</span>';
+  if (typeof v === 'boolean') return `<span class="${v ? 'val-bool-t' : 'val-bool-f'}">${v}</span>`;
+  if (typeof v === 'number') return `<span class="val-num">${v}</span>`;
+  if (typeof v === 'string') return `<span class="val-str">"${esc(v)}"</span>`;
+  if (Array.isArray(v)) {
+    if (!v.length) return '<span class="val-null">[]</span>';
+    if (v.every(x => typeof x !== 'object' || x === null)) {
+      return '[' + v.map(x => renderScalar(x)).join(', ') + ']';
+    }
+    return '<span class="val-null">[…' + v.length + ']</span>';
+  }
+  if (typeof v === 'object') {
+    if (depth >= 1) {
+      // Nested object: render as sub-table
+      const rows = Object.entries(v).map(([k, val]) =>
+        `<tr><td class="key">${esc(k)}</td><td class="val">${renderValue(val, depth + 1)}</td></tr>`
+      ).join('');
+      return `<table class="comp-table sub-table">${rows}</table>`;
+    }
+    // Top-level object - shouldn't happen in a cell, but handle gracefully
+    return `<span class="val-null">{…}</span>`;
+  }
+  return esc(String(v));
+}
+
+// Special renderer for Meter objects (value/minimum/maximum)
+function isMeter(v) {
+  return v && typeof v === 'object' && 'value' in v && 'maximum' in v && 'minimum' in v;
+}
+
+function renderMeter(v) {
+  const pct = Math.max(0, Math.min(1, (v.value - v.minimum) / (v.maximum - v.minimum || 1)));
+  const color = pct > 0.7 ? '#f38ba8' : pct > 0.4 ? '#fab387' : '#a6e3a1';
+  const barW = Math.round(pct * 100);
+  return `<span class="meter-bar" style="width:${barW}px;background:${color}"></span>`
+    + `<span class="val-num">${v.value.toFixed(1)}</span>`
+    + `<span class="val-null"> / ${v.maximum}</span>`;
+}
+
+function renderComponentTable(fields) {
+  const rows = Object.entries(fields).map(([k, v]) => {
+    let valHtml;
+    if (isMeter(v)) {
+      valHtml = renderMeter(v);
+    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+      valHtml = renderValue(v, 1);
+    } else {
+      valHtml = renderValue(v, 0);
+    }
+    const meterClass = isMeter(v) ? ' meter-bar-row' : '';
+    return `<tr class="${meterClass}"><td class="key">${esc(k)}</td><td class="val">${valHtml}</td></tr>`;
+  }).join('');
+  return `<table class="comp-table">${rows}</table>`;
+}
+
+function renderRelationships(entity, world) {
+  const rels = entity.relationships;
+  if (!Object.keys(rels).length) return '';
+
+  let rows = '';
+  for (const [rtype, edges] of Object.entries(rels)) {
+    for (const { target, edge } of edges) {
+      const targetEnt = world.entities[target];
+      const targetName = targetEnt ? entityDisplayName(targetEnt) : target;
+      const edgeSummary = edge && Object.keys(edge).length
+        ? ' <span class="rel-edge-data">(' + esc(Object.entries(edge).map(([k,v]) => `${k}: ${JSON.stringify(v)}`).join(', ')) + ')</span>'
+        : '';
+      rows += `<div class="rel-row">
+        <span class="rel-edge-type">${esc(rtype)}</span> →
+        <span class="rel-target" onclick="window.app.selectEntity('${esc(target)}')">${esc(targetName)}</span>${edgeSummary}
+      </div>`;
+    }
+  }
+
+  return `<div class="rel-section"><div class="rel-title">🔗 Relationships</div>${rows}</div>`;
+}
+
+function showInspector(entityId, world) {
+  const entity = world.entities[entityId];
+  if (!entity) return;
+
+  const type = entityType(entity);
+  const name = entityDisplayName(entity);
+  const sub  = entitySubtitle(entity);
+  const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
+
+  document.getElementById('inspector-name').textContent = style.icon + ' ' + name;
+  document.getElementById('inspector-id').textContent = entityId;
+  document.getElementById('inspector-kind').innerHTML =
+    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}`;
+
+  let html = '';
+  for (const [cname, fields] of Object.entries(entity.components)) {
+    html += `<details class="comp-section" open>
+      <summary>${esc(cname)}</summary>
+      ${renderComponentTable(fields)}
+    </details>`;
+  }
+  html += renderRelationships(entity, world);
+
+  const body = document.getElementById('inspector-body');
+  body.innerHTML = html || '<div id="inspector-empty">No components.</div>';
+}
+
+// ── Main application ─────────────────────────────────────────────────────────
+
+class BunnylandInspector {
+  constructor() {
+    this.world = null;
+    this.lgraph = new LGraph();
+    this.lgcanvas = null;
+    this.viewStack = []; // {label, fn} to restore view on back
+    this._nodeMap = {};  // entityId → LGraphNode
+
+    this._initCanvas();
+    this._initFileInput();
+    this._initDragDrop();
+    document.getElementById('btn-back').addEventListener('click', () => this.navigateBack());
+  }
+
+  _initCanvas() {
+    const canvas = document.getElementById('graph-canvas');
+    this.lgcanvas = new LGraphCanvas(canvas, this.lgraph);
+
+    // Styling
+    this.lgcanvas.render_shadows = false;
+    this.lgcanvas.render_canvas_border = false;
+    this.lgcanvas.default_link_color = '#45475a';
+    this.lgcanvas.highquality_render = false;
+    this.lgcanvas.links_render_mode = LiteGraph.STRAIGHT_LINK;
+
+    this.lgcanvas.onNodeSelected = (node) => {
+      if (node?.entityId && this.world) {
+        showInspector(node.entityId, this.world);
+      }
+    };
+
+    this._resizeCanvas();
+    window.addEventListener('resize', () => this._resizeCanvas());
+  }
+
+  _resizeCanvas() {
+    const wrapper = document.getElementById('graph-wrapper');
+    const canvas  = document.getElementById('graph-canvas');
+    canvas.width  = wrapper.clientWidth;
+    canvas.height = wrapper.clientHeight;
+    if (this.lgcanvas) this.lgcanvas.resize();
+  }
+
+  _initFileInput() {
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) this._readFile(file);
+    });
+  }
+
+  _initDragDrop() {
+    const wrapper = document.getElementById('graph-wrapper');
+    wrapper.addEventListener('dragover', (e) => e.preventDefault());
+    wrapper.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file) this._readFile(file);
+    });
+  }
+
+  _readFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target.result);
+        this.loadSnapshot(json);
+      } catch (err) {
+        alert('Could not parse JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  loadSnapshot(json) {
+    this.world = parseSnapshot(json);
+    this.viewStack = [];
+    document.getElementById('drop-overlay').classList.add('hidden');
+
+    const m = this.world.meta;
+    const entityCount = Object.keys(this.world.entities).length;
+    document.getElementById('world-info').textContent =
+      [m.seed && `seed: ${m.seed}`, m.generator && `gen: ${m.generator}`,
+       `epoch: ${this.world.epoch}s`, `entities: ${entityCount}`].filter(Boolean).join(' · ');
+
+    this.showRoomMap();
+  }
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+
+  showRoomMap() {
+    this._clearGraph();
+    this._updateBreadcrumb('Room Map');
+
+    const roomIds = Object.values(this.world.entities)
+      .filter(e => e.components.RoomComponent)
+      .map(e => e.id);
+
+    const positions = layoutRooms(this.world, roomIds);
+    const roomNodes = {};
+
+    for (const id of roomIds) {
+      const entity = this.world.entities[id];
+      const [x, y] = positions[id] || [100, 100];
+      const node = this._makeNode(entity, x, y, () => this._pushRoom(id));
+      roomNodes[id] = node;
+    }
+
+    // ExitTo edges — deduplicate bidirectional pairs
+    const linked = new Set();
+    for (const id of roomIds) {
+      for (const { target } of (this.world.entities[id].relationships.ExitTo || [])) {
+        const key = [id, target].sort().join('|');
+        if (linked.has(key)) continue;
+        linked.add(key);
+        const sn = roomNodes[id], tn = roomNodes[target];
+        if (sn && tn) sn.connect(0, tn, 0);
+      }
+    }
+
+    this._fitView();
+  }
+
+  _pushRoom(roomId) {
+    const name = entityDisplayName(this.world.entities[roomId]);
+    this.viewStack.push({ label: name, roomId });
+    this._showRoom(roomId);
+  }
+
+  _showRoom(roomId) {
+    this._clearGraph();
+    this._updateBreadcrumb();
+
+    const entity = this.world.entities[roomId];
+    const sub    = entitySubtitle(entity);
+
+    // Room header node at top-center
+    const roomNode = this._makeNode(entity, 300, 40, null);
+
+    // Collect and classify direct contents
+    const contents = { character: [], container: [], item: [], other: [] };
+    for (const { target } of (entity.relationships.Contains || [])) {
+      const ce = this.world.entities[target];
+      if (!ce) continue;
+      const t = entityType(ce);
+      if (t === 'room') continue;
+      (contents[t] || contents.other).push(target);
+    }
+
+    // Lay out contents in type rows
+    const typeRows = [
+      { key: 'character', y: 220 },
+      { key: 'container', y: 360 },
+      { key: 'item',      y: 500 },
+      { key: 'other',     y: 500 },
+    ];
+
+    const usedRows = new Set();
+    for (const { key, y } of typeRows) {
+      const ids = contents[key];
+      if (!ids?.length) continue;
+
+      // Merge 'item' and 'other' into same row
+      const rowKey = (key === 'other') ? 'item' : key;
+      const yCoord = usedRows.has(rowKey) ? y + 60 : y;
+      usedRows.add(rowKey);
+
+      const nodeW = 200, gap = 16;
+      const totalW = ids.length * nodeW + (ids.length - 1) * gap;
+      let x = Math.max(40, 320 - totalW / 2);
+
+      for (const cid of ids) {
+        const ce = this.world.entities[cid];
+        const node = this._makeNode(ce, x, yCoord, null);
+        roomNode.connect(0, node, 0);
+        x += nodeW + gap;
+      }
+    }
+
+    this._fitView();
+  }
+
+  navigateBack() {
+    if (!this.viewStack.length) return;
+    this.viewStack.pop();
+    if (!this.viewStack.length) {
+      this.showRoomMap();
+    } else {
+      const { roomId } = this.viewStack[this.viewStack.length - 1];
+      this._showRoom(roomId);
+    }
+  }
+
+  // ── Node factory ───────────────────────────────────────────────────────────
+
+  _makeNode(entity, x, y, enterFn) {
+    const type  = entityType(entity);
+    const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
+    const name  = style.icon + ' ' + entityDisplayName(entity);
+    const sub   = entitySubtitle(entity);
+
+    const node = LiteGraph.createNode(`bunnyland/${type}`);
+    node.title   = name;
+    node.color   = style.color;
+    node.bgcolor = style.bgcolor;
+    node.entityId = entity.id;
+
+    // Non-interactive subtitle label (custom widget type 'label' avoids LiteGraph's
+    // text-edit prompt while still reserving vertical space in the node body).
+    if (sub) {
+      const w = node.addWidget('text', '', sub, () => {});
+      w.type = 'label'; // unknown type → LiteGraph skips mouse handling
+      w.draw = function(ctx, _node, widget_width, y, H) {
+        ctx.fillStyle = '#888a9a';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillText(this.value, 8, y + H * 0.72);
+      };
+    }
+
+    // Widget: Enter Room button (room nodes only in map view)
+    if (enterFn) {
+      const eid = entity.id;
+      node.addWidget('button', 'Enter Room →', null, () => enterFn());
+    }
+
+    node.size = [
+      200,
+      24 + (sub ? 22 : 0) + (enterFn ? 26 : 0) + 14,
+    ];
+    node.pos = [x, y];
+
+    // Selection → inspector
+    node.onSelected = () => {
+      if (this.world) showInspector(entity.id, this.world);
+    };
+
+    this.lgraph.add(node);
+    this._nodeMap[entity.id] = node;
+    return node;
+  }
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  _clearGraph() {
+    this.lgraph.clear();
+    this._nodeMap = {};
+    this.lgcanvas.setDirty(true, true);
+  }
+
+  _fitView() {
+    // Reset view so all nodes are visible
+    this.lgcanvas.ds.scale  = 1;
+    this.lgcanvas.ds.offset = [0, 0];
+    this.lgcanvas.setDirty(true, true);
+  }
+
+  _updateBreadcrumb(label) {
+    // label overrides (for top-level "Room Map")
+    const crumb = document.getElementById('breadcrumb');
+
+    const parts = [];
+
+    // Always show "Room Map" as root
+    if (this.viewStack.length > 0) {
+      parts.push(`<span class="crumb" onclick="window.app._goToRoot()">Room Map</span>`);
+    } else {
+      parts.push(`<span class="crumb-current">${esc(label || 'Room Map')}</span>`);
+    }
+
+    // Show room path
+    for (let i = 0; i < this.viewStack.length; i++) {
+      const { label: lbl, roomId } = this.viewStack[i];
+      if (i === this.viewStack.length - 1) {
+        parts.push(`<span class="crumb-current">${esc(lbl)}</span>`);
+      } else {
+        parts.push(`<span class="crumb" onclick="window.app._goToDepth(${i})">${esc(lbl)}</span>`);
+      }
+    }
+
+    crumb.innerHTML = parts.join(' › ');
+    document.getElementById('btn-back').disabled = this.viewStack.length === 0;
+  }
+
+  _goToRoot() {
+    this.viewStack = [];
+    this.showRoomMap();
+  }
+
+  _goToDepth(depth) {
+    this.viewStack = this.viewStack.slice(0, depth + 1);
+    const { roomId } = this.viewStack[this.viewStack.length - 1];
+    this._showRoom(roomId);
+  }
+
+  selectEntity(entityId) {
+    if (!this.world) return;
+    showInspector(entityId, this.world);
+    const node = this._nodeMap[entityId];
+    if (node) this.lgcanvas.selectNode(node, false);
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+window.app = new BunnylandInspector();
+
+// Allow loading the test snapshot from the CLI for development
+// e.g. fetch('/snapshot.json').then(r=>r.json()).then(j=>app.loadSnapshot(j))
+</script>
+</body>
+</html>
