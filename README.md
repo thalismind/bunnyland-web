@@ -19,15 +19,22 @@ similar to Chrome's memory snapshot tools.
    ```
 
 3. Open the URL, then use the file picker (or drag-and-drop) to load your `.json` file.
+   Or **Connect Live** to a running `bunnyland serve` API (default `http://localhost:8765`)
+   to stream the world and refresh on events.
+
+Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
+recursive room → character → container drilldown; `seed-world.json` is a real server save.
 
 ## Interface
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
 connected by edges. Click any room to inspect it in the right panel.
 
-**Enter Room →** — button on each room node drills into a subgraph showing the room's contents:
-characters (green), containers (orange), items (purple), and other entities (gray).
-Each entity connects from the room header node.
+**Drilldown** — the button on a node drills into its contents and is **recursive**:
+**Enter Room →** a room to see its characters (green), containers (orange), items (purple),
+and other entities (gray); **Inventory →** a character to see what it holds and wears;
+**Open →** a container to see its contents — including containers nested inside other
+containers, to any depth. Each entity connects from the current header node.
 
 **ECS Inspector** — right panel shows all ECS components attached to the selected entity,
 with collapsible sections and inline sub-object expansion. Meter values (hunger, thirst, etc.)

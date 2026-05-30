@@ -59,6 +59,19 @@
     #breadcrumb .crumb:hover { text-decoration: underline; }
     #breadcrumb .crumb-current { color: #cdd6f4; }
     #world-info { font-size: 10px; color: #585b70; }
+    .toolbar-sep { color: #313244; }
+    #api-url {
+      font-size: 11px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      padding: 2px 6px;
+      width: 190px;
+    }
+    #api-status { font-size: 11px; white-space: nowrap; }
+    #api-status.live { color: #a6e3a1; }
+    #api-status.error { color: #f38ba8; }
 
     /* ── Main layout ── */
     #main {
@@ -236,6 +249,11 @@
 <div id="toolbar">
   <label for="file-input">Snapshot:</label>
   <input type="file" id="file-input" accept=".json">
+  <span class="toolbar-sep">|</span>
+  <label for="api-url">Server:</label>
+  <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+  <button id="btn-connect">Connect Live</button>
+  <span id="api-status">○ Offline</span>
   <button id="btn-back" disabled>← Back</button>
   <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
   <span id="world-info"></span>
@@ -247,7 +265,7 @@
     <div id="drop-overlay">
       <div class="title">🐰 Bunnyland Inspector</div>
       <div>Load a world snapshot JSON to begin</div>
-      <div class="hint">Use the file picker above, or drag &amp; drop a .json file here</div>
+      <div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div>
     </div>
   </div>
   <div id="inspector">
@@ -294,6 +312,23 @@ function parseSnapshot(json) {
   };
 }
 
+// Parse the live server format: entities array, relationships use target_id.
+function parseApiSnapshot(data) {
+  const entities = {};
+  for (const e of data.entities || []) {
+    const rels = {};
+    for (const [rtype, edges] of Object.entries(e.relationships || {})) {
+      rels[rtype] = edges.map(({ target_id, edge }) => ({ target: target_id, edge }));
+    }
+    entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
+  }
+  return {
+    entities,
+    meta: data.metadata || {},
+    epoch: data.world_epoch || 0,
+  };
+}
+
 function entityType(entity) {
   const c = entity.components;
   if (c.RoomComponent) return 'room';
@@ -320,6 +355,30 @@ function entitySubtitle(entity) {
   if (c.DescriptionComponent) return c.DescriptionComponent.short || '';
   if (c.IdentityComponent) return c.IdentityComponent.kind || '';
   return '';
+}
+
+// Edge types that express "what is inside / carried by" an entity. Rooms contain
+// characters & objects (Contains); characters carry items (Holding) and wear them
+// (Wearing); containers hold their contents (Contains). Walking these recursively is
+// what lets the graph drill room → character → bag → … to any depth.
+const CONTAINMENT_EDGES = ['Contains', 'Holding', 'Wearing'];
+
+// Direct children of an entity: [{ target, rtype, edge }], skipping rooms (a Contains
+// edge never points at a room, but be defensive) and dangling targets.
+function entityChildren(entity, world) {
+  const out = [];
+  for (const rtype of CONTAINMENT_EDGES) {
+    for (const { target, edge } of (entity.relationships[rtype] || [])) {
+      const ce = world.entities[target];
+      if (!ce || entityType(ce) === 'room') continue;
+      out.push({ target, rtype, edge });
+    }
+  }
+  return out;
+}
+
+function hasChildren(entity, world) {
+  return entityChildren(entity, world).length > 0;
 }
 
 // ── Room layout ──────────────────────────────────────────────────────────────
@@ -531,10 +590,22 @@ class BunnylandInspector {
     this.viewStack = []; // {label, fn} to restore view on back
     this._nodeMap = {};  // entityId → LGraphNode
 
+    this._ws = null;
+    this._refreshTimer = null;
+    this._apiBase = null;
+
     this._initCanvas();
     this._initFileInput();
     this._initDragDrop();
     document.getElementById('btn-back').addEventListener('click', () => this.navigateBack());
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this._ws) {
+        this.disconnectLive();
+      } else {
+        const url = document.getElementById('api-url').value.trim();
+        if (url) this.connectLive(url);
+      }
+    });
   }
 
   _initCanvas() {
@@ -597,17 +668,101 @@ class BunnylandInspector {
   }
 
   loadSnapshot(json) {
-    this.world = parseSnapshot(json);
-    this.viewStack = [];
+    this.disconnectLive();
+    this._applyWorld(parseSnapshot(json), { resetView: true });
+  }
+
+  // ── Live server connection ─────────────────────────────────────────────────
+
+  connectLive(url) {
+    this.disconnectLive();
+    this._apiBase = url.replace(/\/$/, '');
+
+    const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
+    const ws = new WebSocket(wsUrl);
+    this._ws = ws;
+
+    ws.onopen = () => {
+      this._setApiStatus('live', '● Connected');
+      document.getElementById('btn-connect').textContent = 'Disconnect';
+    };
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'snapshot') {
+        // Server sends full snapshot on connect — use it directly.
+        this._applyWorld(parseApiSnapshot(msg.data), { resetView: !this.world });
+      } else if (msg.type === 'event') {
+        // Debounce: re-fetch the snapshot 400 ms after the last event burst.
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refreshFromApi(), 400);
+      }
+    };
+
+    ws.onclose = () => {
+      if (this._ws === ws) {
+        this._ws = null;
+        this._setApiStatus('', '○ Offline');
+        document.getElementById('btn-connect').textContent = 'Connect Live';
+      }
+    };
+
+    ws.onerror = () => {
+      this._setApiStatus('error', '⚠ Connection failed');
+    };
+  }
+
+  disconnectLive() {
+    clearTimeout(this._refreshTimer);
+    if (this._ws) {
+      this._ws.onclose = null; // suppress the onclose handler firing
+      this._ws.close();
+      this._ws = null;
+    }
+    this._setApiStatus('', '○ Offline');
+    document.getElementById('btn-connect').textContent = 'Connect Live';
+  }
+
+  async _refreshFromApi() {
+    try {
+      const res = await fetch(`${this._apiBase}/world/snapshot`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      this._applyWorld(parseApiSnapshot(data), { resetView: false });
+      this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _setApiStatus(cls, text) {
+    const el = document.getElementById('api-status');
+    el.className = cls;
+    el.textContent = text;
+  }
+
+  // Apply a parsed world object, optionally preserving the current view.
+  _applyWorld(world, { resetView = true } = {}) {
+    const prevEntityId = !resetView && this.viewStack.length
+      ? this.viewStack[this.viewStack.length - 1].entityId
+      : null;
+
+    this.world = world;
     document.getElementById('drop-overlay').classList.add('hidden');
 
-    const m = this.world.meta;
-    const entityCount = Object.keys(this.world.entities).length;
+    const m = world.meta;
+    const entityCount = Object.keys(world.entities).length;
     document.getElementById('world-info').textContent =
       [m.seed && `seed: ${m.seed}`, m.generator && `gen: ${m.generator}`,
-       `epoch: ${this.world.epoch}s`, `entities: ${entityCount}`].filter(Boolean).join(' · ');
+       `epoch: ${world.epoch}s`, `entities: ${entityCount}`].filter(Boolean).join(' · ');
 
-    this.showRoomMap();
+    if (prevEntityId && world.entities[prevEntityId]) {
+      // Stay on the same entity, rebuild its subgraph with fresh data.
+      this._showEntity(prevEntityId);
+    } else {
+      this.viewStack = [];
+      this.showRoomMap();
+    }
   }
 
   // ── Views ──────────────────────────────────────────────────────────────────
@@ -626,7 +781,7 @@ class BunnylandInspector {
     for (const id of roomIds) {
       const entity = this.world.entities[id];
       const [x, y] = positions[id] || [100, 100];
-      const node = this._makeNode(entity, x, y, () => this._pushRoom(id));
+      const node = this._makeNode(entity, x, y, () => this._pushEntity(id));
       roomNodes[id] = node;
     }
 
@@ -645,29 +800,29 @@ class BunnylandInspector {
     this._fitView();
   }
 
-  _pushRoom(roomId) {
-    const name = entityDisplayName(this.world.entities[roomId]);
-    this.viewStack.push({ label: name, roomId });
-    this._showRoom(roomId);
+  _pushEntity(entityId) {
+    const name = entityDisplayName(this.world.entities[entityId]);
+    this.viewStack.push({ label: name, entityId });
+    this._showEntity(entityId);
   }
 
-  _showRoom(roomId) {
+  // Show one entity (room, character, container, …) as a header node with its direct
+  // contents below it. Any child that itself has contents gets an enter button, so the
+  // same view drills recursively: room → character inventory → bag → nested container → …
+  _showEntity(entityId) {
     this._clearGraph();
     this._updateBreadcrumb();
 
-    const entity = this.world.entities[roomId];
-    const sub    = entitySubtitle(entity);
+    const entity = this.world.entities[entityId];
 
-    // Room header node at top-center
-    const roomNode = this._makeNode(entity, 300, 40, null);
+    // Header node for the current entity at top-center
+    const headerNode = this._makeNode(entity, 300, 40, null);
 
-    // Collect and classify direct contents
+    // Collect and classify direct contents across all containment edges
     const contents = { character: [], container: [], item: [], other: [] };
-    for (const { target } of (entity.relationships.Contains || [])) {
+    for (const { target } of entityChildren(entity, this.world)) {
       const ce = this.world.entities[target];
-      if (!ce) continue;
       const t = entityType(ce);
-      if (t === 'room') continue;
       (contents[t] || contents.other).push(target);
     }
 
@@ -695,8 +850,9 @@ class BunnylandInspector {
 
       for (const cid of ids) {
         const ce = this.world.entities[cid];
-        const node = this._makeNode(ce, x, yCoord, null);
-        roomNode.connect(0, node, 0);
+        const enter = hasChildren(ce, this.world) ? () => this._pushEntity(cid) : null;
+        const node = this._makeNode(ce, x, yCoord, enter);
+        headerNode.connect(0, node, 0);
         x += nodeW + gap;
       }
     }
@@ -710,8 +866,8 @@ class BunnylandInspector {
     if (!this.viewStack.length) {
       this.showRoomMap();
     } else {
-      const { roomId } = this.viewStack[this.viewStack.length - 1];
-      this._showRoom(roomId);
+      const { entityId } = this.viewStack[this.viewStack.length - 1];
+      this._showEntity(entityId);
     }
   }
 
@@ -741,10 +897,13 @@ class BunnylandInspector {
       };
     }
 
-    // Widget: Enter Room button (room nodes only in map view)
+    // Widget: drill-in button, labelled for what the entity holds.
     if (enterFn) {
-      const eid = entity.id;
-      node.addWidget('button', 'Enter Room →', null, () => enterFn());
+      const label = type === 'room' ? 'Enter Room →'
+        : type === 'character' ? 'Inventory →'
+        : type === 'container' ? 'Open →'
+        : 'Enter →';
+      node.addWidget('button', label, null, () => enterFn());
     }
 
     node.size = [
@@ -791,9 +950,9 @@ class BunnylandInspector {
       parts.push(`<span class="crumb-current">${esc(label || 'Room Map')}</span>`);
     }
 
-    // Show room path
+    // Show the drilldown path
     for (let i = 0; i < this.viewStack.length; i++) {
-      const { label: lbl, roomId } = this.viewStack[i];
+      const { label: lbl } = this.viewStack[i];
       if (i === this.viewStack.length - 1) {
         parts.push(`<span class="crumb-current">${esc(lbl)}</span>`);
       } else {
@@ -812,8 +971,8 @@ class BunnylandInspector {
 
   _goToDepth(depth) {
     this.viewStack = this.viewStack.slice(0, depth + 1);
-    const { roomId } = this.viewStack[this.viewStack.length - 1];
-    this._showRoom(roomId);
+    const { entityId } = this.viewStack[this.viewStack.length - 1];
+    this._showEntity(entityId);
   }
 
   selectEntity(entityId) {

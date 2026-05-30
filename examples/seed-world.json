@@ -1,0 +1,576 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "epoch": 1
+  },
+  "bunnyland": {
+    "schema_version": 1,
+    "seed": "test",
+    "prompt": "",
+    "generator": "oneshot",
+    "plugins": [
+      "bunnyland.core_verbs",
+      "bunnyland.lifesim",
+      "bunnyland.memory",
+      "bunnyland.worldgen",
+      "bunnyland.environment",
+      "bunnyland.mechanisms",
+      "bunnyland.social",
+      "bunnyland.policy",
+      "bunnyland.persona",
+      "bunnyland.colonysim",
+      "bunnyland.barbariansim",
+      "bunnyland.gardensim",
+      "bunnyland.dragonsim"
+    ],
+    "saved_at_epoch": 3600,
+    "saved_at": "2026-05-30 20:58:10.138963+00:00"
+  },
+  "prefabs": {
+    "entity": {
+      "components": {}
+    }
+  },
+  "entities": {
+    "entity_1780174690137004": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690138000": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690137000": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690138003": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690137003": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690138002": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690137002": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690137005": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690138004": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690138001": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "entity_1780174690137001": {
+      "prefab": "entity",
+      "created_epoch": 0
+    }
+  },
+  "components": {
+    "IdentityComponent": {
+      "entity_1780174690137004": {
+        "name": "a stone basin of water",
+        "kind": "water",
+        "tags": []
+      },
+      "entity_1780174690138000": {
+        "name": "a scrap of paper",
+        "kind": "paper",
+        "tags": []
+      },
+      "entity_1780174690138003": {
+        "name": "Hazel",
+        "kind": "character",
+        "tags": []
+      },
+      "entity_1780174690137003": {
+        "name": "three berries",
+        "kind": "food",
+        "tags": []
+      },
+      "entity_1780174690137005": {
+        "name": "an oak chest",
+        "kind": "container",
+        "tags": []
+      },
+      "entity_1780174690138001": {
+        "name": "Juniper",
+        "kind": "character",
+        "tags": []
+      }
+    },
+    "DrinkableComponent": {
+      "entity_1780174690137004": {
+        "hydration": 25.0,
+        "purity": 1.0
+      }
+    },
+    "PortableComponent": {
+      "entity_1780174690138000": {
+        "can_pick_up": true,
+        "min_strength": 0.0,
+        "requires_tool": false
+      },
+      "entity_1780174690137003": {
+        "can_pick_up": true,
+        "min_strength": 0.0,
+        "requires_tool": false
+      }
+    },
+    "ReadableComponent": {
+      "entity_1780174690138000": {
+        "title": null,
+        "text": ""
+      }
+    },
+    "WritableComponent": {
+      "entity_1780174690138000": {
+        "remaining_space": null,
+        "erasable": true
+      }
+    },
+    "WorldPolicyComponent": {
+      "entity_1780174690137000": {
+        "enabled": [
+          "flirting"
+        ],
+        "disabled": []
+      }
+    },
+    "WorldClockComponent": {
+      "entity_1780174690137000": {
+        "game_time_seconds": 3600,
+        "tick_index": 1,
+        "time_scale": 1.0
+      }
+    },
+    "TimeOfDayComponent": {
+      "entity_1780174690137000": {
+        "phase": "night"
+      }
+    },
+    "CalendarComponent": {
+      "entity_1780174690137000": {
+        "day": 1,
+        "season": "spring",
+        "hour": 1
+      }
+    },
+    "WeatherComponent": {
+      "entity_1780174690137000": {
+        "condition": "clear",
+        "intensity": 0.0
+      }
+    },
+    "DescriptionComponent": {
+      "entity_1780174690138003": {
+        "short": "Hazel, a bunny",
+        "long": "",
+        "appearance": ""
+      },
+      "entity_1780174690138001": {
+        "short": "Juniper, a bunny",
+        "long": "",
+        "appearance": ""
+      }
+    },
+    "CharacterComponent": {
+      "entity_1780174690138003": {
+        "species": "bunny",
+        "biography": "",
+        "public": true
+      },
+      "entity_1780174690138001": {
+        "species": "bunny",
+        "biography": "",
+        "public": true
+      }
+    },
+    "ActionPointsComponent": {
+      "entity_1780174690138003": {
+        "current": 5.0,
+        "maximum": 5.0,
+        "regen_per_hour": 1.0,
+        "overflow_maximum": null
+      },
+      "entity_1780174690138001": {
+        "current": 5.0,
+        "maximum": 5.0,
+        "regen_per_hour": 1.0,
+        "overflow_maximum": null
+      }
+    },
+    "FocusPointsComponent": {
+      "entity_1780174690138003": {
+        "current": 3.0,
+        "maximum": 3.0,
+        "regen_per_hour": 0.5,
+        "overflow_maximum": null
+      },
+      "entity_1780174690138001": {
+        "current": 3.0,
+        "maximum": 3.0,
+        "regen_per_hour": 0.5,
+        "overflow_maximum": null
+      }
+    },
+    "InitiativeComponent": {
+      "entity_1780174690138003": {
+        "score": 1.0
+      },
+      "entity_1780174690138001": {
+        "score": 1.0
+      }
+    },
+    "AffectComponent": {
+      "entity_1780174690138003": {
+        "baseline": {
+          "valence": 0.0,
+          "arousal": 0.0,
+          "stress": 0.0,
+          "fear": 0.0,
+          "anger": 0.0,
+          "sadness": 0.0,
+          "confidence": 0.0,
+          "sociability": 0.0,
+          "curiosity": 0.0,
+          "focus": 0.0
+        },
+        "current": {
+          "valence": 0.0,
+          "arousal": 0.0,
+          "stress": 0.0,
+          "fear": 0.0,
+          "anger": 0.0,
+          "sadness": 0.0,
+          "confidence": 0.0,
+          "sociability": 0.0,
+          "curiosity": 0.0,
+          "focus": 0.0
+        },
+        "labels": []
+      },
+      "entity_1780174690138001": {
+        "baseline": {
+          "valence": 0.0,
+          "arousal": 0.0,
+          "stress": 0.0,
+          "fear": 0.0,
+          "anger": 0.0,
+          "sadness": 0.0,
+          "confidence": 0.0,
+          "sociability": 0.0,
+          "curiosity": 0.0,
+          "focus": 0.0
+        },
+        "current": {
+          "valence": 0.0,
+          "arousal": 0.0,
+          "stress": 0.0,
+          "fear": 0.0,
+          "anger": 0.0,
+          "sadness": 0.0,
+          "confidence": 0.0,
+          "sociability": 0.0,
+          "curiosity": 0.0,
+          "focus": 0.0
+        },
+        "labels": []
+      }
+    },
+    "MemoryProfileComponent": {
+      "entity_1780174690138003": {
+        "vector_collection": "mem:hazel",
+        "shared_collections": [],
+        "last_event_seen_id": null,
+        "last_reflection_epoch": 0
+      },
+      "entity_1780174690138001": {
+        "vector_collection": "mem:juniper",
+        "shared_collections": [],
+        "last_event_seen_id": null,
+        "last_reflection_epoch": 0
+      }
+    },
+    "TraitSetComponent": {
+      "entity_1780174690138003": {
+        "traits": [
+          "curious",
+          "talkative"
+        ]
+      },
+      "entity_1780174690138001": {
+        "traits": [
+          "cautious",
+          "kind"
+        ]
+      }
+    },
+    "GoalComponent": {
+      "entity_1780174690138003": {
+        "active_goals": [
+          "learn the marsh's secrets"
+        ]
+      }
+    },
+    "HungerComponent": {
+      "entity_1780174690138003": {
+        "meter": {
+          "value": 1.0,
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "warning_at": 40.0,
+          "urgent_at": 70.0,
+          "crisis_at": 90.0
+        },
+        "metabolism": 1.0,
+        "last_ate_epoch": null
+      },
+      "entity_1780174690138001": {
+        "meter": {
+          "value": 0.0,
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "warning_at": 40.0,
+          "urgent_at": 70.0,
+          "crisis_at": 90.0
+        },
+        "metabolism": 1.0,
+        "last_ate_epoch": null
+      }
+    },
+    "ThirstComponent": {
+      "entity_1780174690138003": {
+        "meter": {
+          "value": 1.5,
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "warning_at": 40.0,
+          "urgent_at": 70.0,
+          "crisis_at": 90.0
+        },
+        "hydration_loss_rate": 1.5,
+        "last_drank_epoch": null
+      },
+      "entity_1780174690138001": {
+        "meter": {
+          "value": 0.0,
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "warning_at": 40.0,
+          "urgent_at": 70.0,
+          "crisis_at": 90.0
+        },
+        "hydration_loss_rate": 1.5,
+        "last_drank_epoch": null
+      }
+    },
+    "FoodComponent": {
+      "entity_1780174690137003": {
+        "nutrition": 5.0,
+        "satiety": 20.0,
+        "raw": false,
+        "spoiled": false
+      }
+    },
+    "ConsumableComponent": {
+      "entity_1780174690137003": {
+        "current_uses": 1,
+        "max_uses": 1
+      }
+    },
+    "SuspendedControllerComponent": {
+      "entity_1780174690138002": {
+        "reason": "unclaimed"
+      }
+    },
+    "RoomComponent": {
+      "entity_1780174690137002": {
+        "title": "North Tunnel",
+        "biome": "marsh",
+        "indoor": true,
+        "private": false,
+        "safe": true
+      },
+      "entity_1780174690137001": {
+        "title": "Mosslit Burrow",
+        "biome": "marsh",
+        "indoor": true,
+        "private": false,
+        "safe": true
+      }
+    },
+    "LightComponent": {
+      "entity_1780174690137002": {
+        "level": 0.6,
+        "enabled": true,
+        "natural": true
+      },
+      "entity_1780174690137001": {
+        "level": 0.3,
+        "enabled": true,
+        "natural": true
+      }
+    },
+    "TemperatureComponent": {
+      "entity_1780174690137002": {
+        "celsius": 14.0
+      },
+      "entity_1780174690137001": {
+        "celsius": 18.0
+      }
+    },
+    "ContainerComponent": {
+      "entity_1780174690137005": {
+        "allow_add": true,
+        "allow_remove": true,
+        "max_slots": null,
+        "open": false,
+        "transparent": false,
+        "locked": false
+      }
+    },
+    "LLMControllerComponent": {
+      "entity_1780174690138004": {
+        "profile_name": "elder",
+        "model": "llama3",
+        "temperature": 0.7,
+        "max_tokens": 1024,
+        "system_style": "in_character",
+        "tool_policy": "character_actions"
+      }
+    },
+    "SuspendedComponent": {
+      "entity_1780174690138001": {
+        "reason": "unclaimed",
+        "suspended_at_epoch": 0
+      }
+    },
+    "RoomSummaryComponent": {
+      "entity_1780174690137001": {
+        "visible_summary": "Mosslit Burrow\nIt is dim, mild.\nHere: Juniper, Hazel.\nYou see: a scrap of paper, a stone basin of water, an oak chest (closed), three berries.\nExits: north.",
+        "last_updated_epoch": 3600,
+        "version": 1,
+        "dirty": false
+      }
+    }
+  },
+  "relationships": {
+    "ControlledBy": {
+      "entity_1780174690138003": [
+        {
+          "target": "entity_1780174690138004",
+          "edge": {
+            "generation": 0,
+            "since_epoch": 0
+          }
+        }
+      ],
+      "entity_1780174690138001": [
+        {
+          "target": "entity_1780174690138002",
+          "edge": {
+            "generation": 0,
+            "since_epoch": 0
+          }
+        }
+      ]
+    },
+    "ExitTo": {
+      "entity_1780174690137002": [
+        {
+          "target": "entity_1780174690137001",
+          "edge": {
+            "direction": "south",
+            "label": "",
+            "locked": false,
+            "hidden": false,
+            "action_cost": 1
+          }
+        }
+      ],
+      "entity_1780174690137001": [
+        {
+          "target": "entity_1780174690137002",
+          "edge": {
+            "direction": "north",
+            "label": "",
+            "locked": false,
+            "hidden": false,
+            "action_cost": 1
+          }
+        }
+      ]
+    },
+    "Contains": {
+      "entity_1780174690137001": [
+        {
+          "target": "entity_1780174690137003",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690137004",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690137005",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690138000",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690138001",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690138003",
+          "edge": {
+            "mode": "room_content",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        }
+      ]
+    }
+  },
+  "relics": []
+}

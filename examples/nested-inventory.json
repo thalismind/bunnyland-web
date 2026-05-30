@@ -1,0 +1,70 @@
+{
+  "metadata": { "version": "1.0", "epoch": 42 },
+  "bunnyland": { "seed": "nested-test", "generator": "handcrafted" },
+  "prefabs": { "entity": { "components": {} } },
+  "entities": {
+    "room1": { "prefab": "entity", "created_epoch": 0 },
+    "room2": { "prefab": "entity", "created_epoch": 0 },
+    "clover": { "prefab": "entity", "created_epoch": 0 },
+    "satchel": { "prefab": "entity", "created_epoch": 0 },
+    "carrot": { "prefab": "entity", "created_epoch": 0 },
+    "pouch": { "prefab": "entity", "created_epoch": 0 },
+    "seed": { "prefab": "entity", "created_epoch": 0 },
+    "rock": { "prefab": "entity", "created_epoch": 0 }
+  },
+  "components": {
+    "RoomComponent": {
+      "room1": { "title": "Mosslit Burrow", "biome": "burrow", "indoor": true },
+      "room2": { "title": "North Tunnel", "biome": "tunnel", "indoor": true }
+    },
+    "CharacterComponent": {
+      "clover": { "species": "rabbit" }
+    },
+    "ContainerComponent": {
+      "satchel": { "capacity": 4 },
+      "pouch": { "capacity": 2 }
+    },
+    "PortableComponent": {
+      "carrot": { "weight": 1 },
+      "seed": { "weight": 0.1 },
+      "rock": { "weight": 3 }
+    },
+    "IdentityComponent": {
+      "clover": { "name": "Clover", "kind": "rabbit" },
+      "satchel": { "name": "Leather Satchel", "kind": "container" },
+      "carrot": { "name": "Carrot", "kind": "food" },
+      "pouch": { "name": "Tiny Pouch", "kind": "container" },
+      "seed": { "name": "Sunflower Seed", "kind": "food" },
+      "rock": { "name": "Pebble", "kind": "junk" }
+    },
+    "NeedsComponent": {
+      "clover": {
+        "hunger": { "value": 6.5, "minimum": 0, "maximum": 10 },
+        "thirst": { "value": 2.0, "minimum": 0, "maximum": 10 }
+      }
+    }
+  },
+  "relationships": {
+    "ExitTo": {
+      "room1": [{ "target": "room2", "edge": { "direction": "north" } }],
+      "room2": [{ "target": "room1", "edge": { "direction": "south" } }]
+    },
+    "Contains": {
+      "room1": [
+        { "target": "clover", "edge": { "mode": "occupant" } },
+        { "target": "rock", "edge": { "mode": "ground" } }
+      ],
+      "satchel": [
+        { "target": "carrot", "edge": { "mode": "stored" } },
+        { "target": "pouch", "edge": { "mode": "stored" } }
+      ],
+      "pouch": [
+        { "target": "seed", "edge": { "mode": "stored" } }
+      ]
+    },
+    "Holding": {
+      "clover": [{ "target": "satchel", "edge": { "slot": "right_hand" } }]
+    }
+  },
+  "relics": []
+}
