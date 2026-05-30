@@ -70,6 +70,16 @@
       width: 190px;
     }
     #api-status { font-size: 11px; white-space: nowrap; }
+    #parents-toggle {
+      font-size: 11px;
+      color: #a6adc8;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    #parents-toggle input { cursor: pointer; }
     #api-status.live { color: #a6e3a1; }
     #api-status.error { color: #f38ba8; }
 
@@ -255,6 +265,9 @@
   <button id="btn-connect">Connect Live</button>
   <span id="api-status">○ Offline</span>
   <button id="btn-back" disabled>← Back</button>
+  <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
+    <input type="checkbox" id="toggle-parents" checked> parent nodes
+  </label>
   <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
   <span id="world-info"></span>
 </div>
@@ -587,8 +600,9 @@ class BunnylandInspector {
     this.world = null;
     this.lgraph = new LGraph();
     this.lgcanvas = null;
-    this.viewStack = []; // {label, fn} to restore view on back
+    this.viewStack = []; // {label, entityId} drilldown path
     this._nodeMap = {};  // entityId → LGraphNode
+    this.showParents = true; // render the breadcrumb path as parent nodes in drilldown
 
     this._ws = null;
     this._refreshTimer = null;
@@ -598,6 +612,12 @@ class BunnylandInspector {
     this._initFileInput();
     this._initDragDrop();
     document.getElementById('btn-back').addEventListener('click', () => this.navigateBack());
+    document.getElementById('toggle-parents').addEventListener('change', (e) => {
+      this.showParents = e.target.checked;
+      if (this.viewStack.length) {
+        this._showEntity(this.viewStack[this.viewStack.length - 1].entityId);
+      }
+    });
     document.getElementById('btn-connect').addEventListener('click', () => {
       if (this._ws) {
         this.disconnectLive();
@@ -809,14 +829,37 @@ class BunnylandInspector {
   // Show one entity (room, character, container, …) as a header node with its direct
   // contents below it. Any child that itself has contents gets an enter button, so the
   // same view drills recursively: room → character inventory → bag → nested container → …
+  // When showParents is on, the breadcrumb path is drawn as a chain of parent nodes that
+  // flows into the header, each carrying a "zoom out to here" button.
   _showEntity(entityId) {
     this._clearGraph();
     this._updateBreadcrumb();
 
     const entity = this.world.entities[entityId];
+    const NODE_W = 200, GAP = 16;
 
-    // Header node for the current entity at top-center
-    const headerNode = this._makeNode(entity, 300, 40, null);
+    // Render the ancestor chain (Room Map root + every entity above this one) as a row of
+    // parent nodes leading into the header. The header sits just after the chain.
+    let headerX = 300;
+    let prevNode = null;
+    if (this.showParents && this.viewStack.length) {
+      let x = 40;
+      prevNode = this._makeRootNode(x, 40);
+      x += NODE_W + GAP;
+      const ancestors = this.viewStack.slice(0, -1); // entities above the current one
+      ancestors.forEach((crumb, depth) => {
+        const ae = this.world.entities[crumb.entityId];
+        const node = this._makeNode(ae, x, 40, null, () => this._goToDepth(depth));
+        prevNode.connect(0, node, 0);
+        prevNode = node;
+        x += NODE_W + GAP;
+      });
+      headerX = x;
+    }
+
+    // Header node for the current entity
+    const headerNode = this._makeNode(entity, headerX, 40, null);
+    if (prevNode) prevNode.connect(0, headerNode, 0);
 
     // Collect and classify direct contents across all containment edges
     const contents = { character: [], container: [], item: [], other: [] };
@@ -826,7 +869,8 @@ class BunnylandInspector {
       (contents[t] || contents.other).push(target);
     }
 
-    // Lay out contents in type rows
+    // Lay out contents in type rows, centered under the header.
+    const centerX = headerX + NODE_W / 2;
     const typeRows = [
       { key: 'character', y: 220 },
       { key: 'container', y: 360 },
@@ -844,20 +888,33 @@ class BunnylandInspector {
       const yCoord = usedRows.has(rowKey) ? y + 60 : y;
       usedRows.add(rowKey);
 
-      const nodeW = 200, gap = 16;
-      const totalW = ids.length * nodeW + (ids.length - 1) * gap;
-      let x = Math.max(40, 320 - totalW / 2);
+      const totalW = ids.length * NODE_W + (ids.length - 1) * GAP;
+      let x = Math.max(40, centerX - totalW / 2);
 
       for (const cid of ids) {
         const ce = this.world.entities[cid];
         const enter = hasChildren(ce, this.world) ? () => this._pushEntity(cid) : null;
         const node = this._makeNode(ce, x, yCoord, enter);
         headerNode.connect(0, node, 0);
-        x += nodeW + gap;
+        x += NODE_W + GAP;
       }
     }
 
     this._fitView();
+  }
+
+  // A small synthetic node standing in for the top-level room map at the head of the
+  // parent chain, with a button to zoom all the way back out.
+  _makeRootNode(x, y) {
+    const node = LiteGraph.createNode('bunnyland/other');
+    node.title   = '🗺 Room Map';
+    node.color   = ENTITY_STYLE.other.color;
+    node.bgcolor = ENTITY_STYLE.other.bgcolor;
+    node.addWidget('button', '↑ Room Map', null, () => this._goToRoot());
+    node.size = [200, 24 + 26 + 14];
+    node.pos = [x, y];
+    this.lgraph.add(node);
+    return node;
   }
 
   navigateBack() {
@@ -873,7 +930,7 @@ class BunnylandInspector {
 
   // ── Node factory ───────────────────────────────────────────────────────────
 
-  _makeNode(entity, x, y, enterFn) {
+  _makeNode(entity, x, y, enterFn, backFn) {
     const type  = entityType(entity);
     const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
     const name  = style.icon + ' ' + entityDisplayName(entity);
@@ -906,9 +963,18 @@ class BunnylandInspector {
       node.addWidget('button', label, null, () => enterFn());
     }
 
+    // Widget: zoom-out button on a parent node, mirroring the drill-in label.
+    if (backFn) {
+      const label = type === 'room' ? '↑ Room'
+        : type === 'character' ? '↑ Inventory'
+        : type === 'container' ? '↑ Contents'
+        : '↑ Back';
+      node.addWidget('button', label, null, () => backFn());
+    }
+
     node.size = [
       200,
-      24 + (sub ? 22 : 0) + (enterFn ? 26 : 0) + 14,
+      24 + (sub ? 22 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
     ];
     node.pos = [x, y];
 
@@ -931,9 +997,38 @@ class BunnylandInspector {
   }
 
   _fitView() {
-    // Reset view so all nodes are visible
-    this.lgcanvas.ds.scale  = 1;
-    this.lgcanvas.ds.offset = [0, 0];
+    // Frame all current nodes: scale down if they're wider/taller than the canvas
+    // (parent chains can run wide) and center them.
+    const nodes = this.lgraph._nodes;
+    const ds = this.lgcanvas.ds;
+    if (!nodes.length) {
+      ds.scale = 1;
+      ds.offset = [0, 0];
+      this.lgcanvas.setDirty(true, true);
+      return;
+    }
+
+    const titleH = LiteGraph.NODE_TITLE_HEIGHT || 20;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.pos[0]);
+      minY = Math.min(minY, n.pos[1] - titleH);
+      maxX = Math.max(maxX, n.pos[0] + n.size[0]);
+      maxY = Math.max(maxY, n.pos[1] + n.size[1]);
+    }
+
+    const margin = 60;
+    const cw = this.lgcanvas.canvas.width;
+    const ch = this.lgcanvas.canvas.height;
+    const w = (maxX - minX) + margin * 2;
+    const h = (maxY - minY) + margin * 2;
+    const scale = Math.max(0.2, Math.min(1, Math.min(cw / w, ch / h)));
+    ds.scale = scale;
+    // screenX = (graphX + offsetX) * scale; place the content box, then center the slack.
+    ds.offset = [
+      -minX + margin + (cw / scale - w) / 2,
+      -minY + margin + (ch / scale - h) / 2,
+    ];
     this.lgcanvas.setDirty(true, true);
   }
 

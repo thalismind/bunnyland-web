@@ -44,6 +44,11 @@ that jump the inspector to that entity.
 **Navigation** — breadcrumb at the top shows the current path (Room Map › Room Name).
 The Back button and breadcrumb links let you navigate back up.
 
+**Parent nodes** — with the **parent nodes** toggle on (default), a drilldown view also
+renders the breadcrumb path as a chain of parent nodes flowing into the current entity.
+Each carries an entity-appropriate zoom-out button (`↑ Room Map`, `↑ Room`, `↑ Inventory`,
+`↑ Contents`) so you can jump back to any ancestor level directly from the graph.
+
 ## Notes
 
 - No build step — single `index.html` file, LiteGraph loaded from CDN.
