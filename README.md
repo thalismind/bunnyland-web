@@ -83,6 +83,11 @@ and other entities (gray); **Inventory →** a character to see what it holds an
 **Open →** a container to see its contents — including containers nested inside other
 containers, to any depth. Each entity connects from the current header node.
 
+**Custom icons** — any entity carrying an `EditorDisplayComponent` shows its `emoji` in
+place of the default per-kind icon (🏠/🐰/📦/…) everywhere it appears: graph node titles,
+the inspector header, and search results. Entities without one keep the built-in
+iconography for their kind.
+
 **Doors** — inside a room, each `ExitTo` exit is drawn as a 🚪 door node labelled with its
 direction and destination room, plus a **Go to Room →** button that walks you there. An exit
 whose destination has no return path back is flagged **one-way**.

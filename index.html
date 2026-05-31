@@ -796,6 +796,15 @@ const ENTITY_STYLE = {
   reward:    { color: '#5a3a6a', bgcolor: '#341f40', titleColor: '#cba6f7', icon: '🎁' },
 };
 
+// The icon shown for an entity: a custom EditorDisplayComponent.emoji wins; otherwise
+// fall back to the built-in per-kind iconography from ENTITY_STYLE.
+function entityIcon(entity) {
+  const emoji = entity?.components?.EditorDisplayComponent?.emoji;
+  if (emoji) return emoji;
+  const style = ENTITY_STYLE[entityType(entity)] || ENTITY_STYLE.other;
+  return style.icon;
+}
+
 // Register one generic node type used for all entity kinds.
 // We apply color/icon/widgets dynamically after creation.
 (function registerNodeTypes() {
@@ -917,7 +926,7 @@ function showInspector(entityId, world) {
   const sub  = entitySubtitle(entity);
   const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
 
-  document.getElementById('inspector-name').textContent = style.icon + ' ' + name;
+  document.getElementById('inspector-name').textContent = entityIcon(entity) + ' ' + name;
   document.getElementById('inspector-id').textContent = entityId;
 
   const ctrl = controlInfo(entity, world);
@@ -1641,7 +1650,7 @@ class BunnylandInspector {
   _makeNode(entity, x, y, enterFn, backFn) {
     const type  = entityType(entity);
     const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
-    const name  = style.icon + ' ' + entityDisplayName(entity);
+    const name  = entityIcon(entity) + ' ' + entityDisplayName(entity);
 
     // Tag controlled entities (characters) with who is driving them, after the subtitle.
     let sub = entitySubtitle(entity);
@@ -1905,7 +1914,7 @@ class BunnylandInspector {
       const name = entityDisplayName(e);
       const type = entityType(e);
       const hay = `${name} ${e.id} ${type} ${e.components.IdentityComponent?.kind || ''}`.toLowerCase();
-      if (hay.includes(q)) hits.push({ id: e.id, name, type });
+      if (hay.includes(q)) hits.push({ id: e.id, name, type, icon: entityIcon(e) });
       if (hits.length >= 15) break;
     }
     hits.sort((a, b) => a.name.localeCompare(b.name));
@@ -1914,7 +1923,7 @@ class BunnylandInspector {
 
     box.innerHTML = hits.length
       ? hits.map((h, i) => {
-          const icon = (ENTITY_STYLE[h.type] || ENTITY_STYLE.other).icon;
+          const icon = h.icon || (ENTITY_STYLE[h.type] || ENTITY_STYLE.other).icon;
           return `<div class="search-item" data-i="${i}" onmousedown="window.app._pickSearch('${esc(h.id)}')">`
             + `<span class="si-icon">${icon}</span> ${esc(h.name)} <span class="si-type">${esc(h.type)}</span></div>`;
         }).join('')
