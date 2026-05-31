@@ -17,7 +17,11 @@
     "oakdoor": { "prefab": "entity", "created_epoch": 0 },
     "gate": { "prefab": "entity", "created_epoch": 0 },
     "clover_ctl": { "prefab": "entity", "created_epoch": 0 },
-    "pip_ctl": { "prefab": "entity", "created_epoch": 0 }
+    "pip_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "quest1": { "prefab": "entity", "created_epoch": 0 },
+    "obj1": { "prefab": "entity", "created_epoch": 0 },
+    "obj2": { "prefab": "entity", "created_epoch": 0 },
+    "rew1": { "prefab": "entity", "created_epoch": 0 }
   },
   "components": {
     "RoomComponent": {
@@ -70,6 +74,16 @@
         "current": { "valence": 10, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 },
         "labels": ["content"]
       }
+    },
+    "QuestComponent": {
+      "quest1": { "quest_id": "q1", "title": "Find the Lost Carrot", "status": "active", "accepted_by": ["clover"], "completed_at_epoch": null }
+    },
+    "QuestObjectiveComponent": {
+      "obj1": { "quest_id": "q1", "description": "Search the burrow", "completed": true, "completed_by": "clover" },
+      "obj2": { "quest_id": "q1", "description": "Bring it to Bramble", "completed": false, "completed_by": null }
+    },
+    "QuestRewardComponent": {
+      "rew1": { "quest_id": "q1", "description": "A shiny pebble", "item_ids": ["rock"], "claimed": false, "claimed_by": null }
     },
     "DownedComponent": {
       "pip": { "downed_at_epoch": 30, "cause": "exhaustion", "checks_remaining": 2, "stable": false }

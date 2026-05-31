@@ -399,7 +399,7 @@
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <span id="view-switch">
-      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-social">👥 Social</button>
+      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-social">👥 Social</button><button id="btn-view-quest">📜 Quests</button>
     </span>
     <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
       <input type="checkbox" id="toggle-parents" checked> parent nodes
@@ -501,6 +501,9 @@ function entityType(entity) {
   if (c.RoomComponent) return 'room';
   if (c.CharacterComponent) return 'character';
   if (c.DoorComponent) return 'door';
+  if (c.QuestComponent) return 'quest';
+  if (c.QuestObjectiveComponent) return 'objective';
+  if (c.QuestRewardComponent) return 'reward';
   if (c.ContainerComponent) return 'container';
   if (c.PortableComponent) return 'item';
   return 'other';
@@ -509,6 +512,9 @@ function entityType(entity) {
 function entityDisplayName(entity) {
   const c = entity.components;
   if (c.RoomComponent) return c.RoomComponent.title || entity.id;
+  if (c.QuestComponent) return c.QuestComponent.title || c.QuestComponent.quest_id || entity.id;
+  if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.description || entity.id;
+  if (c.QuestRewardComponent) return c.QuestRewardComponent.description || entity.id;
   if (c.IdentityComponent?.name) return c.IdentityComponent.name;
   return entity.id.slice(0, 24);
 }
@@ -523,6 +529,9 @@ function entitySubtitle(entity) {
   if (c.DoorComponent) {
     return c.LockableComponent?.locked ? '🔒 locked' : '';
   }
+  if (c.QuestComponent) return c.QuestComponent.status || 'quest';
+  if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.completed ? '✅ done' : '⬜ to do';
+  if (c.QuestRewardComponent) return c.QuestRewardComponent.claimed ? 'claimed' : 'unclaimed';
   if (c.DescriptionComponent) return c.DescriptionComponent.short || '';
   if (c.IdentityComponent) return c.IdentityComponent.kind || '';
   return '';
@@ -735,6 +744,9 @@ const ENTITY_STYLE = {
   item:      { color: '#4a3a6a', bgcolor: '#2a2048', titleColor: '#cba6f7', icon: '✦' },
   other:     { color: '#383848', bgcolor: '#222232', titleColor: '#a6adc8', icon: '⬡' },
   door:      { color: '#5a5030', bgcolor: '#332d18', titleColor: '#f9e2af', icon: '🚪' },
+  quest:     { color: '#6a5a1a', bgcolor: '#3f350a', titleColor: '#f9e2af', icon: '📜' },
+  objective: { color: '#1a5a6a', bgcolor: '#0e3a45', titleColor: '#89dceb', icon: '◻' },
+  reward:    { color: '#5a3a6a', bgcolor: '#341f40', titleColor: '#cba6f7', icon: '🎁' },
 };
 
 // Register one generic node type used for all entity kinds.
@@ -933,6 +945,7 @@ class BunnylandInspector {
     document.getElementById('event-clear').addEventListener('click', () => this._clearEvents());
     document.getElementById('btn-view-map').addEventListener('click', () => this.setRootView('map'));
     document.getElementById('btn-view-social').addEventListener('click', () => this.setRootView('social'));
+    document.getElementById('btn-view-quest').addEventListener('click', () => this.setRootView('quest'));
   }
 
   _initCanvas() {
@@ -1197,19 +1210,25 @@ class BunnylandInspector {
 
   // ── Views ──────────────────────────────────────────────────────────────────
 
-  _rootLabel() { return this._rootView === 'social' ? 'Social' : 'Room Map'; }
+  _rootLabel() {
+    return this._rootView === 'social' ? 'Social'
+      : this._rootView === 'quest' ? 'Quests'
+      : 'Room Map';
+  }
 
   // Render whichever top-level view is active.
   showRoot() {
     if (this._rootView === 'social') this.showSocial();
+    else if (this._rootView === 'quest') this.showQuests();
     else this.showRoomMap();
   }
 
   // Switch top-level view (from the toolbar) and return to that root.
   setRootView(view) {
     this._rootView = view;
-    document.getElementById('btn-view-map').classList.toggle('active', view === 'map');
-    document.getElementById('btn-view-social').classList.toggle('active', view === 'social');
+    for (const v of ['map', 'social', 'quest']) {
+      document.getElementById('btn-view-' + v).classList.toggle('active', v === view);
+    }
     this.viewStack = [];
     this.showRoot();
   }
@@ -1328,6 +1347,34 @@ class BunnylandInspector {
 
   _hideSocialLegend() {
     document.getElementById('social-legend').classList.add('hidden');
+  }
+
+  // Top-level quest view: each quest as a node with its objectives and rewards hanging
+  // below it (matched by quest_id), one quest per column.
+  showQuests() {
+    this._clearGraph();
+    this._updateBreadcrumb('Quests');
+    this._hideSocialLegend();
+
+    const all = Object.values(this.world.entities);
+    const quests = all.filter(e => e.components.QuestComponent);
+    const objectivesOf = (qid) => all.filter(e => e.components.QuestObjectiveComponent?.quest_id === qid);
+    const rewardsOf = (qid) => all.filter(e => e.components.QuestRewardComponent?.quest_id === qid);
+
+    const COL_W = 250, ROW_H = 110;
+    let colX = 40;
+    for (const q of quests) {
+      const qid = q.components.QuestComponent.quest_id;
+      const qnode = this._makeNode(q, colX, 40, null);
+      let y = 200;
+      for (const child of [...objectivesOf(qid), ...rewardsOf(qid)]) {
+        const cnode = this._makeNode(child, colX, y, null);
+        qnode.connect(0, cnode, 0);
+        y += ROW_H;
+      }
+      colX += COL_W;
+    }
+    this._fitView();
   }
 
   _pushEntity(entityId) {
@@ -1483,8 +1530,9 @@ class BunnylandInspector {
   // parent chain, with a button to zoom all the way back out.
   _makeRootNode(x, y) {
     const root = this._rootLabel();
+    const rootIcon = this._rootView === 'social' ? '👥 ' : this._rootView === 'quest' ? '📜 ' : '🗺 ';
     const node = LiteGraph.createNode('bunnyland/other');
-    node.title   = (this._rootView === 'social' ? '👥 ' : '🗺 ') + root;
+    node.title   = rootIcon + root;
     node.color   = ENTITY_STYLE.other.color;
     node.bgcolor = ENTITY_STYLE.other.bgcolor;
     node.addWidget('button', '↑ ' + root, null, () => this._goToRoot());

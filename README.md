@@ -50,10 +50,14 @@ client falls back to its built-in defaults.
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
 connected by edges. Click any room to inspect it in the right panel.
 
-**Social view** — the **Map / Social** switch flips the top level to a social graph: every
-character as a node, with their relationships drawn as colour-coded directed links —
-partner, parent of, jealous of, relationship, member of, and social bond (see the legend).
-Drilling into a character still works from here.
+**Social view** — the **Map / Social / Quests** switch flips the top level to a social
+graph: every character as a node, with their relationships drawn as colour-coded directed
+links — partner, parent of, jealous of, relationship, member of, and social bond (see the
+legend). Drilling into a character still works from here.
+
+**Quests view** — shows each quest (📜) as a node with its objectives (◻ ✅ done / ⬜ to do)
+and rewards (🎁 claimed / unclaimed) hanging beneath it, matched by quest id. Quest status
+and who accepted it appear in the inspector.
 
 **Drilldown** — the button on a node drills into its contents and is **recursive**:
 **Enter Room →** a room to see its characters (green), containers (orange), items (purple),
