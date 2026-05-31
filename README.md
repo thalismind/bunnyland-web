@@ -99,7 +99,8 @@ that jump the inspector to that entity.
 **Search / jump-to-entity** — the 🔍 box finds any entity by name, id, type, or kind.
 Picking a result jumps to wherever it lives and selects it: rooms and their contents under
 the Map view (building the full drilldown path for nested items), quest pieces under the
-Quests view. Enter jumps to the first match.
+Quests view. Use ↑/↓ to move through the results and Enter to jump to the highlighted one;
+Escape dismisses.
 
 **Navigation** — breadcrumb at the top shows the current path (Room Map › Room Name).
 The Back button and breadcrumb links let you navigate back up.
