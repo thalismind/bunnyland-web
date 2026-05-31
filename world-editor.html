@@ -69,7 +69,7 @@
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
     #meta-epoch { width: 90px; }
-    #world-info, #status { font-size: 10px; color: #585b70; }
+    #world-info, #status, #runtime-status { font-size: 10px; color: #585b70; }
     #status.ok { color: #a6e3a1; }
     #status.err { color: #f38ba8; }
     .nav-link {
@@ -285,8 +285,8 @@
     <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
     <button id="btn-fetch">Load Snapshot</button>
     <button id="btn-save-live">Save Live</button>
-    <button id="btn-pause-live">Pause</button>
-    <button id="btn-resume-live">Resume</button>
+    <button id="btn-toggle-live" disabled>⏯</button>
+    <span id="runtime-status">runtime: offline</span>
     <span class="toolbar-sep">|</span>
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
@@ -563,6 +563,8 @@ class WorldEditor {
     this.search = '';
     this.liveBase = null;
     this.authHeader = null;
+    this.runtimePaused = null;
+    this.runtimeRunning = false;
     this._patchTimers = {};
     this._bind();
     this._renderAll();
@@ -576,8 +578,7 @@ class WorldEditor {
     document.getElementById('btn-new').addEventListener('click', () => this._newWorld());
     document.getElementById('btn-fetch').addEventListener('click', () => this._fetchSnapshot());
     document.getElementById('btn-save-live').addEventListener('click', () => this._saveLive());
-    document.getElementById('btn-pause-live').addEventListener('click', () => this._pauseLive());
-    document.getElementById('btn-resume-live').addEventListener('click', () => this._resumeLive());
+    document.getElementById('btn-toggle-live').addEventListener('click', () => this._toggleLive());
     document.getElementById('btn-download').addEventListener('click', () => this._download());
     document.getElementById('btn-copy').addEventListener('click', () => this._copy());
     document.getElementById('btn-add-entity').addEventListener('click', () => this._addEntity());
@@ -610,6 +611,7 @@ class WorldEditor {
       this.selectedId = Object.keys(this.world.entities)[0] || null;
       this.liveBase = null;
       this.authHeader = null;
+      this._setRuntime(null, false);
       this._renderAll();
       this._status('World loaded', 'ok');
     } catch (err) {
@@ -627,6 +629,7 @@ class WorldEditor {
       this.selectedId = Object.keys(this.world.entities)[0] || null;
       this.liveBase = base;
       this._renderAll();
+      await this._refreshRuntime({ prompt: true });
       this._status('Server snapshot loaded · live patches enabled', 'ok');
     } catch (err) {
       this._status(`Server error: ${err.message}`, 'err');
@@ -638,6 +641,7 @@ class WorldEditor {
     this.selectedId = 'entity_1';
     this.liveBase = null;
     this.authHeader = null;
+    this._setRuntime(null, false);
     this._renderAll();
     this._status('New world created', 'ok');
   }
@@ -653,19 +657,19 @@ class WorldEditor {
     return data;
   }
 
-  async _sendAdmin(path, { method, body = null, status }) {
+  async _sendAdmin(path, { method, body = null, status = null, prompt = true }) {
     if (!this.liveBase) throw new Error('Load a server snapshot first');
     const headers = () => ({
       'Content-Type': 'application/json',
       ...(this.authHeader ? { Authorization: this.authHeader } : {})
     });
     let res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
-    if (res.status === 401 && this._promptBasicAuth()) {
+    if (res.status === 401 && prompt && this._promptBasicAuth()) {
       res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    this._status(status, 'ok');
+    if (status) this._status(status, 'ok');
     return data;
   }
 
@@ -685,36 +689,69 @@ class WorldEditor {
     }
   }
 
-  async _pauseLive() {
+  async _refreshRuntime({ prompt = false } = {}) {
     try {
-      const data = await this._sendAdmin('/admin/pause', {
-        method: 'POST',
-        status: 'World paused'
-      });
-      if (data.world_epoch != null) this.world.metadata.epoch = data.world_epoch;
-      this._renderInfo();
+      const data = await this._sendAdmin('/admin/runtime', { method: 'GET', prompt });
+      this._applyRuntime(data);
     } catch (err) {
-      this._status(`Pause error: ${err.message}`, 'err');
+      this._setRuntime(null, false);
+      if (prompt) this._status(`Runtime error: ${err.message}`, 'err');
     }
   }
 
-  async _resumeLive() {
+  async _toggleLive() {
     try {
-      const data = await this._sendAdmin('/admin/resume', {
+      if (this.runtimePaused == null) await this._refreshRuntime({ prompt: true });
+      if (this.runtimePaused == null) throw new Error('Runtime status unavailable');
+      const data = await this._sendAdmin(this.runtimePaused ? '/admin/resume' : '/admin/pause', {
         method: 'POST',
-        status: 'World resumed'
+        status: this.runtimePaused ? 'World resumed' : 'World paused'
       });
-      if (data.world_epoch != null) this.world.metadata.epoch = data.world_epoch;
-      this._renderInfo();
+      this._applyRuntime(data);
     } catch (err) {
-      this._status(`Resume error: ${err.message}`, 'err');
+      this._status(`Runtime error: ${err.message}`, 'err');
+    }
+  }
+
+  _applyRuntime(data) {
+    if (data.world_epoch != null) this.world.metadata.epoch = data.world_epoch;
+    this._setRuntime(data.paused, data.running);
+    this._renderInfo();
+  }
+
+  _setRuntime(paused, running) {
+    this.runtimePaused = paused == null ? null : Boolean(paused);
+    this.runtimeRunning = Boolean(running);
+    this._renderRuntime();
+  }
+
+  _renderRuntime() {
+    const button = document.getElementById('btn-toggle-live');
+    const status = document.getElementById('runtime-status');
+    button.disabled = !this.liveBase;
+    if (!this.liveBase) {
+      button.textContent = '⏯';
+      button.title = 'Load a server snapshot before changing runtime state';
+      status.textContent = 'runtime: offline';
+    } else if (this.runtimePaused == null) {
+      button.textContent = '⏯';
+      button.title = 'Runtime status is locked or unavailable';
+      status.textContent = 'runtime: locked';
+    } else if (this.runtimePaused) {
+      button.textContent = '▶';
+      button.title = 'Resume world ticks';
+      status.textContent = 'runtime: paused';
+    } else {
+      button.textContent = '⏸';
+      button.title = 'Pause world ticks';
+      status.textContent = this.runtimeRunning ? 'runtime: playing' : 'runtime: stopped';
     }
   }
 
   _promptBasicAuth() {
-    const username = window.prompt('World editor username');
+    const username = window.prompt('Admin username');
     if (!username) return false;
-    const password = window.prompt('World editor password');
+    const password = window.prompt('Admin password');
     if (password == null) return false;
     this.authHeader = `Basic ${btoa(`${username}:${password}`)}`;
     return true;
@@ -768,6 +805,7 @@ class WorldEditor {
   _renderInfo() {
     const count = Object.keys(this.world.entities).length;
     document.getElementById('world-info').textContent = `${count} entities · epoch ${this.world.metadata?.epoch || 0}`;
+    this._renderRuntime();
   }
 
   _renderEntities() {

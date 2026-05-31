@@ -80,6 +80,7 @@
       width: 190px;
     }
     #api-status { font-size: 11px; white-space: nowrap; }
+    #runtime-status { font-size: 11px; color: #585b70; white-space: nowrap; }
     .toolbar-link {
       color: #89b4fa;
       text-decoration: none;
@@ -442,6 +443,8 @@
     <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
+    <button id="btn-toggle-runtime" disabled>⏯</button>
+    <span id="runtime-status">runtime: offline</span>
     <button id="btn-back" disabled>← Back</button>
     <span id="search-box">
       <input type="text" id="search-input" placeholder="🔍 find entity…" spellcheck="false" autocomplete="off">
@@ -983,6 +986,9 @@ class BunnylandInspector {
     this._ws = null;
     this._refreshTimer = null;
     this._apiBase = null;
+    this._authHeader = null;
+    this._runtimePaused = null;
+    this._runtimeRunning = false;
     this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
     this._events = [];  // rolling buffer of recent event messages for the feed
     this._eventsPrimed = false;
@@ -1011,6 +1017,7 @@ class BunnylandInspector {
         if (url) this.connectLive(url);
       }
     });
+    document.getElementById('btn-toggle-runtime').addEventListener('click', () => this._toggleRuntime());
     document.getElementById('toggle-events').addEventListener('change', (e) => {
       document.getElementById('event-panel').classList.toggle('hidden', !e.target.checked);
     });
@@ -1120,6 +1127,8 @@ class BunnylandInspector {
     ws.onopen = () => {
       this._setApiStatus('live', '● Connected');
       document.getElementById('btn-connect').textContent = 'Disconnect';
+      this._setRuntime(null, true);
+      this._refreshRuntime({ prompt: true });
       this._syncUrl(); // reflect the live server in ?server=
     };
 
@@ -1145,6 +1154,7 @@ class BunnylandInspector {
       if (this._ws === ws) {
         this._ws = null;
         this._setApiStatus('', '○ Offline');
+        this._setRuntime(null, false);
         document.getElementById('btn-connect').textContent = 'Connect Live';
       }
     };
@@ -1162,6 +1172,7 @@ class BunnylandInspector {
       this._ws = null;
     }
     this._setApiStatus('', '○ Offline');
+    this._setRuntime(null, false);
     document.getElementById('btn-connect').textContent = 'Connect Live';
     this._syncUrl(); // drop ?server= now that we're offline
   }
@@ -1173,6 +1184,7 @@ class BunnylandInspector {
       const data = await res.json();
       this._applyWorld(parseApiSnapshot(data), { resetView: false });
       this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
+      if (this._authHeader) this._refreshRuntime({ prompt: false });
     } catch (err) {
       this._setApiStatus('error', `⚠ ${err.message}`);
     }
@@ -1182,6 +1194,98 @@ class BunnylandInspector {
     const el = document.getElementById('api-status');
     el.className = cls;
     el.textContent = text;
+  }
+
+  _adminHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      ...(this._authHeader ? { Authorization: this._authHeader } : {})
+    };
+  }
+
+  async _sendAdmin(path, { method, prompt = true } = {}) {
+    if (!this._apiBase) throw new Error('Connect to a live server first');
+    let res = await fetch(`${this._apiBase}${path}`, {
+      method,
+      headers: this._adminHeaders()
+    });
+    if (res.status === 401 && prompt && this._promptBasicAuth()) {
+      res = await fetch(`${this._apiBase}${path}`, {
+        method,
+        headers: this._adminHeaders()
+      });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+  }
+
+  async _refreshRuntime({ prompt = false } = {}) {
+    try {
+      const data = await this._sendAdmin('/admin/runtime', { method: 'GET', prompt });
+      this._applyRuntime(data);
+    } catch (err) {
+      this._setRuntime(null, Boolean(this._ws));
+      if (prompt && err.message !== 'HTTP 401') {
+        this._setApiStatus('error', `⚠ ${err.message}`);
+      }
+    }
+  }
+
+  async _toggleRuntime() {
+    try {
+      if (this._runtimePaused == null) await this._refreshRuntime({ prompt: true });
+      if (this._runtimePaused == null) throw new Error('Runtime status unavailable');
+      const path = this._runtimePaused ? '/admin/resume' : '/admin/pause';
+      const data = await this._sendAdmin(path, { method: 'POST', prompt: true });
+      this._applyRuntime(data);
+      this._setApiStatus('live', this._runtimePaused ? '● Paused' : '● Playing');
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _promptBasicAuth() {
+    const username = window.prompt('Admin username');
+    if (!username) return false;
+    const password = window.prompt('Admin password');
+    if (password == null) return false;
+    this._authHeader = `Basic ${btoa(`${username}:${password}`)}`;
+    return true;
+  }
+
+  _applyRuntime(data) {
+    if (data.world_epoch != null && this.world) this.world.epoch = data.world_epoch;
+    this._setRuntime(data.paused, data.running);
+  }
+
+  _setRuntime(paused, running) {
+    this._runtimePaused = paused == null ? null : Boolean(paused);
+    this._runtimeRunning = Boolean(running);
+    this._renderRuntime();
+  }
+
+  _renderRuntime() {
+    const button = document.getElementById('btn-toggle-runtime');
+    const status = document.getElementById('runtime-status');
+    button.disabled = !this._apiBase || !this._ws;
+    if (!this._apiBase || !this._ws) {
+      button.textContent = '⏯';
+      button.title = 'Connect live before changing runtime state';
+      status.textContent = 'runtime: offline';
+    } else if (this._runtimePaused == null) {
+      button.textContent = '⏯';
+      button.title = 'Runtime status is locked or unavailable';
+      status.textContent = 'runtime: locked';
+    } else if (this._runtimePaused) {
+      button.textContent = '▶';
+      button.title = 'Resume world ticks';
+      status.textContent = 'runtime: paused';
+    } else {
+      button.textContent = '⏸';
+      button.title = 'Pause world ticks';
+      status.textContent = this._runtimeRunning ? 'runtime: playing' : 'runtime: stopped';
+    }
   }
 
   // Record movement from the live event stream so we can flag who moved recently.
