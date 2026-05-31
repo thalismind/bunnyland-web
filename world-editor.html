@@ -66,6 +66,7 @@
     button:disabled { opacity: 0.4; cursor: default; }
     .toolbar-sep { color: #313244; }
     #api-url { width: 220px; }
+    #library-select { width: 230px; }
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
     #meta-epoch { width: 90px; }
@@ -290,6 +291,13 @@
     <span class="toolbar-sep">|</span>
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
+    <span class="toolbar-sep">|</span>
+    <label for="fragment-file">Fragments:</label>
+    <input type="file" id="fragment-file" accept=".json,application/json">
+    <select id="library-select" disabled></select>
+    <button id="btn-refresh-library">Refresh Library</button>
+    <button id="btn-import-fragment" disabled>Import Fragment</button>
+    <button id="btn-export-fragment">Export Selected Fragment</button>
     <span id="status">Ready</span>
     <a class="nav-link push" href="index.html">Inspector</a>
     <a class="nav-link" href="script-editor.html">Script Editor</a>
@@ -554,6 +562,14 @@ function canContainItems(entity) {
   return Boolean(c.RoomComponent || c.CharacterComponent || c.ContainerComponent);
 }
 
+function containModeForEntity(entity, fallback = 'room_content') {
+  const c = entity?.components || {};
+  if (c.CharacterComponent) return 'inventory';
+  if (c.ContainerComponent) return 'container';
+  if (c.RoomComponent) return 'room_content';
+  return fallback;
+}
+
 function componentNames(world) {
   const names = new Set(COMMON_COMPONENTS);
   for (const entity of Object.values(world.entities)) {
@@ -580,6 +596,7 @@ class WorldEditor {
     this.runtimePaused = null;
     this.runtimeRunning = false;
     this.worldSchema = null;
+    this.libraryFragments = [];
     this._patchTimers = {};
     this._bind();
     this._renderAll();
@@ -590,12 +607,20 @@ class WorldEditor {
       const file = e.target.files?.[0];
       if (file) await this._loadFile(file);
     });
+    document.getElementById('fragment-file').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (file) await this._loadFragmentFile(file);
+      e.target.value = '';
+    });
     document.getElementById('btn-new').addEventListener('click', () => this._newWorld());
     document.getElementById('btn-fetch').addEventListener('click', () => this._fetchSnapshot());
     document.getElementById('btn-save-live').addEventListener('click', () => this._saveLive());
     document.getElementById('btn-toggle-live').addEventListener('click', () => this._toggleLive());
     document.getElementById('btn-download').addEventListener('click', () => this._download());
     document.getElementById('btn-copy').addEventListener('click', () => this._copy());
+    document.getElementById('btn-refresh-library').addEventListener('click', () => this._refreshLibrary({ prompt: true }));
+    document.getElementById('btn-import-fragment').addEventListener('click', () => this._importSelectedFragment());
+    document.getElementById('btn-export-fragment').addEventListener('click', () => this._exportSelectedFragment());
     document.getElementById('btn-add-entity').addEventListener('click', () => this._addEntity());
     document.getElementById('btn-delete-entity').addEventListener('click', () => this._deleteEntity());
     document.getElementById('entity-search').addEventListener('input', (e) => {
@@ -647,6 +672,7 @@ class WorldEditor {
       this._renderAll();
       await this._refreshRuntime({ prompt: true });
       await this._refreshSchema({ prompt: true });
+      await this._refreshLibrary({ prompt: false });
       this._status('Server snapshot loaded · live patches enabled', 'ok');
     } catch (err) {
       this._status(`Server error: ${err.message}`, 'err');
@@ -731,6 +757,58 @@ class WorldEditor {
     } catch (err) {
       this.worldSchema = null;
       if (prompt) this._status(`Schema error: ${err.message}`, 'err');
+    }
+  }
+
+  async _refreshLibrary({ prompt = false } = {}) {
+    if (!this.liveBase) {
+      if (prompt) this._status('Load a server snapshot before refreshing the library', 'err');
+      return;
+    }
+    try {
+      const res = await fetch(`${this.liveBase}/world/library`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      this.libraryFragments = this._normalizeFragmentPayload(data, data.library_id || 'server');
+      this._renderLibraryControls();
+      if (prompt) this._status(`Loaded ${this.libraryFragments.length} library fragments`, 'ok');
+    } catch (err) {
+      if (prompt) this._status(`Library error: ${err.message}`, 'err');
+    }
+  }
+
+  _normalizeFragmentPayload(data, source) {
+    const raw = Array.isArray(data?.fragments) ? data.fragments : [data];
+    return raw
+      .filter(fragment => fragment && Array.isArray(fragment.operations))
+      .map((fragment, index) => ({
+        schema_version: fragment.schema_version || 1,
+        id: fragment.id || `${source}/fragment-${index + 1}`,
+        title: fragment.title || fragment.id || `Fragment ${index + 1}`,
+        kind: fragment.kind || 'fragment',
+        description: fragment.description || '',
+        tags: Array.isArray(fragment.tags) ? fragment.tags : [],
+        root_client_id: fragment.root_client_id || null,
+        attach_edge: fragment.attach_edge || null,
+        operations: clone(fragment.operations),
+        source
+      }));
+  }
+
+  async _loadFragmentFile(file) {
+    try {
+      const fragments = this._normalizeFragmentPayload(JSON.parse(await file.text()), file.name);
+      if (!fragments.length) throw new Error('no fragments found');
+      const existing = new Set(this.libraryFragments.map(fragment => fragment.id));
+      for (const fragment of fragments) {
+        const id = existing.has(fragment.id) ? `${file.name}/${fragment.id}` : fragment.id;
+        this.libraryFragments.push({ ...fragment, id });
+        existing.add(id);
+      }
+      this._renderLibraryControls();
+      this._status(`Loaded ${fragments.length} fragment${fragments.length === 1 ? '' : 's'}`, 'ok');
+    } catch (err) {
+      this._status(`Fragment load error: ${err.message}`, 'err');
     }
   }
 
@@ -826,6 +904,7 @@ class WorldEditor {
     this._renderEditor();
     this._renderJson();
     this._renderInfo();
+    this._renderLibraryControls();
   }
 
   _renderOptions() {
@@ -880,6 +959,17 @@ class WorldEditor {
     const count = Object.keys(this.world.entities).length;
     document.getElementById('world-info').textContent = `${count} entities · epoch ${this.world.metadata?.epoch || 0}`;
     this._renderRuntime();
+  }
+
+  _renderLibraryControls() {
+    const select = document.getElementById('library-select');
+    const button = document.getElementById('btn-import-fragment');
+    if (!select || !button) return;
+    select.innerHTML = this.libraryFragments.map(fragment => `
+      <option value="${esc(fragment.id)}">${esc(fragment.kind)} · ${esc(fragment.title)}</option>
+    `).join('');
+    select.disabled = !this.libraryFragments.length;
+    button.disabled = !this.libraryFragments.length;
   }
 
   _renderEntities() {
@@ -1339,6 +1429,148 @@ class WorldEditor {
       ),
       'Item'
     );
+  }
+
+  _selectedFragment() {
+    const id = document.getElementById('library-select')?.value;
+    return this.libraryFragments.find(fragment => fragment.id === id) || null;
+  }
+
+  _fragmentImportOperations(fragment, destination) {
+    const operations = clone(fragment.operations || []);
+    if (fragment.root_client_id && fragment.attach_edge) {
+      if (!destination) throw new Error('select a destination entity first');
+      const edge = clone(fragment.attach_edge);
+      if (edge.type === 'Contains') {
+        edge.fields = {
+          ...(edge.fields || {}),
+          mode: containModeForEntity(destination, edge.fields?.mode || 'room_content')
+        };
+      }
+      operations.push({
+        op: 'set_edge',
+        source_id: destination.id,
+        target_id: fragment.root_client_id,
+        edge
+      });
+    }
+    return operations;
+  }
+
+  async _importSelectedFragment() {
+    const fragment = this._selectedFragment();
+    if (!fragment) return;
+    try {
+      const operations = this._fragmentImportOperations(fragment, this._selected());
+      if (!operations.length) throw new Error('fragment has no operations');
+      if (this.liveBase) {
+        const data = await this._sendPatch(operations, {
+          merge: true,
+          status: `${fragment.title} imported`
+        });
+        const created = data?.changed_entities?.find(entity => entity.id !== this.selectedId)?.id;
+        if (created) this.selectedId = created;
+      } else {
+        const created = this._applyLocalPatch(operations);
+        if (created[0]) this.selectedId = created[0];
+        this._status(`${fragment.title} imported`, 'ok');
+      }
+      this._renderAll();
+    } catch (err) {
+      this._status(`Import error: ${err.message}`, 'err');
+    }
+  }
+
+  _resolveLocalId(raw, aliases) {
+    if (aliases[raw]) return aliases[raw];
+    if (!this.world.entities[raw]) throw new Error(`entity ${raw} does not exist`);
+    return raw;
+  }
+
+  _applyLocalPatch(operations) {
+    const aliases = {};
+    const created = [];
+    for (const operation of operations) {
+      if (operation.op === 'add_entity') {
+        const id = this._nextEntityId();
+        if (operation.client_id) aliases[operation.client_id] = id;
+        created.push(id);
+        this.world.entities[id] = {
+          id,
+          prefab: operation.prefab || 'entity',
+          created_epoch: Number(this.world.metadata?.epoch || 0),
+          components: Object.fromEntries(
+            (operation.components || []).map(component => [component.type, clone(component.fields || {})])
+          ),
+          relationships: {}
+        };
+      } else if (operation.op === 'set_edge') {
+        const source = this._resolveLocalId(operation.source_id, aliases);
+        const target = this._resolveLocalId(operation.target_id, aliases);
+        const entity = this.world.entities[source];
+        const type = operation.edge?.type;
+        if (!type) throw new Error('edge type is required');
+        if (!entity.relationships[type]) entity.relationships[type] = [];
+        entity.relationships[type].push({ target, edge: clone(operation.edge.fields || {}) });
+      } else if (operation.op === 'add_component' || operation.op === 'set_component') {
+        const entity = this.world.entities[this._resolveLocalId(operation.entity_id, aliases)];
+        entity.components[operation.component.type] = clone(operation.component.fields || {});
+      } else {
+        throw new Error(`unsupported offline fragment operation ${operation.op}`);
+      }
+    }
+    return created;
+  }
+
+  _incomingAttachEdge(entityId) {
+    for (const entity of Object.values(this.world.entities)) {
+      for (const [type, edges] of Object.entries(entity.relationships || {})) {
+        const found = (edges || []).find(edge => edge.target === entityId);
+        if (found) return { type, fields: clone(found.edge || {}) };
+      }
+    }
+    return null;
+  }
+
+  _exportSelectedFragment() {
+    const entity = this._selected();
+    if (!entity) {
+      this._status('Select an entity before exporting a fragment', 'err');
+      return;
+    }
+    const title = entityName(entity);
+    const slug = title.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-|-$/g, '');
+    const identity = entity.components?.IdentityComponent || {};
+    const fragment = {
+      schema_version: 1,
+      id: `export/${slug || entity.id}`,
+      title,
+      kind: entityType(entity),
+      description: '',
+      tags: Array.isArray(identity.tags) ? identity.tags : [],
+      root_client_id: '$root',
+      attach_edge: this._incomingAttachEdge(entity.id),
+      operations: [{
+        op: 'add_entity',
+        client_id: '$root',
+        prefab: entity.prefab || 'entity',
+        components: Object.entries(entity.components || {}).map(([type, fields]) => ({
+          type,
+          fields: clone(fields || {})
+        }))
+      }]
+    };
+    if (!fragment.attach_edge) delete fragment.attach_edge;
+    const text = JSON.stringify(fragment, null, 2);
+    const blob = new Blob([text], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${slug || entity.id}.fragment.json`;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+    this._status('Fragment JSON downloaded', 'ok');
   }
 
   _applyEntityFields() {
