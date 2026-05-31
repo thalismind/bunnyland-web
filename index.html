@@ -80,6 +80,13 @@
       width: 190px;
     }
     #api-status { font-size: 11px; white-space: nowrap; }
+    .toolbar-link {
+      color: #89b4fa;
+      text-decoration: none;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .toolbar-link:hover { text-decoration: underline; }
 
     /* ── Search / jump-to-entity ── */
     #search-box { position: relative; }
@@ -440,6 +447,8 @@
       <input type="text" id="search-input" placeholder="🔍 find entity…" spellcheck="false" autocomplete="off">
       <div id="search-results" class="hidden"></div>
     </span>
+    <a class="toolbar-link" href="script-editor.html">Script Editor</a>
+    <a class="toolbar-link" href="world-editor.html">World Editor</a>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <span id="view-switch">

@@ -12,7 +12,7 @@ similar to Chrome's memory snapshot tools.
    uv run bunnyland serve --seed "my world" --ticks 10 --save world.json
    ```
 
-2. Launch the inspector:
+2. Launch the web tools:
    ```
    ./serve.sh          # serves at http://localhost:8080
    ./serve.sh 9000     # custom port
@@ -21,6 +21,11 @@ similar to Chrome's memory snapshot tools.
 3. Open the URL, then use the file picker (or drag-and-drop) to load your `.json` file.
    Or **Connect Live** to a running `bunnyland serve` API (default `http://localhost:8765`)
    to stream the world and refresh on events.
+
+4. Open `/script-editor.html` to build external scripting JSON against a loaded world
+   snapshot's entity/component library.
+
+5. Open `/world-editor.html` to create or edit a world snapshot directly.
 
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
@@ -64,6 +69,16 @@ e.g.  ?server=http://localhost:8765#social/clover
   embedded in the hash is also accepted, for links pasted as `#tab/entity?server=…`.)
 
 ## Interface
+
+**Script editor** — `script-editor.html` uses the same frame as the inspector for a
+standalone script authoring page. Load a world snapshot to populate the entity library,
+optionally load an existing script JSON, edit named blocks/actions, and download the
+resulting script definition as JSON.
+
+**World editor** — `world-editor.html` is a standalone snapshot editor. Start from a new
+world, a saved JSON file, or a live server snapshot, then add/update/delete entities,
+components, and outgoing edges. It exports the same save-file JSON shape that Bunnyland
+uses for persistence.
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
 connected by edges. Click any room to inspect it in the right panel.

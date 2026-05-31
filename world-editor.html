@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland World Editor</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 5px 12px;
+      background: #181825;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+    }
+    #toolbar-row2 {
+      border-top: 1px solid #26263a;
+      padding-top: 5px;
+    }
+    label { color: #a6adc8; }
+    input, select, textarea, button { font-family: 'Courier New', monospace; }
+    input[type=file], input[type=text], input[type=number], select, textarea {
+      font-size: 11px;
+      color: #cdd6f4;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 3px;
+      padding: 3px 6px;
+    }
+    input[type=file] { padding: 2px 6px; cursor: pointer; }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #89b4fa;
+    }
+    button {
+      padding: 3px 10px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    button:hover:not(:disabled) { background: #45475a; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .toolbar-sep { color: #313244; }
+    #api-url { width: 220px; }
+    #meta-seed { width: 190px; }
+    #meta-generator { width: 120px; }
+    #meta-epoch { width: 90px; }
+    #world-info, #status { font-size: 10px; color: #585b70; }
+    #status.ok { color: #a6e3a1; }
+    #status.err { color: #f38ba8; }
+    .nav-link {
+      color: #89b4fa;
+      text-decoration: none;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .nav-link:hover { text-decoration: underline; }
+    .push { margin-left: auto; }
+
+    #main {
+      display: grid;
+      grid-template-columns: minmax(250px, 330px) minmax(560px, 1fr) minmax(330px, 430px);
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #181825;
+      border-right: 1px solid #313244;
+      overflow: hidden;
+    }
+    .pane:last-child { border-right: none; }
+    .pane-header {
+      flex-shrink: 0;
+      padding: 7px 10px;
+      border-bottom: 1px solid #313244;
+      background: #1e1e2e;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 33px;
+    }
+    .pane-title {
+      color: #89dceb;
+      font-weight: bold;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pane-count {
+      color: #585b70;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .pane-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .pane-body::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 6px; }
+    .pane-body::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track { background: #181825; }
+    .pane-body::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
+      background: #313244;
+      border-radius: 3px;
+    }
+
+    #entity-search {
+      margin: 8px 10px 6px 10px;
+      width: calc(100% - 20px);
+    }
+    #entity-list {
+      padding-bottom: 8px;
+    }
+    .entity-row {
+      padding: 5px 10px;
+      border-bottom: 1px solid #1a1a2a;
+      cursor: pointer;
+      font-size: 11px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 5px;
+    }
+    .entity-row:hover, .entity-row.active { background: #313244; }
+    .entity-name {
+      color: #cdd6f4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .entity-meta {
+      color: #6c7086;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .editor-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .section {
+      border-bottom: 1px solid #1e1e2e;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      color: #89dceb;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title button { margin-left: auto; padding: 1px 7px; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .field {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 10px;
+      color: #a6adc8;
+    }
+    .field.wide { grid-column: span 2; }
+    .field.full { grid-column: 1 / -1; }
+    .field input, .field select, .field textarea { width: 100%; }
+    textarea {
+      min-height: 82px;
+      resize: vertical;
+      line-height: 1.45;
+      tab-size: 2;
+    }
+    .bad-json { border-color: #f38ba8 !important; }
+    .button-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .record-card {
+      border: 1px solid #313244;
+      border-radius: 4px;
+      margin-bottom: 9px;
+      background: #1e1e2e;
+      overflow: hidden;
+    }
+    .record-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 8px;
+      border-bottom: 1px solid #313244;
+      color: #89b4fa;
+      font-size: 11px;
+    }
+    .record-head button { margin-left: auto; padding: 1px 7px; }
+    .record-body { padding: 8px; }
+    .empty {
+      padding: 18px;
+      text-align: center;
+      color: #585b70;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .danger { color: #f38ba8; }
+    .tiny { font-size: 10px; color: #585b70; }
+
+    #json-output {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      border: none;
+      border-radius: 0;
+      padding: 10px;
+      background: #11111b;
+      color: #cdd6f4;
+      font-size: 11px;
+      line-height: 1.45;
+      resize: none;
+    }
+    #problems {
+      flex-shrink: 0;
+      border-top: 1px solid #313244;
+      background: #181825;
+      color: #f38ba8;
+      font-size: 11px;
+      padding: 7px 10px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    #problems.ok { color: #a6e3a1; }
+
+    @media (max-width: 1050px) {
+      #main { grid-template-columns: 290px minmax(560px, 1fr); }
+      #preview-pane { display: none; }
+      .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="toolbar-row" id="toolbar-row1">
+    <label for="file-input">World:</label>
+    <input type="file" id="file-input" accept=".json,application/json">
+    <button id="btn-new">New World</button>
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+    <button id="btn-fetch">Load Snapshot</button>
+    <span class="toolbar-sep">|</span>
+    <button id="btn-download">Download JSON</button>
+    <button id="btn-copy">Copy JSON</button>
+    <span id="status">Ready</span>
+    <a class="nav-link push" href="index.html">Inspector</a>
+    <a class="nav-link" href="script-editor.html">Script Editor</a>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
+    <label for="meta-seed">Seed:</label>
+    <input type="text" id="meta-seed" spellcheck="false">
+    <label for="meta-generator">Generator:</label>
+    <input type="text" id="meta-generator" spellcheck="false">
+    <label for="meta-epoch">Epoch:</label>
+    <input type="number" id="meta-epoch" min="0">
+    <span class="toolbar-sep">|</span>
+    <span id="world-info"></span>
+  </div>
+</div>
+
+<div id="main">
+  <section class="pane">
+    <div class="pane-header">
+      <div class="pane-title">Entities</div>
+      <span class="pane-count" id="entity-count">0</span>
+      <button id="btn-add-entity">Add</button>
+      <button id="btn-delete-entity">Delete</button>
+    </div>
+    <div class="pane-body">
+      <input type="text" id="entity-search" placeholder="find entity..." spellcheck="false" autocomplete="off">
+      <div id="entity-list"></div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <div class="pane-header">
+      <div class="pane-title">Entity Editor</div>
+      <span class="pane-count" id="selected-label">No selection</span>
+    </div>
+    <div class="editor-scroll" id="entity-editor"></div>
+  </section>
+
+  <section class="pane" id="preview-pane">
+    <div class="pane-header">
+      <div class="pane-title">Snapshot JSON</div>
+      <span class="pane-count" id="json-size">0 bytes</span>
+    </div>
+    <textarea id="json-output" spellcheck="false" readonly></textarea>
+    <div id="problems" class="ok">Valid world JSON.</div>
+  </section>
+</div>
+
+<datalist id="component-options"></datalist>
+<datalist id="edge-options"></datalist>
+<datalist id="entity-options"></datalist>
+
+<script>
+'use strict';
+
+const COMMON_COMPONENTS = [
+  'ActionPointsComponent', 'CharacterComponent', 'ContainerComponent',
+  'DescriptionComponent', 'DiscordControllerComponent', 'EditorDisplayComponent',
+  'FocusPointsComponent', 'IdentityComponent', 'InitiativeComponent',
+  'LLMControllerComponent', 'PortableComponent', 'RoomComponent',
+  'SuspendedComponent', 'SuspendedControllerComponent', 'WorldClockComponent'
+];
+const COMMON_EDGES = ['Contains', 'ControlledBy', 'ExitTo', 'HasThought', 'Holding', 'Wearing'];
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function parseObject(text) {
+  const value = JSON.parse(text || '{}');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('expected object');
+  return value;
+}
+
+function makeEmptyWorld() {
+  const clockId = 'entity_1';
+  return {
+    metadata: { version: '1.0', epoch: 0 },
+    meta: {
+      schema_version: 1,
+      seed: '',
+      prompt: '',
+      generator: '',
+      plugins: [],
+      saved_at_epoch: 0,
+      saved_at: null
+    },
+    entities: {
+      [clockId]: {
+        id: clockId,
+        prefab: 'entity',
+        created_epoch: 0,
+        components: { WorldClockComponent: { game_time_seconds: 0, tick_index: 0, time_scale: 1.0 } },
+        relationships: {}
+      }
+    }
+  };
+}
+
+function parseSaveSnapshot(json) {
+  const entities = {};
+  for (const [id, fields] of Object.entries(json.entities || {})) {
+    entities[id] = {
+      id,
+      prefab: fields.prefab || 'entity',
+      created_epoch: fields.created_epoch || 0,
+      components: {},
+      relationships: {}
+    };
+  }
+  for (const [ctype, table] of Object.entries(json.components || {})) {
+    for (const [eid, fields] of Object.entries(table || {})) {
+      if (!entities[eid]) {
+        entities[eid] = { id: eid, prefab: 'entity', created_epoch: 0, components: {}, relationships: {} };
+      }
+      entities[eid].components[ctype] = fields || {};
+    }
+  }
+  for (const [rtype, table] of Object.entries(json.relationships || {})) {
+    for (const [eid, edges] of Object.entries(table || {})) {
+      if (!entities[eid]) {
+        entities[eid] = { id: eid, prefab: 'entity', created_epoch: 0, components: {}, relationships: {} };
+      }
+      entities[eid].relationships[rtype] = (edges || []).map(item => ({
+        target: item.target,
+        edge: item.edge || {}
+      }));
+    }
+  }
+  return {
+    metadata: json.metadata || { version: '1.0', epoch: 0 },
+    meta: json.bunnyland || {},
+    entities
+  };
+}
+
+function parseApiSnapshot(json) {
+  const entities = {};
+  for (const item of json.entities || []) {
+    const relationships = {};
+    for (const [rtype, edges] of Object.entries(item.relationships || {})) {
+      relationships[rtype] = (edges || []).map(edge => ({
+        target: edge.target_id || edge.target,
+        edge: edge.edge || {}
+      }));
+    }
+    entities[item.id] = {
+      id: item.id,
+      prefab: 'entity',
+      created_epoch: 0,
+      components: item.components || {},
+      relationships
+    };
+  }
+  return {
+    metadata: { version: '1.0', epoch: json.world_epoch || 0 },
+    meta: json.metadata || {},
+    entities
+  };
+}
+
+function parseWorld(json) {
+  if (Array.isArray(json.entities)) return parseApiSnapshot(json);
+  return parseSaveSnapshot(json);
+}
+
+function exportWorld(world) {
+  const out = {
+    metadata: {
+      version: world.metadata?.version || '1.0',
+      epoch: Number(world.metadata?.epoch || 0)
+    },
+    bunnyland: {
+      schema_version: 1,
+      seed: '',
+      prompt: '',
+      generator: '',
+      plugins: [],
+      saved_at_epoch: Number(world.metadata?.epoch || 0),
+      saved_at: null,
+      ...(world.meta || {})
+    },
+    prefabs: { entity: { components: {} } },
+    entities: {},
+    components: {},
+    relationships: {},
+    relics: []
+  };
+  out.bunnyland.saved_at_epoch = Number(world.metadata?.epoch || out.bunnyland.saved_at_epoch || 0);
+  for (const entity of Object.values(world.entities)) {
+    out.entities[entity.id] = {
+      prefab: entity.prefab || 'entity',
+      created_epoch: Number(entity.created_epoch || 0)
+    };
+    for (const [ctype, fields] of Object.entries(entity.components || {})) {
+      if (!out.components[ctype]) out.components[ctype] = {};
+      out.components[ctype][entity.id] = fields || {};
+    }
+    for (const [rtype, edges] of Object.entries(entity.relationships || {})) {
+      const clean = (edges || []).filter(edge => edge.target);
+      if (!clean.length) continue;
+      if (!out.relationships[rtype]) out.relationships[rtype] = {};
+      out.relationships[rtype][entity.id] = clean.map(edge => ({
+        target: edge.target,
+        edge: edge.edge || {}
+      }));
+    }
+  }
+  return out;
+}
+
+function entityType(entity) {
+  const c = entity.components || {};
+  if (c.RoomComponent) return 'room';
+  if (c.CharacterComponent) return 'character';
+  if (c.DoorComponent) return 'door';
+  if (c.ContainerComponent) return 'container';
+  if (c.PortableComponent) return 'item';
+  if (c.WorldClockComponent) return 'clock';
+  return 'other';
+}
+
+function entityIcon(entity) {
+  const emoji = entity.components?.EditorDisplayComponent?.emoji;
+  if (emoji) return emoji;
+  return {
+    room: '🏠', character: '🐰', door: '🚪', container: '📦',
+    item: '✦', clock: '◷', other: '⬡'
+  }[entityType(entity)] || '⬡';
+}
+
+function entityName(entity) {
+  const c = entity.components || {};
+  if (c.RoomComponent?.title) return c.RoomComponent.title;
+  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
+  return entity.id;
+}
+
+function componentNames(world) {
+  const names = new Set(COMMON_COMPONENTS);
+  for (const entity of Object.values(world.entities)) {
+    for (const name of Object.keys(entity.components || {})) names.add(name);
+  }
+  return [...names].sort();
+}
+
+function edgeNames(world) {
+  const names = new Set(COMMON_EDGES);
+  for (const entity of Object.values(world.entities)) {
+    for (const name of Object.keys(entity.relationships || {})) names.add(name);
+  }
+  return [...names].sort();
+}
+
+class WorldEditor {
+  constructor() {
+    this.world = makeEmptyWorld();
+    this.selectedId = 'entity_1';
+    this.search = '';
+    this._bind();
+    this._renderAll();
+  }
+
+  _bind() {
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (file) await this._loadFile(file);
+    });
+    document.getElementById('btn-new').addEventListener('click', () => this._newWorld());
+    document.getElementById('btn-fetch').addEventListener('click', () => this._fetchSnapshot());
+    document.getElementById('btn-download').addEventListener('click', () => this._download());
+    document.getElementById('btn-copy').addEventListener('click', () => this._copy());
+    document.getElementById('btn-add-entity').addEventListener('click', () => this._addEntity());
+    document.getElementById('btn-delete-entity').addEventListener('click', () => this._deleteEntity());
+    document.getElementById('entity-search').addEventListener('input', (e) => {
+      this.search = e.target.value;
+      this._renderEntities();
+    });
+    for (const id of ['meta-seed', 'meta-generator', 'meta-epoch']) {
+      document.getElementById(id).addEventListener('input', () => {
+        this.world.meta.seed = document.getElementById('meta-seed').value;
+        this.world.meta.generator = document.getElementById('meta-generator').value;
+        this.world.metadata.epoch = Number(document.getElementById('meta-epoch').value || 0);
+        this.world.meta.saved_at_epoch = this.world.metadata.epoch;
+        this._renderJson();
+        this._renderInfo();
+      });
+    }
+  }
+
+  _status(text, kind) {
+    const el = document.getElementById('status');
+    el.textContent = text;
+    el.className = kind || '';
+  }
+
+  async _loadFile(file) {
+    try {
+      this.world = parseWorld(JSON.parse(await file.text()));
+      this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this._renderAll();
+      this._status('World loaded', 'ok');
+    } catch (err) {
+      this._status(`Load error: ${err.message}`, 'err');
+    }
+  }
+
+  async _fetchSnapshot() {
+    const base = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+    if (!base) return;
+    try {
+      const res = await fetch(`${base}/world/snapshot`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.world = parseWorld(await res.json());
+      this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this._renderAll();
+      this._status('Server snapshot loaded', 'ok');
+    } catch (err) {
+      this._status(`Server error: ${err.message}`, 'err');
+    }
+  }
+
+  _newWorld() {
+    this.world = makeEmptyWorld();
+    this.selectedId = 'entity_1';
+    this._renderAll();
+    this._status('New world created', 'ok');
+  }
+
+  _renderAll() {
+    document.getElementById('meta-seed').value = this.world.meta?.seed || '';
+    document.getElementById('meta-generator').value = this.world.meta?.generator || '';
+    document.getElementById('meta-epoch').value = Number(this.world.metadata?.epoch || 0);
+    this._renderOptions();
+    this._renderEntities();
+    this._renderEditor();
+    this._renderJson();
+    this._renderInfo();
+  }
+
+  _renderOptions() {
+    document.getElementById('component-options').innerHTML =
+      componentNames(this.world).map(name => `<option value="${esc(name)}"></option>`).join('');
+    document.getElementById('edge-options').innerHTML =
+      edgeNames(this.world).map(name => `<option value="${esc(name)}"></option>`).join('');
+    document.getElementById('entity-options').innerHTML =
+      Object.keys(this.world.entities).sort().map(id => `<option value="${esc(id)}">${esc(entityName(this.world.entities[id]))}</option>`).join('');
+  }
+
+  _renderInfo() {
+    const count = Object.keys(this.world.entities).length;
+    document.getElementById('world-info').textContent = `${count} entities · epoch ${this.world.metadata?.epoch || 0}`;
+  }
+
+  _renderEntities() {
+    const list = document.getElementById('entity-list');
+    const q = this.search.trim().toLowerCase();
+    const entities = Object.values(this.world.entities)
+      .sort((a, b) => entityName(a).localeCompare(entityName(b)))
+      .filter(entity => {
+        if (!q) return true;
+        return [
+          entity.id, entityName(entity), entityType(entity),
+          ...Object.keys(entity.components || {})
+        ].join(' ').toLowerCase().includes(q);
+      });
+    document.getElementById('entity-count').textContent = `${entities.length}/${Object.keys(this.world.entities).length}`;
+    if (!entities.length) {
+      list.innerHTML = '<div class="empty">No entities.</div>';
+      return;
+    }
+    list.innerHTML = entities.map(entity => `
+      <div class="entity-row ${entity.id === this.selectedId ? 'active' : ''}" data-id="${esc(entity.id)}">
+        <div>${entityIcon(entity)}</div>
+        <div>
+          <div class="entity-name">${esc(entityName(entity))}</div>
+          <div class="entity-meta">${esc(entityType(entity))} · ${esc(entity.id)}</div>
+        </div>
+      </div>
+    `).join('');
+    for (const row of list.querySelectorAll('.entity-row')) {
+      row.addEventListener('click', () => {
+        this.selectedId = row.dataset.id;
+        this._renderEntities();
+        this._renderEditor();
+      });
+    }
+  }
+
+  _selected() {
+    return this.selectedId ? this.world.entities[this.selectedId] : null;
+  }
+
+  _renderEditor() {
+    const root = document.getElementById('entity-editor');
+    const entity = this._selected();
+    document.getElementById('selected-label').textContent = entity ? entity.id : 'No selection';
+    document.getElementById('btn-delete-entity').disabled = !entity;
+    if (!entity) {
+      root.innerHTML = '<div class="empty">Select or add an entity.</div>';
+      return;
+    }
+    root.innerHTML = `
+      <div class="section">
+        <div class="section-title">Entity</div>
+        <div class="form-grid">
+          <label class="field wide">Entity ID
+            <input id="entity-id" type="text" value="${esc(entity.id)}" spellcheck="false">
+          </label>
+          <label class="field">Prefab
+            <input id="entity-prefab" type="text" value="${esc(entity.prefab || 'entity')}" spellcheck="false">
+          </label>
+          <label class="field">Created Epoch
+            <input id="entity-created" type="number" min="0" value="${Number(entity.created_epoch || 0)}">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="btn-rename-entity">Apply Entity Fields</button>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Components <button id="btn-add-component">Add Component</button></div>
+        <div id="component-list">${this._renderComponents(entity)}</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Outgoing Edges <button id="btn-add-edge">Add Edge</button></div>
+        <div id="edge-list">${this._renderEdges(entity)}</div>
+      </div>
+    `;
+    this._bindEditor(root, entity);
+  }
+
+  _renderComponents(entity) {
+    const entries = Object.entries(entity.components || {}).sort(([a], [b]) => a.localeCompare(b));
+    if (!entries.length) return '<div class="empty">No components.</div>';
+    return entries.map(([type, fields]) => `
+      <div class="record-card component-card" data-type="${esc(type)}">
+        <div class="record-head">${esc(type)} <button data-delete-component="${esc(type)}">Delete</button></div>
+        <div class="record-body">
+          <label class="field full">Fields
+            <textarea class="component-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
+          </label>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  _renderEdges(entity) {
+    const rows = [];
+    for (const [type, edges] of Object.entries(entity.relationships || {}).sort(([a], [b]) => a.localeCompare(b))) {
+      for (const [index, edge] of (edges || []).entries()) {
+        rows.push(`
+          <div class="record-card edge-card" data-type="${esc(type)}" data-index="${index}">
+            <div class="record-head">${esc(type)} → ${esc(edge.target || '')} <button data-delete-edge="${esc(type)}:${index}">Delete</button></div>
+            <div class="record-body">
+              <div class="form-grid">
+                <label class="field wide">Target
+                  <input class="edge-target" list="entity-options" type="text" value="${esc(edge.target || '')}" spellcheck="false">
+                </label>
+                <label class="field full">Edge Fields
+                  <textarea class="edge-json" spellcheck="false">${esc(JSON.stringify(edge.edge || {}, null, 2))}</textarea>
+                </label>
+              </div>
+            </div>
+          </div>
+        `);
+      }
+    }
+    return rows.join('') || '<div class="empty">No outgoing edges.</div>';
+  }
+
+  _bindEditor(root, entity) {
+    document.getElementById('btn-rename-entity').addEventListener('click', () => this._applyEntityFields());
+    document.getElementById('btn-add-component').addEventListener('click', () => this._addComponent());
+    document.getElementById('btn-add-edge').addEventListener('click', () => this._addEdge());
+    for (const btn of root.querySelectorAll('[data-delete-component]')) {
+      btn.addEventListener('click', () => this._deleteComponent(btn.dataset.deleteComponent));
+    }
+    for (const btn of root.querySelectorAll('[data-delete-edge]')) {
+      btn.addEventListener('click', () => {
+        const [type, rawIndex] = btn.dataset.deleteEdge.split(':');
+        this._deleteEdge(type, Number(rawIndex));
+      });
+    }
+    for (const card of root.querySelectorAll('.component-card')) {
+      const type = card.dataset.type;
+      const textarea = card.querySelector('.component-json');
+      textarea.addEventListener('input', () => {
+        textarea.classList.remove('bad-json');
+        try {
+          entity.components[type] = parseObject(textarea.value);
+          this._renderJson();
+          this._renderEntities();
+          this._renderOptions();
+        } catch (_err) {
+          textarea.classList.add('bad-json');
+        }
+      });
+    }
+    for (const card of root.querySelectorAll('.edge-card')) {
+      const type = card.dataset.type;
+      const index = Number(card.dataset.index);
+      const target = card.querySelector('.edge-target');
+      const json = card.querySelector('.edge-json');
+      const update = () => {
+        json.classList.remove('bad-json');
+        try {
+          entity.relationships[type][index] = {
+            target: target.value.trim(),
+            edge: parseObject(json.value)
+          };
+          this._renderJson();
+        } catch (_err) {
+          json.classList.add('bad-json');
+        }
+      };
+      target.addEventListener('input', update);
+      json.addEventListener('input', update);
+    }
+  }
+
+  _applyEntityFields() {
+    const entity = this._selected();
+    if (!entity) return;
+    const nextId = document.getElementById('entity-id').value.trim();
+    if (!nextId) {
+      this._status('Entity ID is required', 'err');
+      return;
+    }
+    if (nextId !== entity.id && this.world.entities[nextId]) {
+      this._status('Entity ID already exists', 'err');
+      return;
+    }
+    entity.prefab = document.getElementById('entity-prefab').value.trim() || 'entity';
+    entity.created_epoch = Number(document.getElementById('entity-created').value || 0);
+    if (nextId !== entity.id) this._renameEntity(entity.id, nextId);
+    this._renderAll();
+    this._status('Entity updated', 'ok');
+  }
+
+  _renameEntity(oldId, nextId) {
+    const entity = this.world.entities[oldId];
+    delete this.world.entities[oldId];
+    entity.id = nextId;
+    this.world.entities[nextId] = entity;
+    for (const other of Object.values(this.world.entities)) {
+      for (const edges of Object.values(other.relationships || {})) {
+        for (const edge of edges || []) {
+          if (edge.target === oldId) edge.target = nextId;
+        }
+      }
+    }
+    this.selectedId = nextId;
+  }
+
+  _nextEntityId() {
+    let i = Object.keys(this.world.entities).length + 1;
+    while (this.world.entities[`entity_${i}`]) i += 1;
+    return `entity_${i}`;
+  }
+
+  _addEntity() {
+    const id = this._nextEntityId();
+    this.world.entities[id] = {
+      id,
+      prefab: 'entity',
+      created_epoch: Number(this.world.metadata?.epoch || 0),
+      components: { IdentityComponent: { name: id, kind: 'entity', tags: [] } },
+      relationships: {}
+    };
+    this.selectedId = id;
+    this._renderAll();
+    this._status('Entity added', 'ok');
+  }
+
+  _deleteEntity() {
+    const entity = this._selected();
+    if (!entity) return;
+    if (!window.confirm(`Delete ${entity.id}? Incoming edges will also be removed.`)) return;
+    delete this.world.entities[entity.id];
+    for (const other of Object.values(this.world.entities)) {
+      for (const [type, edges] of Object.entries(other.relationships || {})) {
+        other.relationships[type] = (edges || []).filter(edge => edge.target !== entity.id);
+        if (!other.relationships[type].length) delete other.relationships[type];
+      }
+    }
+    this.selectedId = Object.keys(this.world.entities)[0] || null;
+    this._renderAll();
+    this._status('Entity deleted', 'ok');
+  }
+
+  _addComponent() {
+    const entity = this._selected();
+    if (!entity) return;
+    const type = window.prompt('Component type', 'IdentityComponent');
+    if (!type) return;
+    if (entity.components[type]) {
+      this._status('Entity already has that component', 'err');
+      return;
+    }
+    entity.components[type] = this._defaultComponent(type, entity);
+    this._renderAll();
+    this._status('Component added', 'ok');
+  }
+
+  _defaultComponent(type, entity) {
+    if (type === 'IdentityComponent') return { name: entity.id, kind: 'entity', tags: [] };
+    if (type === 'RoomComponent') return { title: entity.id, biome: 'unknown', indoor: false, private: false, safe: true };
+    if (type === 'CharacterComponent') return { species: 'bunny', biography: '', public: true };
+    if (type === 'WorldClockComponent') return { game_time_seconds: 0, tick_index: 0, time_scale: 1.0 };
+    return {};
+  }
+
+  _deleteComponent(type) {
+    const entity = this._selected();
+    if (!entity) return;
+    delete entity.components[type];
+    this._renderAll();
+    this._status('Component deleted', 'ok');
+  }
+
+  _addEdge() {
+    const entity = this._selected();
+    if (!entity) return;
+    const type = window.prompt('Edge type', 'Contains');
+    if (!type) return;
+    const target = window.prompt('Target entity id', Object.keys(this.world.entities).find(id => id !== entity.id) || '');
+    if (!target) return;
+    if (!entity.relationships[type]) entity.relationships[type] = [];
+    entity.relationships[type].push({ target, edge: this._defaultEdge(type) });
+    this._renderAll();
+    this._status('Edge added', 'ok');
+  }
+
+  _defaultEdge(type) {
+    if (type === 'Contains') return { mode: 'room_content', visible: true, discovered: true, order: 0 };
+    if (type === 'ExitTo') return { direction: '', label: '', locked: false, hidden: false, action_cost: 1 };
+    if (type === 'ControlledBy') return { generation: 0, since_epoch: Number(this.world.metadata?.epoch || 0) };
+    return {};
+  }
+
+  _deleteEdge(type, index) {
+    const entity = this._selected();
+    if (!entity?.relationships?.[type]) return;
+    entity.relationships[type].splice(index, 1);
+    if (!entity.relationships[type].length) delete entity.relationships[type];
+    this._renderAll();
+    this._status('Edge deleted', 'ok');
+  }
+
+  _renderJson() {
+    const exported = exportWorld(this.world);
+    const text = JSON.stringify(exported, null, 2);
+    document.getElementById('json-output').value = text;
+    document.getElementById('json-size').textContent = `${new Blob([text]).size} bytes`;
+    const problems = this._validate(exported);
+    const el = document.getElementById('problems');
+    if (problems.length) {
+      el.className = '';
+      el.innerHTML = problems.map(esc).join('<br>');
+    } else {
+      el.className = 'ok';
+      el.textContent = 'Valid world JSON.';
+    }
+  }
+
+  _validate(snapshot) {
+    const problems = [];
+    const ids = new Set(Object.keys(snapshot.entities || {}));
+    const clocks = Object.entries(snapshot.components?.WorldClockComponent || {});
+    if (clocks.length !== 1) problems.push(`expected exactly one WorldClockComponent, found ${clocks.length}`);
+    for (const [type, table] of Object.entries(snapshot.relationships || {})) {
+      for (const [source, edges] of Object.entries(table || {})) {
+        if (!ids.has(source)) problems.push(`${type}: source ${source} does not exist`);
+        for (const edge of edges || []) {
+          if (!ids.has(edge.target)) problems.push(`${type}: target ${edge.target} does not exist`);
+        }
+      }
+    }
+    return problems;
+  }
+
+  _download() {
+    const text = document.getElementById('json-output').value;
+    const blob = new Blob([text], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const seed = (this.world.meta?.seed || 'world').replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    a.download = `${seed || 'world'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+    this._status('World JSON downloaded', 'ok');
+  }
+
+  async _copy() {
+    try {
+      await navigator.clipboard.writeText(document.getElementById('json-output').value);
+      this._status('World JSON copied', 'ok');
+    } catch (_err) {
+      this._status('Clipboard unavailable', 'err');
+    }
+  }
+}
+
+window.app = new WorldEditor();
+</script>
+</body>
+</html>

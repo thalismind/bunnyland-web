@@ -31,3 +31,19 @@ Drop any of these into the inspector (file picker or drag-and-drop) to explore o
 
 - **`seed-world.json`** — a real snapshot saved from the server (`--seed test`). Two
   connected rooms with characters and ground items; useful as a realistic baseline.
+
+## Example scripts
+
+Load these in `script-editor.html` with a compatible world snapshot:
+
+- **`scripts/epoch_bell.json`** — once epoch 5 is reached, the first LLM-controlled
+  character says a scheduled bell line.
+
+- **`scripts/move_arrival_patch.json`** — after the first `ActorMovedEvent`, patches the
+  world by adding a chalk arrival marker in `North Tunnel`.
+
+- **`scripts/llm_only_prompt.json`** — once epoch 10 is reached, every LLM-controlled
+  character says a prompt line.
+
+- **`script-world-sets.json`** — example pairings of world generator seed/plugin settings
+  with the sample scripts.
