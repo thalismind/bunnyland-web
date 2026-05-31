@@ -284,6 +284,7 @@
     <label for="api-url">Server:</label>
     <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
     <button id="btn-fetch">Load Snapshot</button>
+    <button id="btn-save-live">Save Live</button>
     <span class="toolbar-sep">|</span>
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
@@ -572,6 +573,7 @@ class WorldEditor {
     });
     document.getElementById('btn-new').addEventListener('click', () => this._newWorld());
     document.getElementById('btn-fetch').addEventListener('click', () => this._fetchSnapshot());
+    document.getElementById('btn-save-live').addEventListener('click', () => this._saveLive());
     document.getElementById('btn-download').addEventListener('click', () => this._download());
     document.getElementById('btn-copy').addEventListener('click', () => this._copy());
     document.getElementById('btn-add-entity').addEventListener('click', () => this._addEntity());
@@ -638,20 +640,45 @@ class WorldEditor {
 
   async _sendPatch(operations, { merge = false, status = 'Patch applied' } = {}) {
     if (!this.liveBase || !operations.length) return null;
-    const body = JSON.stringify({ operations });
+    const data = await this._sendAdmin('/world', {
+      method: 'PATCH',
+      body: JSON.stringify({ operations }),
+      status
+    });
+    if (merge) this._mergePatchResponse(data);
+    return data;
+  }
+
+  async _sendAdmin(path, { method, body = null, status }) {
+    if (!this.liveBase) throw new Error('Load a server snapshot first');
     const headers = () => ({
       'Content-Type': 'application/json',
       ...(this.authHeader ? { Authorization: this.authHeader } : {})
     });
-    let res = await fetch(`${this.liveBase}/world`, { method: 'PATCH', headers: headers(), body });
+    let res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
     if (res.status === 401 && this._promptBasicAuth()) {
-      res = await fetch(`${this.liveBase}/world`, { method: 'PATCH', headers: headers(), body });
+      res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    if (merge) this._mergePatchResponse(data);
     this._status(status, 'ok');
     return data;
+  }
+
+  async _saveLive() {
+    try {
+      const data = await this._sendAdmin('/world/save', {
+        method: 'POST',
+        status: 'World saved'
+      });
+      if (data.world_epoch != null) {
+        this.world.metadata.epoch = data.world_epoch;
+        this.world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch;
+        this._renderAll();
+      }
+    } catch (err) {
+      this._status(`Save error: ${err.message}`, 'err');
+    }
   }
 
   _promptBasicAuth() {
