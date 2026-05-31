@@ -490,6 +490,7 @@ const ENTITY_STYLE = {
   container: { color: '#6a4a1a', bgcolor: '#402e0a', titleColor: '#fab387', icon: '📦' },
   item:      { color: '#4a3a6a', bgcolor: '#2a2048', titleColor: '#cba6f7', icon: '✦' },
   other:     { color: '#383848', bgcolor: '#222232', titleColor: '#a6adc8', icon: '⬡' },
+  door:      { color: '#5a5030', bgcolor: '#332d18', titleColor: '#f9e2af', icon: '🚪' },
 };
 
 // Register one generic node type used for all entity kinds.
@@ -923,6 +924,7 @@ class BunnylandInspector {
     ];
 
     const usedRows = new Set();
+    let maxContentY = 40;
     for (const { key, y } of typeRows) {
       const ids = contents[key];
       if (!ids?.length) continue;
@@ -931,6 +933,7 @@ class BunnylandInspector {
       const rowKey = (key === 'other') ? 'item' : key;
       const yCoord = usedRows.has(rowKey) ? y + 60 : y;
       usedRows.add(rowKey);
+      maxContentY = Math.max(maxContentY, yCoord);
 
       const totalW = ids.length * NODE_W + (ids.length - 1) * GAP;
       let x = Math.max(40, centerX - totalW / 2);
@@ -944,7 +947,70 @@ class BunnylandInspector {
       }
     }
 
+    // Rooms also show their exits as door nodes you can step through.
+    this._layoutDoors(entity, headerNode, centerX, maxContentY + 160);
+
     this._fitView();
+  }
+
+  // Draw a room's ExitTo edges as door nodes, each labelled with its destination and a
+  // button to walk there. An exit with no matching return edge is flagged one-way.
+  _layoutDoors(room, headerNode, centerX, y) {
+    const exits = room.relationships?.ExitTo || [];
+    if (!exits.length) return;
+
+    const NODE_W = 200, GAP = 16;
+    const totalW = exits.length * NODE_W + (exits.length - 1) * GAP;
+    let x = Math.max(40, centerX - totalW / 2);
+
+    for (const { target, edge } of exits) {
+      const dest = this.world.entities[target];
+      if (!dest) continue;
+      const returns = (dest.relationships?.ExitTo || []).some(e => e.target === room.id);
+      const node = this._makeDoorNode(edge, dest, !returns, x, y);
+      headerNode.connect(0, node, 0);
+      x += NODE_W + GAP;
+    }
+  }
+
+  _makeDoorNode(edge, dest, oneWay, x, y) {
+    const style = ENTITY_STYLE.door;
+    const dir = (edge.direction || '').trim();
+    const destName = entityDisplayName(dest);
+
+    const node = LiteGraph.createNode('bunnyland/door');
+    node.title   = style.icon + ' ' + (dir ? dir.charAt(0).toUpperCase() + dir.slice(1) : 'Exit');
+    node.color   = style.color;
+    node.bgcolor = style.bgcolor;
+
+    const flags = [
+      oneWay ? 'one-way ⇒' : null,
+      edge.locked ? '🔒 locked' : null,
+      edge.hidden ? 'hidden' : null,
+    ].filter(Boolean);
+    const sub = '→ ' + destName + (flags.length ? '  ·  ' + flags.join('  ·  ') : '');
+    {
+      const w = node.addWidget('text', '', sub, () => {});
+      w.type = 'label';
+      w.draw = function (ctx, _n, _w, wy, H) {
+        ctx.fillStyle = oneWay ? '#f9e2af' : '#888a9a';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillText(this.value, 8, wy + H * 0.72);
+      };
+    }
+
+    node.addWidget('button', 'Go to Room →', null, () => this._goToRoom(dest.id));
+    node.size = [200, 24 + 22 + 26 + 14];
+    node.pos = [x, y];
+    this.lgraph.add(node);
+    return node;
+  }
+
+  // Jump to a room as a fresh top-level drilldown (breadcrumb: Room Map › Room).
+  _goToRoom(roomId) {
+    const name = entityDisplayName(this.world.entities[roomId]);
+    this.viewStack = [{ label: name, entityId: roomId }];
+    this._showEntity(roomId);
   }
 
   // A small synthetic node standing in for the top-level room map at the head of the

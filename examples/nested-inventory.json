@@ -5,6 +5,7 @@
   "entities": {
     "room1": { "prefab": "entity", "created_epoch": 0 },
     "room2": { "prefab": "entity", "created_epoch": 0 },
+    "room3": { "prefab": "entity", "created_epoch": 0 },
     "clover": { "prefab": "entity", "created_epoch": 0 },
     "pip": { "prefab": "entity", "created_epoch": 0 },
     "satchel": { "prefab": "entity", "created_epoch": 0 },
@@ -18,7 +19,8 @@
   "components": {
     "RoomComponent": {
       "room1": { "title": "Mosslit Burrow", "biome": "burrow", "indoor": true },
-      "room2": { "title": "North Tunnel", "biome": "tunnel", "indoor": true }
+      "room2": { "title": "North Tunnel", "biome": "tunnel", "indoor": true },
+      "room3": { "title": "Sunken Hollow", "biome": "hollow", "indoor": true }
     },
     "CharacterComponent": {
       "clover": { "species": "rabbit" },
@@ -69,7 +71,10 @@
   },
   "relationships": {
     "ExitTo": {
-      "room1": [{ "target": "room2", "edge": { "direction": "north" } }],
+      "room1": [
+        { "target": "room2", "edge": { "direction": "north" } },
+        { "target": "room3", "edge": { "direction": "down", "label": "a crumbling drop" } }
+      ],
       "room2": [{ "target": "room1", "edge": { "direction": "south" } }]
     },
     "Contains": {

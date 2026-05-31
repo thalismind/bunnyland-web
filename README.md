@@ -56,6 +56,10 @@ and other entities (gray); **Inventory →** a character to see what it holds an
 **Open →** a container to see its contents — including containers nested inside other
 containers, to any depth. Each entity connects from the current header node.
 
+**Doors** — inside a room, each `ExitTo` exit is drawn as a 🚪 door node labelled with its
+direction and destination room, plus a **Go to Room →** button that walks you there. An exit
+whose destination has no return path back is flagged **one-way**.
+
 **Control indicator** — characters are tagged with who is driving them, found by following
 the `ControlledBy` edge to the controller entity: 🤖 **LLM** (with profile / model), 🎮
 **Discord** (with user id), or 💤 **Suspended** (with reason). The badge appears on the
