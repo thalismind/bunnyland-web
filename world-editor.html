@@ -347,9 +347,10 @@
 
 const COMMON_COMPONENTS = [
   'ActionPointsComponent', 'CharacterComponent', 'ContainerComponent',
-  'DescriptionComponent', 'DiscordControllerComponent', 'EditorDisplayComponent',
-  'FocusPointsComponent', 'IdentityComponent', 'InitiativeComponent',
-  'LLMControllerComponent', 'PortableComponent', 'RoomComponent',
+  'DescriptionComponent', 'DiscordControllerComponent', 'DoorComponent',
+  'EditorDisplayComponent', 'FocusPointsComponent', 'IdentityComponent',
+  'InitiativeComponent', 'LLMControllerComponent', 'LockableComponent',
+  'PortableComponent', 'RoomComponent',
   'SuspendedComponent', 'SuspendedControllerComponent', 'WorldClockComponent'
 ];
 const COMMON_EDGES = ['Contains', 'ControlledBy', 'ExitTo', 'HasThought', 'Holding', 'Wearing'];
@@ -538,6 +539,19 @@ function entityName(entity) {
   if (c.RoomComponent?.title) return c.RoomComponent.title;
   if (c.IdentityComponent?.name) return c.IdentityComponent.name;
   return entity.id;
+}
+
+function inferDirection(text) {
+  const words = new Set(String(text || '').toLowerCase().replace(/[-_]/g, ' ').split(/\s+/));
+  for (const direction of ['north', 'south', 'east', 'west', 'up', 'down', 'in', 'out', 'northeast', 'northwest', 'southeast', 'southwest']) {
+    if (words.has(direction)) return direction;
+  }
+  return '';
+}
+
+function canContainItems(entity) {
+  const c = entity?.components || {};
+  return Boolean(c.RoomComponent || c.CharacterComponent || c.ContainerComponent);
 }
 
 function componentNames(world) {
@@ -878,6 +892,7 @@ class WorldEditor {
         <div class="section-title">Components <button id="btn-add-component">Add Component</button></div>
         <div id="component-list">${this._renderComponents(entity)}</div>
       </div>
+      ${this._renderGeneration(entity)}
       <div class="section">
         <div class="section-title">Outgoing Edges <button id="btn-add-edge">Add Edge</button></div>
         <div id="edge-list">${this._renderEdges(entity)}</div>
@@ -899,6 +914,69 @@ class WorldEditor {
         </div>
       </div>
     `).join('');
+  }
+
+  _renderGeneration(entity) {
+    const sections = [];
+    const disabled = this.liveBase ? '' : ' disabled';
+    if (entity.components?.DoorComponent) {
+      sections.push(`
+        <div class="record-card">
+          <div class="record-head">Generate Room</div>
+          <div class="record-body">
+            <div class="form-grid">
+              <label class="field">Direction
+                <input id="gen-room-direction" type="text" value="${esc(inferDirection(entityName(entity)))}" spellcheck="false"${disabled}>
+              </label>
+              <label class="field full">Prompt / Theme
+                <textarea id="gen-room-prompt" spellcheck="false"${disabled}></textarea>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="btn-gen-room"${disabled}>Generate and Apply Room</button>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    if (entity.components?.RoomComponent) {
+      sections.push(`
+        <div class="record-card">
+          <div class="record-head">Generate Character</div>
+          <div class="record-body">
+            <label class="field full">Prompt / Theme
+              <textarea id="gen-character-prompt" spellcheck="false"${disabled}></textarea>
+            </label>
+            <div class="button-row">
+              <button id="btn-gen-character"${disabled}>Generate and Apply Character</button>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    if (canContainItems(entity)) {
+      sections.push(`
+        <div class="record-card">
+          <div class="record-head">Generate Item</div>
+          <div class="record-body">
+            <label class="field full">Prompt / Theme
+              <textarea id="gen-item-prompt" spellcheck="false"${disabled}></textarea>
+            </label>
+            <div class="button-row">
+              <button id="btn-gen-item"${disabled}>Generate and Apply Item</button>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    if (!sections.length) return '';
+    return `
+      <div class="section">
+        <div class="section-title">DM Generation</div>
+        ${sections.join('')}
+        ${this.liveBase ? '' : '<div class="tiny">Load a server snapshot to generate live patches.</div>'}
+      </div>
+    `;
   }
 
   _renderEdges(entity) {
@@ -929,6 +1007,9 @@ class WorldEditor {
     document.getElementById('btn-rename-entity').addEventListener('click', () => this._applyEntityFields());
     document.getElementById('btn-add-component').addEventListener('click', () => this._addComponent());
     document.getElementById('btn-add-edge').addEventListener('click', () => this._addEdge());
+    root.querySelector('#btn-gen-room')?.addEventListener('click', () => this._generateRoom());
+    root.querySelector('#btn-gen-character')?.addEventListener('click', () => this._generateCharacter());
+    root.querySelector('#btn-gen-item')?.addEventListener('click', () => this._generateItem());
     for (const btn of root.querySelectorAll('[data-delete-component]')) {
       btn.addEventListener('click', () => this._deleteComponent(btn.dataset.deleteComponent));
     }
@@ -1002,6 +1083,79 @@ class WorldEditor {
       target.addEventListener('input', update);
       json.addEventListener('input', update);
     }
+  }
+
+  async _generateAndApply(path, body, selectEntity, label) {
+    try {
+      if (!this.liveBase) throw new Error('Load a server snapshot first');
+      const generated = await this._sendAdmin(path, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        status: `${label} generated`
+      });
+      const patch = generated.patch?.operations || [];
+      if (!patch.length) throw new Error('Generator returned an empty patch');
+      const applied = await this._sendPatch(patch, { merge: true, status: `${label} applied` });
+      const nextId = selectEntity(generated, applied);
+      if (nextId && this.world.entities[nextId]) this.selectedId = nextId;
+      this._renderAll();
+    } catch (err) {
+      this._status(`${label} error: ${err.message}`, 'err');
+    }
+  }
+
+  _findChanged(applied, predicate) {
+    return (applied?.changed_entities || []).find(predicate)?.id || null;
+  }
+
+  async _generateRoom() {
+    const entity = this._selected();
+    if (!entity) return;
+    await this._generateAndApply(
+      '/admin/world/generate-room',
+      {
+        door_entity_id: entity.id,
+        direction: document.getElementById('gen-room-direction')?.value.trim() || null,
+        prompt: document.getElementById('gen-room-prompt')?.value.trim() || ''
+      },
+      (generated, applied) => this._findChanged(applied, item =>
+        item.id !== generated.source_room_id && item.components?.RoomComponent
+      ),
+      'Room'
+    );
+  }
+
+  async _generateCharacter() {
+    const entity = this._selected();
+    if (!entity) return;
+    await this._generateAndApply(
+      '/admin/world/generate-character',
+      {
+        room_entity_id: entity.id,
+        prompt: document.getElementById('gen-character-prompt')?.value.trim() || ''
+      },
+      (generated, applied) => this._findChanged(applied, item =>
+        item.components?.IdentityComponent?.name === generated.generated_name &&
+        item.components?.CharacterComponent
+      ),
+      'Character'
+    );
+  }
+
+  async _generateItem() {
+    const entity = this._selected();
+    if (!entity) return;
+    await this._generateAndApply(
+      '/admin/world/generate-item',
+      {
+        container_entity_id: entity.id,
+        prompt: document.getElementById('gen-item-prompt')?.value.trim() || ''
+      },
+      (generated, applied) => this._findChanged(applied, item =>
+        item.components?.IdentityComponent?.name === generated.generated_name
+      ),
+      'Item'
+    );
   }
 
   _applyEntityFields() {
