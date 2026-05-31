@@ -65,6 +65,11 @@ the `ControlledBy` edge to the controller entity: 🤖 **LLM** (with profile / m
 **Discord** (with user id), or 💤 **Suspended** (with reason). The badge appears on the
 character's node subtitle and, with full detail, on the inspector's kind line.
 
+**Recent movement** — while connected to a live server, characters that just moved
+(an `ActorMovedEvent` within the last ~60 epochs) are flagged with a 🏃 marker and a
+highlighted title dot. The flag fades as the world advances and the graph refreshes; it
+isn't shown for static snapshots, which carry no event stream.
+
 **ECS Inspector** — right panel shows all ECS components attached to the selected entity,
 with collapsible sections and inline sub-object expansion. Meter values (hunger, thirst, etc.)
 render with a colored progress bar. Relationships list target entities as clickable links

@@ -426,6 +426,12 @@ function controlInfo(entity, world) {
   return null;
 }
 
+// How long after an ActorMovedEvent (in world-epoch units) a character still counts as
+// "recently moved". Approximate by design — it just needs to fade out as the graph
+// refreshes, not be tick-exact.
+const MOVED_RECENT_EPOCHS = 60;
+const MOVED_HIGHLIGHT = '#f9e2af';
+
 // Edge types that express "what is inside / carried by" an entity. Rooms contain
 // characters & objects (Contains); characters carry items (Holding) and wear them
 // (Wearing); containers hold their contents (Contains). Walking these recursively is
@@ -640,8 +646,11 @@ function showInspector(entityId, world) {
     ? ` <span class="control-badge" style="color:${ctrl.color}">${ctrl.icon} ${esc(ctrl.label)}`
       + `${ctrl.detail ? ' · ' + esc(ctrl.detail) : ''}</span>`
     : '';
+  const movedHtml = window.app?._movedRecently(entityId)
+    ? ` <span class="control-badge" style="color:${MOVED_HIGHLIGHT}">🏃 moved recently</span>`
+    : '';
   document.getElementById('inspector-kind').innerHTML =
-    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}`;
+    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}${movedHtml}`;
 
   let html = '';
   for (const [cname, fields] of Object.entries(entity.components)) {
@@ -670,6 +679,7 @@ class BunnylandInspector {
     this._ws = null;
     this._refreshTimer = null;
     this._apiBase = null;
+    this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
 
     this._initCanvas();
     this._initFileInput();
@@ -752,6 +762,7 @@ class BunnylandInspector {
 
   loadSnapshot(json) {
     this.disconnectLive();
+    this._movedAt = {}; // movement is tracked from the live event stream only
     this._applyWorld(parseSnapshot(json), { resetView: true });
   }
 
@@ -759,6 +770,7 @@ class BunnylandInspector {
 
   connectLive(url) {
     this.disconnectLive();
+    this._movedAt = {};
     this._apiBase = url.replace(/\/$/, '');
 
     const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
@@ -776,6 +788,7 @@ class BunnylandInspector {
         // Server sends full snapshot on connect — use it directly.
         this._applyWorld(parseApiSnapshot(msg.data), { resetView: !this.world });
       } else if (msg.type === 'event') {
+        this._noteEvent(msg.data);
         // Debounce: re-fetch the snapshot 400 ms after the last event burst.
         clearTimeout(this._refreshTimer);
         this._refreshTimer = setTimeout(() => this._refreshFromApi(), 400);
@@ -822,6 +835,22 @@ class BunnylandInspector {
     const el = document.getElementById('api-status');
     el.className = cls;
     el.textContent = text;
+  }
+
+  // Record movement from the live event stream so we can flag who moved recently.
+  _noteEvent(data) {
+    if (data?.event_type !== 'ActorMovedEvent') return;
+    const ev = data.event || {};
+    if (ev.actor_id != null) {
+      this._movedAt[String(ev.actor_id)] = ev.world_epoch ?? this.world?.epoch ?? 0;
+    }
+  }
+
+  // True if this entity moved within MOVED_RECENT_EPOCHS of the current world epoch.
+  _movedRecently(entityId) {
+    const at = this._movedAt[entityId];
+    if (at == null || !this.world) return false;
+    return (this.world.epoch - at) <= MOVED_RECENT_EPOCHS;
   }
 
   // Apply a parsed world object, optionally preserving the current view.
@@ -1068,10 +1097,15 @@ class BunnylandInspector {
     const ctrl = this.world ? controlInfo(entity, this.world) : null;
     if (ctrl) sub = [sub, `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
 
+    // Flag a character that moved within the recent window (from the live event stream).
+    const moved = this._movedRecently(entity.id);
+    if (moved) sub = [sub, '🏃 moved'].filter(Boolean).join('  ·  ');
+
     const node = LiteGraph.createNode(`bunnyland/${type}`);
     node.title   = name;
     node.color   = style.color;
     node.bgcolor = style.bgcolor;
+    if (moved) node.boxcolor = MOVED_HIGHLIGHT; // glowing title dot highlights the mover
     node.entityId = entity.id;
 
     // Non-interactive subtitle label (custom widget type 'label' avoids LiteGraph's
