@@ -6,11 +6,14 @@
     "room1": { "prefab": "entity", "created_epoch": 0 },
     "room2": { "prefab": "entity", "created_epoch": 0 },
     "clover": { "prefab": "entity", "created_epoch": 0 },
+    "pip": { "prefab": "entity", "created_epoch": 0 },
     "satchel": { "prefab": "entity", "created_epoch": 0 },
     "carrot": { "prefab": "entity", "created_epoch": 0 },
     "pouch": { "prefab": "entity", "created_epoch": 0 },
     "seed": { "prefab": "entity", "created_epoch": 0 },
-    "rock": { "prefab": "entity", "created_epoch": 0 }
+    "rock": { "prefab": "entity", "created_epoch": 0 },
+    "clover_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "pip_ctl": { "prefab": "entity", "created_epoch": 0 }
   },
   "components": {
     "RoomComponent": {
@@ -18,7 +21,8 @@
       "room2": { "title": "North Tunnel", "biome": "tunnel", "indoor": true }
     },
     "CharacterComponent": {
-      "clover": { "species": "rabbit" }
+      "clover": { "species": "rabbit" },
+      "pip": { "species": "rabbit" }
     },
     "ContainerComponent": {
       "satchel": { "capacity": 4 },
@@ -31,6 +35,7 @@
     },
     "IdentityComponent": {
       "clover": { "name": "Clover", "kind": "rabbit" },
+      "pip": { "name": "Pip", "kind": "rabbit" },
       "satchel": { "name": "Leather Satchel", "kind": "container" },
       "carrot": { "name": "Carrot", "kind": "food" },
       "pouch": { "name": "Tiny Pouch", "kind": "container" },
@@ -42,6 +47,24 @@
         "hunger": { "value": 6.5, "minimum": 0, "maximum": 10 },
         "thirst": { "value": 2.0, "minimum": 0, "maximum": 10 }
       }
+    },
+    "LLMControllerComponent": {
+      "clover_ctl": {
+        "profile_name": "warren-elder",
+        "model": "llama3",
+        "temperature": 0.7,
+        "max_tokens": 1024,
+        "system_style": "in_character",
+        "tool_policy": "character_actions"
+      }
+    },
+    "DiscordControllerComponent": {
+      "pip_ctl": {
+        "discord_user_id": 4815162342,
+        "default_channel_id": 1234567890,
+        "mention_on_ready": true,
+        "allow_dm": false
+      }
     }
   },
   "relationships": {
@@ -52,6 +75,7 @@
     "Contains": {
       "room1": [
         { "target": "clover", "edge": { "mode": "occupant" } },
+        { "target": "pip", "edge": { "mode": "occupant" } },
         { "target": "rock", "edge": { "mode": "ground" } }
       ],
       "satchel": [
@@ -64,6 +88,10 @@
     },
     "Holding": {
       "clover": [{ "target": "satchel", "edge": { "slot": "right_hand" } }]
+    },
+    "ControlledBy": {
+      "clover": [{ "target": "clover_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "pip": [{ "target": "pip_ctl", "edge": { "generation": 0, "since_epoch": 0 } }]
     }
   },
   "relics": []
