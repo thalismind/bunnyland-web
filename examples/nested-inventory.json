@@ -8,6 +8,7 @@
     "room3": { "prefab": "entity", "created_epoch": 0 },
     "clover": { "prefab": "entity", "created_epoch": 0 },
     "pip": { "prefab": "entity", "created_epoch": 0 },
+    "bramble": { "prefab": "entity", "created_epoch": 0 },
     "satchel": { "prefab": "entity", "created_epoch": 0 },
     "carrot": { "prefab": "entity", "created_epoch": 0 },
     "pouch": { "prefab": "entity", "created_epoch": 0 },
@@ -26,7 +27,8 @@
     },
     "CharacterComponent": {
       "clover": { "species": "rabbit" },
-      "pip": { "species": "rabbit" }
+      "pip": { "species": "rabbit" },
+      "bramble": { "species": "rabbit" }
     },
     "ContainerComponent": {
       "satchel": { "capacity": 4 },
@@ -47,6 +49,7 @@
     "IdentityComponent": {
       "clover": { "name": "Clover", "kind": "rabbit" },
       "pip": { "name": "Pip", "kind": "rabbit" },
+      "bramble": { "name": "Bramble", "kind": "rabbit" },
       "satchel": { "name": "Leather Satchel", "kind": "container" },
       "carrot": { "name": "Carrot", "kind": "food" },
       "pouch": { "name": "Tiny Pouch", "kind": "container" },
@@ -105,6 +108,7 @@
       "room1": [
         { "target": "clover", "edge": { "mode": "occupant" } },
         { "target": "pip", "edge": { "mode": "occupant" } },
+        { "target": "bramble", "edge": { "mode": "occupant" } },
         { "target": "rock", "edge": { "mode": "ground" } },
         { "target": "oakdoor", "edge": { "mode": "fixture" } },
         { "target": "gate", "edge": { "mode": "fixture" } }
@@ -123,6 +127,20 @@
     "ControlledBy": {
       "clover": [{ "target": "clover_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
       "pip": [{ "target": "pip_ctl", "edge": { "generation": 0, "since_epoch": 0 } }]
+    },
+    "PartnerOf": {
+      "clover": [{ "target": "pip", "edge": { "since_epoch": 10, "status": "together" } }],
+      "pip": [{ "target": "clover", "edge": { "since_epoch": 10, "status": "together" } }]
+    },
+    "ParentOf": {
+      "bramble": [{ "target": "pip", "edge": {} }]
+    },
+    "JealousOf": {
+      "bramble": [{ "target": "clover", "edge": { "partner_id": "pip", "intensity": 0.6, "triggered_at_epoch": 38 } }]
+    },
+    "SocialBond": {
+      "clover": [{ "target": "pip", "edge": { "affinity": 8.0, "trust": 6.0, "familiarity": 5.0 } }],
+      "pip": [{ "target": "clover", "edge": { "affinity": 7.5, "trust": 6.5, "familiarity": 5.0 } }]
     }
   },
   "relics": []

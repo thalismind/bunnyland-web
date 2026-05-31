@@ -214,6 +214,40 @@
     }
     #events-toggle input { cursor: pointer; }
 
+    /* ── View switch (Map / Social) ── */
+    #view-switch { display: inline-flex; border: 1px solid #45475a; border-radius: 3px; overflow: hidden; }
+    #view-switch button {
+      padding: 2px 8px;
+      background: #1e1e2e;
+      border: none;
+      border-right: 1px solid #45475a;
+      color: #a6adc8;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    #view-switch button:last-child { border-right: none; }
+    #view-switch button.active { background: #45475a; color: #cdd6f4; }
+    #view-switch button:hover:not(.active) { background: #313244; }
+
+    /* ── Social view legend ── */
+    #social-legend {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 9;
+      background: rgba(24, 24, 37, 0.92);
+      border: 1px solid #313244;
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #a6adc8;
+      pointer-events: none;
+    }
+    #social-legend.hidden { display: none; }
+    #social-legend .leg-title { color: #89dceb; margin-bottom: 4px; font-weight: bold; }
+    #social-legend .leg-item { display: flex; align-items: center; gap: 6px; line-height: 1.7; }
+    #social-legend .leg-swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+
     #inspector-header {
       padding: 8px 12px;
       border-bottom: 1px solid #313244;
@@ -364,6 +398,9 @@
     <button id="btn-back" disabled>← Back</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
+    <span id="view-switch">
+      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-social">👥 Social</button>
+    </span>
     <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
       <input type="checkbox" id="toggle-parents" checked> parent nodes
     </label>
@@ -379,6 +416,7 @@
 <div id="main">
   <div id="graph-wrapper">
     <canvas id="graph-canvas"></canvas>
+    <div id="social-legend" class="hidden"></div>
     <div id="drop-overlay">
       <div class="title">🐰 Bunnyland Inspector</div>
       <div>Load a world snapshot JSON to begin</div>
@@ -602,6 +640,17 @@ const EVENT_ICONS = {
 function humanizeEvent(type) {
   return type.replace(/Event$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
 }
+
+// Character-to-character relationship edges, rendered as colour-coded links in the
+// social view (with a matching legend).
+const SOCIAL_EDGES = {
+  PartnerOf:          { color: '#f38ba8', label: 'partner' },
+  RelationshipStatus: { color: '#cba6f7', label: 'relationship' },
+  ParentOf:           { color: '#a6e3a1', label: 'parent of' },
+  JealousOf:          { color: '#fab387', label: 'jealous of' },
+  MemberOf:           { color: '#89b4fa', label: 'member of' },
+  SocialBond:         { color: '#585b70', label: 'social bond' },
+};
 
 // Edge types that express "what is inside / carried by" an entity. Rooms contain
 // characters & objects (Contains); characters carry items (Holding) and wear them
@@ -850,6 +899,7 @@ class BunnylandInspector {
     this.viewStack = []; // {label, entityId} drilldown path
     this._nodeMap = {};  // entityId → LGraphNode
     this.showParents = true; // render the breadcrumb path as parent nodes in drilldown
+    this._rootView = 'map'; // top-level view when not drilled in: 'map' | 'social'
 
     this._ws = null;
     this._refreshTimer = null;
@@ -857,6 +907,7 @@ class BunnylandInspector {
     this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
     this._events = [];  // rolling buffer of recent event messages for the feed
     this._eventsPrimed = false;
+    this._socialLinks = []; // [{fromId,toId,color,off}] drawn behind nodes in social view
 
     this._initCanvas();
     this._initFileInput();
@@ -880,6 +931,8 @@ class BunnylandInspector {
       document.getElementById('event-panel').classList.toggle('hidden', !e.target.checked);
     });
     document.getElementById('event-clear').addEventListener('click', () => this._clearEvents());
+    document.getElementById('btn-view-map').addEventListener('click', () => this.setRootView('map'));
+    document.getElementById('btn-view-social').addEventListener('click', () => this.setRootView('social'));
   }
 
   _initCanvas() {
@@ -898,6 +951,10 @@ class BunnylandInspector {
         showInspector(node.entityId, this.world);
       }
     };
+
+    // Social-view relationship edges are drawn behind the nodes (LiteGraph's single-link
+    // input slots can't represent multiple relationships per character).
+    this.lgcanvas.onDrawBackground = (ctx) => this._drawSocialLinks(ctx);
 
     this._resizeCanvas();
     window.addEventListener('resize', () => this._resizeCanvas());
@@ -1134,11 +1191,28 @@ class BunnylandInspector {
       this._showEntity(prevEntityId);
     } else {
       this.viewStack = [];
-      this.showRoomMap();
+      this.showRoot();
     }
   }
 
   // ── Views ──────────────────────────────────────────────────────────────────
+
+  _rootLabel() { return this._rootView === 'social' ? 'Social' : 'Room Map'; }
+
+  // Render whichever top-level view is active.
+  showRoot() {
+    if (this._rootView === 'social') this.showSocial();
+    else this.showRoomMap();
+  }
+
+  // Switch top-level view (from the toolbar) and return to that root.
+  setRootView(view) {
+    this._rootView = view;
+    document.getElementById('btn-view-map').classList.toggle('active', view === 'map');
+    document.getElementById('btn-view-social').classList.toggle('active', view === 'social');
+    this.viewStack = [];
+    this.showRoot();
+  }
 
   showRoomMap() {
     this._clearGraph();
@@ -1170,7 +1244,90 @@ class BunnylandInspector {
       }
     }
 
+    this._hideSocialLegend();
     this._fitView();
+  }
+
+  // Top-level social view: every character as a node, relationship edges as colour-coded
+  // links (partner / parent / jealous / relationship / social bond / member-of) + a legend.
+  showSocial() {
+    this._clearGraph();
+    this._updateBreadcrumb('Social');
+
+    const chars = Object.values(this.world.entities).filter(e => e.components.CharacterComponent);
+    const nodes = {};
+    const cx = 520, cy = 360;
+    const R = Math.max(200, chars.length * 70);
+    chars.forEach((e, i) => {
+      const ang = (i / Math.max(1, chars.length)) * Math.PI * 2 - Math.PI / 2;
+      const x = cx + R * Math.cos(ang) - 100; // -100 ≈ half node width
+      const y = cy + R * Math.sin(ang);
+      nodes[e.id] = this._makeNode(e, x, y, null);
+    });
+
+    const present = new Set();
+    const pairOffset = {}; // separate parallel edges between the same two characters
+    for (const e of chars) {
+      for (const [rtype, cfg] of Object.entries(SOCIAL_EDGES)) {
+        for (const { target } of (e.relationships?.[rtype] || [])) {
+          if (!nodes[e.id] || !nodes[target]) continue;
+          const key = [e.id, target].sort().join('|');
+          const off = pairOffset[key] = (pairOffset[key] ?? -1) + 1;
+          this._socialLinks.push({ fromId: e.id, toId: target, color: cfg.color, off });
+          present.add(rtype);
+        }
+      }
+    }
+
+    this._showSocialLegend(present);
+    this._fitView();
+  }
+
+  // Draw the social view's relationship edges as directed, colour-coded lines behind the
+  // character nodes. Parallel edges between the same pair are offset so each stays visible.
+  _drawSocialLinks(ctx) {
+    const links = this._socialLinks;
+    if (!links || !links.length) return;
+    ctx.save();
+    ctx.lineWidth = 2;
+    for (const l of links) {
+      const a = this._nodeMap[l.fromId], b = this._nodeMap[l.toId];
+      if (!a || !b) continue;
+      let ax = a.pos[0] + a.size[0] / 2, ay = a.pos[1] + a.size[1] / 2;
+      let bx = b.pos[0] + b.size[0] / 2, by = b.pos[1] + b.size[1] / 2;
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      const px = -dy / len, py = dx / len;       // perpendicular unit
+      const o = (l.off || 0) * 9;
+      ax += px * o; ay += py * o; bx += px * o; by += py * o;
+      // pull both ends back toward the gap so the line/arrow sit between nodes, not under them
+      ax += (dx / len) * 60; ay += (dy / len) * 60;
+      bx -= (dx / len) * 60; by -= (dy / len) * 60;
+      ctx.globalAlpha = 0.85; ctx.strokeStyle = l.color; ctx.fillStyle = l.color;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      const ang = Math.atan2(by - ay, bx - ax); // arrowhead at the target end
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx - 11 * Math.cos(ang - 0.4), by - 11 * Math.sin(ang - 0.4));
+      ctx.lineTo(bx - 11 * Math.cos(ang + 0.4), by - 11 * Math.sin(ang + 0.4));
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  _showSocialLegend(presentTypes) {
+    const el = document.getElementById('social-legend');
+    const rows = Object.entries(SOCIAL_EDGES)
+      .filter(([rtype]) => presentTypes.has(rtype))
+      .map(([, cfg]) => `<span class="leg-item"><span class="leg-swatch" style="background:${cfg.color}"></span>${esc(cfg.label)}</span>`)
+      .join('');
+    el.innerHTML = rows
+      ? `<div class="leg-title">Relationships</div>${rows}`
+      : '<div class="leg-title">No relationships in this world</div>';
+    el.classList.remove('hidden');
+  }
+
+  _hideSocialLegend() {
+    document.getElementById('social-legend').classList.add('hidden');
   }
 
   _pushEntity(entityId) {
@@ -1187,6 +1344,7 @@ class BunnylandInspector {
   _showEntity(entityId) {
     this._clearGraph();
     this._updateBreadcrumb();
+    this._hideSocialLegend();
 
     const entity = this.world.entities[entityId];
     const NODE_W = 200, GAP = 16;
@@ -1324,11 +1482,12 @@ class BunnylandInspector {
   // A small synthetic node standing in for the top-level room map at the head of the
   // parent chain, with a button to zoom all the way back out.
   _makeRootNode(x, y) {
+    const root = this._rootLabel();
     const node = LiteGraph.createNode('bunnyland/other');
-    node.title   = '🗺 Room Map';
+    node.title   = (this._rootView === 'social' ? '👥 ' : '🗺 ') + root;
     node.color   = ENTITY_STYLE.other.color;
     node.bgcolor = ENTITY_STYLE.other.bgcolor;
-    node.addWidget('button', '↑ Room Map', null, () => this._goToRoot());
+    node.addWidget('button', '↑ ' + root, null, () => this._goToRoot());
     node.size = [200, 24 + 26 + 14];
     node.pos = [x, y];
     this.lgraph.add(node);
@@ -1339,7 +1498,7 @@ class BunnylandInspector {
     if (!this.viewStack.length) return;
     this.viewStack.pop();
     if (!this.viewStack.length) {
-      this.showRoomMap();
+      this.showRoot();
     } else {
       const { entityId } = this.viewStack[this.viewStack.length - 1];
       this._showEntity(entityId);
@@ -1433,6 +1592,7 @@ class BunnylandInspector {
   _clearGraph() {
     this.lgraph.clear();
     this._nodeMap = {};
+    this._socialLinks = [];
     this.lgcanvas.setDirty(true, true);
   }
 
@@ -1478,11 +1638,12 @@ class BunnylandInspector {
 
     const parts = [];
 
-    // Always show "Room Map" as root
+    // Root crumb reflects the active top-level view (Room Map or Social).
+    const root = this._rootLabel();
     if (this.viewStack.length > 0) {
-      parts.push(`<span class="crumb" onclick="window.app._goToRoot()">Room Map</span>`);
+      parts.push(`<span class="crumb" onclick="window.app._goToRoot()">${esc(root)}</span>`);
     } else {
-      parts.push(`<span class="crumb-current">${esc(label || 'Room Map')}</span>`);
+      parts.push(`<span class="crumb-current">${esc(label || root)}</span>`);
     }
 
     // Show the drilldown path
@@ -1501,7 +1662,7 @@ class BunnylandInspector {
 
   _goToRoot() {
     this.viewStack = [];
-    this.showRoomMap();
+    this.showRoot();
   }
 
   _goToDepth(depth) {
