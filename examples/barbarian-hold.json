@@ -1,0 +1,227 @@
+{
+  "metadata": { "version": "1.0", "epoch": 320 },
+  "bunnyland": { "seed": "frostpeak-hold", "generator": "handcrafted" },
+  "prefabs": { "entity": { "components": {} } },
+  "entities": {
+    "great_hall": { "prefab": "entity", "created_epoch": 0 },
+    "mead_hall": { "prefab": "entity", "created_epoch": 0 },
+    "war_room": { "prefab": "entity", "created_epoch": 0 },
+    "forge": { "prefab": "entity", "created_epoch": 0 },
+    "training_yard": { "prefab": "entity", "created_epoch": 0 },
+    "dungeon": { "prefab": "entity", "created_epoch": 0 },
+    "ragnvald": { "prefab": "entity", "created_epoch": 0 },
+    "sigrid": { "prefab": "entity", "created_epoch": 0 },
+    "bjorn": { "prefab": "entity", "created_epoch": 0 },
+    "greta": { "prefab": "entity", "created_epoch": 0 },
+    "aldric": { "prefab": "entity", "created_epoch": 0 },
+    "ragnvald_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "sigrid_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "bjorn_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "greta_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "aldric_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "war_chest": { "prefab": "entity", "created_epoch": 0 },
+    "runic_coffer": { "prefab": "entity", "created_epoch": 0 },
+    "gold_pile": { "prefab": "entity", "created_epoch": 0 },
+    "trophy_skull": { "prefab": "entity", "created_epoch": 0 },
+    "frost_rune": { "prefab": "entity", "created_epoch": 0 },
+    "battle_axe": { "prefab": "entity", "created_epoch": 0 },
+    "fur_cloak": { "prefab": "entity", "created_epoch": 0 },
+    "mead_barrel": { "prefab": "entity", "created_epoch": 0 },
+    "drinking_horn": { "prefab": "entity", "created_epoch": 0 },
+    "quench_barrel": { "prefab": "entity", "created_epoch": 0 },
+    "iron_ingot": { "prefab": "entity", "created_epoch": 0 },
+    "anvil": { "prefab": "entity", "created_epoch": 0 },
+    "trapdoor": { "prefab": "entity", "created_epoch": 0 },
+    "forge_gate": { "prefab": "entity", "created_epoch": 0 },
+    "quest_blade": { "prefab": "entity", "created_epoch": 0 },
+    "obj_wyrm": { "prefab": "entity", "created_epoch": 0 },
+    "obj_recover": { "prefab": "entity", "created_epoch": 0 },
+    "rew_blade": { "prefab": "entity", "created_epoch": 0 }
+  },
+  "components": {
+    "RoomComponent": {
+      "great_hall": { "title": "Great Hall", "biome": "hall", "indoor": true },
+      "mead_hall": { "title": "Mead Hall", "biome": "hall", "indoor": true },
+      "war_room": { "title": "War Room", "biome": "hall", "indoor": true },
+      "forge": { "title": "The Forge", "biome": "smithy", "indoor": true },
+      "training_yard": { "title": "Training Yard", "biome": "yard", "indoor": false },
+      "dungeon": { "title": "Pitvault Dungeon", "biome": "dungeon", "indoor": true }
+    },
+    "CharacterComponent": {
+      "ragnvald": { "species": "human" },
+      "sigrid": { "species": "human" },
+      "bjorn": { "species": "human" },
+      "greta": { "species": "human" },
+      "aldric": { "species": "human" }
+    },
+    "ContainerComponent": {
+      "war_chest": { "capacity": 8 },
+      "runic_coffer": { "capacity": 3 },
+      "mead_barrel": { "capacity": 6 },
+      "quench_barrel": { "capacity": 4 }
+    },
+    "PortableComponent": {
+      "gold_pile": { "weight": 10 },
+      "trophy_skull": { "weight": 2 },
+      "frost_rune": { "weight": 1 },
+      "battle_axe": { "weight": 6 },
+      "fur_cloak": { "weight": 3 },
+      "drinking_horn": { "weight": 1 },
+      "iron_ingot": { "weight": 5 }
+    },
+    "DoorComponent": {
+      "trapdoor": { "open": false, "open_on_use": false, "auto_close_after_ticks": null },
+      "forge_gate": { "open": true, "open_on_use": true, "auto_close_after_ticks": null }
+    },
+    "LockableComponent": {
+      "war_chest": { "locked": true },
+      "trapdoor": { "locked": true }
+    },
+    "IdentityComponent": {
+      "ragnvald": { "name": "Jarl Ragnvald", "kind": "warlord" },
+      "sigrid": { "name": "Sigrid Ironbraid", "kind": "shieldmaiden" },
+      "bjorn": { "name": "Bjorn the Younger", "kind": "warrior" },
+      "greta": { "name": "Old Greta", "kind": "seer" },
+      "aldric": { "name": "Thrall Aldric", "kind": "captive" },
+      "war_chest": { "name": "War Chest", "kind": "container" },
+      "runic_coffer": { "name": "Runic Coffer", "kind": "container" },
+      "gold_pile": { "name": "Pile of Gold", "kind": "treasure" },
+      "trophy_skull": { "name": "Trophy Skull", "kind": "trophy" },
+      "frost_rune": { "name": "Frost Rune", "kind": "relic" },
+      "battle_axe": { "name": "Bearded Axe", "kind": "weapon" },
+      "fur_cloak": { "name": "Wolfskin Cloak", "kind": "armor" },
+      "mead_barrel": { "name": "Mead Barrel", "kind": "container" },
+      "drinking_horn": { "name": "Drinking Horn", "kind": "vessel" },
+      "quench_barrel": { "name": "Quench Barrel", "kind": "container" },
+      "iron_ingot": { "name": "Iron Ingot", "kind": "material" },
+      "anvil": { "name": "Great Anvil", "kind": "fixture" },
+      "trapdoor": { "name": "Iron Trapdoor", "kind": "door" },
+      "forge_gate": { "name": "Forge Gate", "kind": "door" }
+    },
+    "DescriptionComponent": {
+      "ragnvald": { "short": "a scarred warlord" },
+      "greta": { "short": "a blind seer wreathed in smoke" }
+    },
+    "HungerComponent": {
+      "bjorn": { "meter": { "value": 78, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "ThirstComponent": {
+      "bjorn": { "meter": { "value": 52, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "AffectComponent": {
+      "ragnvald": { "baseline": { "valence": 0, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 }, "current": { "valence": -4, "arousal": 12, "stress": 6, "fear": 0, "anger": 14, "sadness": 0, "confidence": 8, "sociability": 0, "curiosity": 0, "focus": 0 }, "labels": ["angry"] },
+      "sigrid": { "baseline": { "valence": 0, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 }, "current": { "valence": 10, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 6, "sociability": 4, "curiosity": 0, "focus": 0 }, "labels": ["content"] }
+    },
+    "PregnancyComponent": {
+      "sigrid": { "started_at_epoch": 120, "due_at_epoch": 600, "co_parent_ids": ["ragnvald"], "source_event_id": null }
+    },
+    "DownedComponent": {
+      "aldric": { "downed_at_epoch": 280, "cause": "beating", "checks_remaining": 1, "stable": false }
+    },
+    "BleedingComponent": {
+      "aldric": { "rate": 0.8, "accumulated_loss": 12.0, "last_updated_epoch": 310 }
+    },
+    "InjuryComponent": {
+      "aldric": { "body_part": "ribs", "severity": 0.7, "pain": 0.6, "bleeding_rate": 0.8, "treated": false, "applied_at_epoch": 280 }
+    },
+    "LLMControllerComponent": {
+      "ragnvald_ctl": { "profile_name": "warlord", "model": "llama3", "temperature": 0.8, "max_tokens": 1024, "system_style": "in_character", "tool_policy": "character_actions" },
+      "bjorn_ctl": { "profile_name": "berserker", "model": "llama3", "temperature": 0.9, "max_tokens": 1024, "system_style": "in_character", "tool_policy": "character_actions" }
+    },
+    "DiscordControllerComponent": {
+      "sigrid_ctl": { "discord_user_id": 88112299, "default_channel_id": 555000, "mention_on_ready": true, "allow_dm": false }
+    },
+    "SuspendedControllerComponent": {
+      "greta_ctl": { "reason": "in a trance" },
+      "aldric_ctl": { "reason": "captive" }
+    },
+    "QuestComponent": {
+      "quest_blade": { "quest_id": "frostblade", "title": "Reclaim the Frostblade", "status": "active", "accepted_by": ["ragnvald", "bjorn"], "completed_at_epoch": null }
+    },
+    "QuestObjectiveComponent": {
+      "obj_recover": { "quest_id": "frostblade", "description": "Recover the blade from the dungeon", "completed": true, "completed_by": "ragnvald" },
+      "obj_wyrm": { "quest_id": "frostblade", "description": "Slay the frost wyrm", "completed": false, "completed_by": null }
+    },
+    "QuestRewardComponent": {
+      "rew_blade": { "quest_id": "frostblade", "description": "The Frostblade", "item_ids": ["frost_rune"], "claimed": false, "claimed_by": null }
+    }
+  },
+  "relationships": {
+    "ExitTo": {
+      "great_hall": [
+        { "target": "mead_hall", "edge": { "direction": "east" } },
+        { "target": "war_room", "edge": { "direction": "north" } },
+        { "target": "training_yard", "edge": { "direction": "south" } }
+      ],
+      "mead_hall": [{ "target": "great_hall", "edge": { "direction": "west" } }],
+      "war_room": [
+        { "target": "great_hall", "edge": { "direction": "south" } },
+        { "target": "dungeon", "edge": { "direction": "down", "label": "an iron trapdoor", "locked": true } }
+      ],
+      "training_yard": [
+        { "target": "great_hall", "edge": { "direction": "north" } },
+        { "target": "forge", "edge": { "direction": "east" } }
+      ],
+      "forge": [{ "target": "training_yard", "edge": { "direction": "west" } }]
+    },
+    "Contains": {
+      "great_hall": [
+        { "target": "ragnvald", "edge": { "mode": "occupant" } },
+        { "target": "war_chest", "edge": { "mode": "fixture" } }
+      ],
+      "mead_hall": [
+        { "target": "sigrid", "edge": { "mode": "occupant" } },
+        { "target": "mead_barrel", "edge": { "mode": "fixture" } }
+      ],
+      "war_room": [
+        { "target": "greta", "edge": { "mode": "occupant" } },
+        { "target": "trapdoor", "edge": { "mode": "fixture" } }
+      ],
+      "training_yard": [{ "target": "bjorn", "edge": { "mode": "occupant" } }],
+      "forge": [
+        { "target": "anvil", "edge": { "mode": "fixture" } },
+        { "target": "quench_barrel", "edge": { "mode": "fixture" } },
+        { "target": "forge_gate", "edge": { "mode": "fixture" } }
+      ],
+      "dungeon": [{ "target": "aldric", "edge": { "mode": "occupant" } }],
+      "war_chest": [
+        { "target": "gold_pile", "edge": { "mode": "stored" } },
+        { "target": "trophy_skull", "edge": { "mode": "stored" } },
+        { "target": "runic_coffer", "edge": { "mode": "stored" } }
+      ],
+      "runic_coffer": [{ "target": "frost_rune", "edge": { "mode": "stored" } }],
+      "mead_barrel": [{ "target": "drinking_horn", "edge": { "mode": "stored" } }],
+      "quench_barrel": [{ "target": "iron_ingot", "edge": { "mode": "stored" } }]
+    },
+    "Holding": {
+      "ragnvald": [{ "target": "battle_axe", "edge": { "slot": "right_hand" } }]
+    },
+    "Wearing": {
+      "ragnvald": [{ "target": "fur_cloak", "edge": { "slot": "back" } }]
+    },
+    "ControlledBy": {
+      "ragnvald": [{ "target": "ragnvald_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "sigrid": [{ "target": "sigrid_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "bjorn": [{ "target": "bjorn_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "greta": [{ "target": "greta_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "aldric": [{ "target": "aldric_ctl", "edge": { "generation": 0, "since_epoch": 0 } }]
+    },
+    "PartnerOf": {
+      "ragnvald": [{ "target": "sigrid", "edge": { "since_epoch": 40, "status": "wed" } }],
+      "sigrid": [{ "target": "ragnvald", "edge": { "since_epoch": 40, "status": "wed" } }]
+    },
+    "ParentOf": {
+      "ragnvald": [{ "target": "bjorn", "edge": {} }],
+      "sigrid": [{ "target": "bjorn", "edge": {} }]
+    },
+    "JealousOf": {
+      "greta": [{ "target": "sigrid", "edge": { "partner_id": "ragnvald", "intensity": 0.7, "triggered_at_epoch": 200 } }]
+    },
+    "SocialBond": {
+      "ragnvald": [{ "target": "sigrid", "edge": { "affinity": 9.0, "trust": 8.0, "familiarity": 9.0 } }],
+      "sigrid": [{ "target": "ragnvald", "edge": { "affinity": 8.0, "trust": 9.0, "familiarity": 9.0 } }],
+      "greta": [{ "target": "ragnvald", "edge": { "affinity": 6.0, "trust": 4.0, "familiarity": 7.0 } }]
+    }
+  },
+  "relics": []
+}

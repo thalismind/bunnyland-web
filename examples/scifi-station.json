@@ -1,0 +1,234 @@
+{
+  "metadata": { "version": "1.0", "epoch": 90400 },
+  "bunnyland": { "seed": "kepler-9", "generator": "handcrafted" },
+  "prefabs": { "entity": { "components": {} } },
+  "entities": {
+    "bridge": { "prefab": "entity", "created_epoch": 0 },
+    "medbay": { "prefab": "entity", "created_epoch": 0 },
+    "engineering": { "prefab": "entity", "created_epoch": 0 },
+    "cargo_hold": { "prefab": "entity", "created_epoch": 0 },
+    "airlock": { "prefab": "entity", "created_epoch": 0 },
+    "reactor": { "prefab": "entity", "created_epoch": 0 },
+    "cryo": { "prefab": "entity", "created_epoch": 0 },
+    "vega": { "prefab": "entity", "created_epoch": 0 },
+    "okafor": { "prefab": "entity", "created_epoch": 0 },
+    "doss": { "prefab": "entity", "created_epoch": 0 },
+    "k3": { "prefab": "entity", "created_epoch": 0 },
+    "renn": { "prefab": "entity", "created_epoch": 0 },
+    "vega_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "okafor_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "doss_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "k3_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "renn_ctl": { "prefab": "entity", "created_epoch": 0 },
+    "sidearm": { "prefab": "entity", "created_epoch": 0 },
+    "officer_jacket": { "prefab": "entity", "created_epoch": 0 },
+    "supply_crate": { "prefab": "entity", "created_epoch": 0 },
+    "ration_pack": { "prefab": "entity", "created_epoch": 0 },
+    "sealed_case": { "prefab": "entity", "created_epoch": 0 },
+    "data_core": { "prefab": "entity", "created_epoch": 0 },
+    "med_locker": { "prefab": "entity", "created_epoch": 0 },
+    "medkit": { "prefab": "entity", "created_epoch": 0 },
+    "stimpack": { "prefab": "entity", "created_epoch": 0 },
+    "tool_rack": { "prefab": "entity", "created_epoch": 0 },
+    "plasma_cutter": { "prefab": "entity", "created_epoch": 0 },
+    "blast_door": { "prefab": "entity", "created_epoch": 0 },
+    "outer_hatch": { "prefab": "entity", "created_epoch": 0 },
+    "cryopod": { "prefab": "entity", "created_epoch": 0 },
+    "quest_power": { "prefab": "entity", "created_epoch": 0 },
+    "obj_conduit": { "prefab": "entity", "created_epoch": 0 },
+    "obj_core": { "prefab": "entity", "created_epoch": 0 },
+    "rew_codes": { "prefab": "entity", "created_epoch": 0 },
+    "quest_wake": { "prefab": "entity", "created_epoch": 0 },
+    "obj_thaw": { "prefab": "entity", "created_epoch": 0 }
+  },
+  "components": {
+    "RoomComponent": {
+      "bridge": { "title": "Command Bridge", "biome": "deck", "indoor": true },
+      "medbay": { "title": "Med Bay", "biome": "deck", "indoor": true },
+      "engineering": { "title": "Engineering", "biome": "deck", "indoor": true },
+      "cargo_hold": { "title": "Cargo Hold", "biome": "hold", "indoor": true },
+      "airlock": { "title": "Airlock", "biome": "deck", "indoor": true },
+      "reactor": { "title": "Reactor Core", "biome": "hazard", "indoor": true },
+      "cryo": { "title": "Cryo Vault", "biome": "deck", "indoor": true }
+    },
+    "CharacterComponent": {
+      "vega": { "species": "human" },
+      "okafor": { "species": "human" },
+      "doss": { "species": "human" },
+      "k3": { "species": "android" },
+      "renn": { "species": "human" }
+    },
+    "ContainerComponent": {
+      "supply_crate": { "capacity": 8 },
+      "sealed_case": { "capacity": 2 },
+      "med_locker": { "capacity": 6 },
+      "tool_rack": { "capacity": 6 }
+    },
+    "PortableComponent": {
+      "sidearm": { "weight": 2 },
+      "officer_jacket": { "weight": 1 },
+      "ration_pack": { "weight": 1 },
+      "data_core": { "weight": 1 },
+      "medkit": { "weight": 2 },
+      "stimpack": { "weight": 1 },
+      "plasma_cutter": { "weight": 4 }
+    },
+    "DoorComponent": {
+      "blast_door": { "open": false, "open_on_use": false, "auto_close_after_ticks": null },
+      "outer_hatch": { "open": true, "open_on_use": true, "auto_close_after_ticks": null }
+    },
+    "LockableComponent": {
+      "blast_door": { "locked": true },
+      "med_locker": { "locked": true }
+    },
+    "IdentityComponent": {
+      "vega": { "name": "Captain Vega", "kind": "officer" },
+      "okafor": { "name": "Medic Okafor", "kind": "medic" },
+      "doss": { "name": "Engineer Doss", "kind": "engineer" },
+      "k3": { "name": "Synth-Unit K3", "kind": "android" },
+      "renn": { "name": "Colonist Renn", "kind": "colonist" },
+      "sidearm": { "name": "Plasma Sidearm", "kind": "weapon" },
+      "officer_jacket": { "name": "Officer's Jacket", "kind": "apparel" },
+      "supply_crate": { "name": "Supply Crate", "kind": "container" },
+      "ration_pack": { "name": "Ration Pack", "kind": "food" },
+      "sealed_case": { "name": "Sealed Case", "kind": "container" },
+      "data_core": { "name": "Data Core", "kind": "data" },
+      "med_locker": { "name": "Med Locker", "kind": "container" },
+      "medkit": { "name": "Medkit", "kind": "medical" },
+      "stimpack": { "name": "Stimpack", "kind": "medical" },
+      "tool_rack": { "name": "Tool Rack", "kind": "container" },
+      "plasma_cutter": { "name": "Plasma Cutter", "kind": "tool" },
+      "blast_door": { "name": "Reactor Blast Door", "kind": "door" },
+      "outer_hatch": { "name": "Outer Hatch", "kind": "door" },
+      "cryopod": { "name": "Cryopod 7", "kind": "fixture" }
+    },
+    "DescriptionComponent": {
+      "vega": { "short": "a weary station commander" },
+      "k3": { "short": "a deactivated maintenance android" }
+    },
+    "HungerComponent": {
+      "doss": { "meter": { "value": 82, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "ThirstComponent": {
+      "vega": { "meter": { "value": 46, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "AffectComponent": {
+      "vega": { "baseline": { "valence": 0, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 }, "current": { "valence": -6, "arousal": 8, "stress": 14, "fear": 4, "anger": 0, "sadness": 2, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 }, "labels": ["stressed"] },
+      "okafor": { "baseline": { "valence": 0, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 }, "current": { "valence": 6, "arousal": 0, "stress": 4, "fear": 0, "anger": 0, "sadness": 0, "confidence": 6, "sociability": 6, "curiosity": 0, "focus": 0 }, "labels": ["content"] }
+    },
+    "InjuryComponent": {
+      "doss": { "body_part": "left arm", "severity": 0.5, "pain": 0.5, "bleeding_rate": 0.4, "treated": false, "applied_at_epoch": 90100 }
+    },
+    "BleedingComponent": {
+      "doss": { "rate": 0.4, "accumulated_loss": 5.0, "last_updated_epoch": 90380 }
+    },
+    "DownedComponent": {
+      "k3": { "downed_at_epoch": 89000, "cause": "power loss", "checks_remaining": 0, "stable": true }
+    },
+    "LLMControllerComponent": {
+      "vega_ctl": { "profile_name": "command", "model": "claude-sim", "temperature": 0.6, "max_tokens": 1024, "system_style": "in_character", "tool_policy": "character_actions" },
+      "okafor_ctl": { "profile_name": "medic", "model": "claude-sim", "temperature": 0.7, "max_tokens": 1024, "system_style": "in_character", "tool_policy": "character_actions" }
+    },
+    "DiscordControllerComponent": {
+      "doss_ctl": { "discord_user_id": 7720042, "default_channel_id": 992001, "mention_on_ready": true, "allow_dm": true }
+    },
+    "SuspendedControllerComponent": {
+      "k3_ctl": { "reason": "deactivated" },
+      "renn_ctl": { "reason": "cryosleep" }
+    },
+    "QuestComponent": {
+      "quest_power": { "quest_id": "mainpower", "title": "Restore Main Power", "status": "active", "accepted_by": ["doss"], "completed_at_epoch": null },
+      "quest_wake": { "quest_id": "wakecolonists", "title": "Wake the Colonists", "status": "offered", "accepted_by": [], "completed_at_epoch": null }
+    },
+    "QuestObjectiveComponent": {
+      "obj_conduit": { "quest_id": "mainpower", "description": "Reroute the plasma conduit", "completed": true, "completed_by": "doss" },
+      "obj_core": { "quest_id": "mainpower", "description": "Replace the reactor core", "completed": false, "completed_by": null },
+      "obj_thaw": { "quest_id": "wakecolonists", "description": "Thaw the cryopods safely", "completed": false, "completed_by": null }
+    },
+    "QuestRewardComponent": {
+      "rew_codes": { "quest_id": "mainpower", "description": "Station master access codes", "item_ids": ["data_core"], "claimed": false, "claimed_by": null }
+    }
+  },
+  "relationships": {
+    "ExitTo": {
+      "bridge": [
+        { "target": "medbay", "edge": { "direction": "port" } },
+        { "target": "engineering", "edge": { "direction": "aft" } },
+        { "target": "cargo_hold", "edge": { "direction": "starboard" } }
+      ],
+      "medbay": [
+        { "target": "bridge", "edge": { "direction": "fore" } },
+        { "target": "cryo", "edge": { "direction": "aft" } }
+      ],
+      "engineering": [
+        { "target": "bridge", "edge": { "direction": "fore" } },
+        { "target": "reactor", "edge": { "direction": "aft", "label": "a sealed blast door", "locked": true } },
+        { "target": "cargo_hold", "edge": { "direction": "down", "label": "a maintenance crawlway" } }
+      ],
+      "cargo_hold": [
+        { "target": "bridge", "edge": { "direction": "fore" } },
+        { "target": "airlock", "edge": { "direction": "aft" } }
+      ],
+      "airlock": [{ "target": "cargo_hold", "edge": { "direction": "fore" } }],
+      "reactor": [{ "target": "engineering", "edge": { "direction": "fore" } }],
+      "cryo": [{ "target": "medbay", "edge": { "direction": "fore" } }]
+    },
+    "Contains": {
+      "bridge": [{ "target": "vega", "edge": { "mode": "occupant" } }],
+      "medbay": [
+        { "target": "okafor", "edge": { "mode": "occupant" } },
+        { "target": "med_locker", "edge": { "mode": "fixture" } }
+      ],
+      "engineering": [
+        { "target": "doss", "edge": { "mode": "occupant" } },
+        { "target": "tool_rack", "edge": { "mode": "fixture" } },
+        { "target": "blast_door", "edge": { "mode": "fixture" } }
+      ],
+      "cargo_hold": [
+        { "target": "k3", "edge": { "mode": "occupant" } },
+        { "target": "supply_crate", "edge": { "mode": "ground" } }
+      ],
+      "airlock": [{ "target": "outer_hatch", "edge": { "mode": "fixture" } }],
+      "cryo": [
+        { "target": "renn", "edge": { "mode": "occupant" } },
+        { "target": "cryopod", "edge": { "mode": "fixture" } }
+      ],
+      "supply_crate": [
+        { "target": "ration_pack", "edge": { "mode": "stored" } },
+        { "target": "sealed_case", "edge": { "mode": "stored" } }
+      ],
+      "sealed_case": [{ "target": "data_core", "edge": { "mode": "stored" } }],
+      "med_locker": [
+        { "target": "medkit", "edge": { "mode": "stored" } },
+        { "target": "stimpack", "edge": { "mode": "stored" } }
+      ],
+      "tool_rack": [{ "target": "plasma_cutter", "edge": { "mode": "stored" } }]
+    },
+    "Holding": {
+      "vega": [{ "target": "sidearm", "edge": { "slot": "right_hand" } }]
+    },
+    "Wearing": {
+      "vega": [{ "target": "officer_jacket", "edge": { "slot": "torso" } }]
+    },
+    "ControlledBy": {
+      "vega": [{ "target": "vega_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "okafor": [{ "target": "okafor_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "doss": [{ "target": "doss_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "k3": [{ "target": "k3_ctl", "edge": { "generation": 0, "since_epoch": 0 } }],
+      "renn": [{ "target": "renn_ctl", "edge": { "generation": 0, "since_epoch": 0 } }]
+    },
+    "PartnerOf": {
+      "vega": [{ "target": "okafor", "edge": { "since_epoch": 50000, "status": "together" } }],
+      "okafor": [{ "target": "vega", "edge": { "since_epoch": 50000, "status": "together" } }]
+    },
+    "JealousOf": {
+      "doss": [{ "target": "okafor", "edge": { "partner_id": "vega", "intensity": 0.5, "triggered_at_epoch": 88000 } }]
+    },
+    "SocialBond": {
+      "vega": [{ "target": "okafor", "edge": { "affinity": 9.0, "trust": 8.0, "familiarity": 8.0 } }],
+      "okafor": [{ "target": "vega", "edge": { "affinity": 9.0, "trust": 8.0, "familiarity": 8.0 } }],
+      "doss": [{ "target": "vega", "edge": { "affinity": 7.0, "trust": 6.0, "familiarity": 7.0 } }]
+    }
+  },
+  "relics": []
+}

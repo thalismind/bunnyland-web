@@ -16,5 +16,18 @@ Drop any of these into the inspector (file picker or drag-and-drop) to explore o
   for the **Quests view**: "Find the Lost Carrot" (active) with one done and one pending
   objective, plus an unclaimed reward.
 
+- **`barbarian-hold.json`** — *Frostpeak Hold*, a larger barbarian world: six rooms
+  (great hall, mead hall, war room, forge, training yard, and a one-way trapdoor down to a
+  dungeon), five characters across LLM / Discord / suspended control, nested loot (a locked
+  war chest holding a runic coffer holding a frost rune), a wed Jarl and shieldmaiden with a
+  jealous seer, and the "Reclaim the Frostblade" quest. A captive thrall is downed, bleeding,
+  and injured.
+
+- **`scifi-station.json`** — *Derelict Station Kepler-9*, a larger sci-fi world: seven decks
+  laid out by ship bearings (fore/aft/port/starboard), a locked reactor blast door and a
+  one-way maintenance crawlway, a deactivated android, an injured engineer, a cryosleeping
+  colonist, nested cargo (crate → sealed case → data core), and two quests ("Restore Main
+  Power", "Wake the Colonists").
+
 - **`seed-world.json`** — a real snapshot saved from the server (`--seed test`). Two
   connected rooms with characters and ground items; useful as a realistic baseline.
