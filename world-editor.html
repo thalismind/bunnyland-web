@@ -579,6 +579,7 @@ class WorldEditor {
     this.authHeader = null;
     this.runtimePaused = null;
     this.runtimeRunning = false;
+    this.worldSchema = null;
     this._patchTimers = {};
     this._bind();
     this._renderAll();
@@ -625,6 +626,7 @@ class WorldEditor {
       this.selectedId = Object.keys(this.world.entities)[0] || null;
       this.liveBase = null;
       this.authHeader = null;
+      this.worldSchema = null;
       this._setRuntime(null, false);
       this._renderAll();
       this._status('World loaded', 'ok');
@@ -644,6 +646,7 @@ class WorldEditor {
       this.liveBase = base;
       this._renderAll();
       await this._refreshRuntime({ prompt: true });
+      await this._refreshSchema({ prompt: true });
       this._status('Server snapshot loaded · live patches enabled', 'ok');
     } catch (err) {
       this._status(`Server error: ${err.message}`, 'err');
@@ -655,6 +658,7 @@ class WorldEditor {
     this.selectedId = 'entity_1';
     this.liveBase = null;
     this.authHeader = null;
+    this.worldSchema = null;
     this._setRuntime(null, false);
     this._renderAll();
     this._status('New world created', 'ok');
@@ -710,6 +714,23 @@ class WorldEditor {
     } catch (err) {
       this._setRuntime(null, false);
       if (prompt) this._status(`Runtime error: ${err.message}`, 'err');
+    }
+  }
+
+  async _refreshSchema({ prompt = false } = {}) {
+    if (!this.liveBase) {
+      this.worldSchema = null;
+      return;
+    }
+    try {
+      const res = await fetch(`${this.liveBase}/world/schema`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      this.worldSchema = data;
+      this._renderAll();
+    } catch (err) {
+      this.worldSchema = null;
+      if (prompt) this._status(`Schema error: ${err.message}`, 'err');
     }
   }
 
@@ -809,11 +830,50 @@ class WorldEditor {
 
   _renderOptions() {
     document.getElementById('component-options').innerHTML =
-      componentNames(this.world).map(name => `<option value="${esc(name)}"></option>`).join('');
+      this._componentNames().map(name => `<option value="${esc(name)}"></option>`).join('');
     document.getElementById('edge-options').innerHTML =
       edgeNames(this.world).map(name => `<option value="${esc(name)}"></option>`).join('');
     document.getElementById('entity-options').innerHTML =
       Object.keys(this.world.entities).sort().map(id => `<option value="${esc(id)}">${esc(entityName(this.world.entities[id]))}</option>`).join('');
+  }
+
+  _componentNames() {
+    const names = new Set(componentNames(this.world));
+    for (const name of Object.keys(this.worldSchema?.components || {})) names.add(name);
+    return [...names].sort();
+  }
+
+  _componentSchema(type) {
+    return this.worldSchema?.components?.[type]?.json_schema || null;
+  }
+
+  _resolveSchemaRef(schema, root) {
+    if (!schema?.$ref) return schema || {};
+    const prefix = '#/$defs/';
+    if (!schema.$ref.startsWith(prefix)) return schema;
+    return root?.$defs?.[schema.$ref.slice(prefix.length)] || schema;
+  }
+
+  _fieldSchema(schema, root) {
+    const resolved = this._resolveSchemaRef(schema, root);
+    if (!resolved.anyOf) return resolved;
+    const concrete = resolved.anyOf.find(item => item.type !== 'null') || resolved.anyOf[0];
+    return {
+      ...this._resolveSchemaRef(concrete, root),
+      default: resolved.default,
+      nullable: resolved.anyOf.some(item => item.type === 'null')
+    };
+  }
+
+  _defaultForSchema(schema, root) {
+    const field = this._fieldSchema(schema, root);
+    if (Object.prototype.hasOwnProperty.call(field, 'default')) return clone(field.default);
+    if (field.enum?.length) return field.enum[0];
+    if (field.type === 'boolean') return false;
+    if (field.type === 'integer' || field.type === 'number') return 0;
+    if (field.type === 'array') return [];
+    if (field.type === 'object') return {};
+    return '';
   }
 
   _renderInfo() {
@@ -889,7 +949,7 @@ class WorldEditor {
         </div>
       </div>
       <div class="section">
-        <div class="section-title">Components <button id="btn-add-component">Add Component</button></div>
+        <div class="section-title">Components ${this._renderAddComponentControl(entity)}</div>
         <div id="component-list">${this._renderComponents(entity)}</div>
       </div>
       ${this._renderGeneration(entity)}
@@ -901,6 +961,18 @@ class WorldEditor {
     this._bindEditor(root, entity);
   }
 
+  _renderAddComponentControl(entity) {
+    const existing = new Set(Object.keys(entity.components || {}));
+    const options = this._componentNames().filter(name => !existing.has(name));
+    const disabled = options.length ? '' : ' disabled';
+    return `
+      <select id="add-component-type"${disabled}>
+        ${options.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')}
+      </select>
+      <button id="btn-add-component"${disabled}>Add Component</button>
+    `;
+  }
+
   _renderComponents(entity) {
     const entries = Object.entries(entity.components || {}).sort(([a], [b]) => a.localeCompare(b));
     if (!entries.length) return '<div class="empty">No components.</div>';
@@ -908,12 +980,78 @@ class WorldEditor {
       <div class="record-card component-card" data-type="${esc(type)}">
         <div class="record-head">${esc(type)} <button data-delete-component="${esc(type)}">Delete</button></div>
         <div class="record-body">
-          <label class="field full">Fields
-            <textarea class="component-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
-          </label>
+          ${this._renderComponentFields(type, fields || {})}
         </div>
       </div>
     `).join('');
+  }
+
+  _renderComponentFields(type, fields) {
+    const schema = this._componentSchema(type);
+    const properties = schema?.properties || null;
+    if (!properties) {
+      return `
+        <label class="field full">Fields
+          <textarea class="component-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
+        </label>
+      `;
+    }
+    const rows = Object.entries(properties).map(([name, rawSchema]) => {
+      const field = this._fieldSchema(rawSchema, schema);
+      const value = Object.prototype.hasOwnProperty.call(fields, name)
+        ? fields[name]
+        : this._defaultForSchema(field, schema);
+      return this._renderComponentField(name, field, value);
+    }).join('');
+    return `
+      <div class="form-grid typed-component-fields">${rows}</div>
+      <details class="tiny">
+        <summary>Raw JSON</summary>
+        <textarea class="component-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
+      </details>
+    `;
+  }
+
+  _renderComponentField(name, schema, value) {
+    const label = esc(schema.title || name);
+    const nullable = schema.nullable ? ' data-nullable="true"' : '';
+    const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}`;
+    if (schema.enum?.length) {
+      return `
+        <label class="field wide">${label}
+          <select class="component-field" ${data}>
+            ${schema.enum.map(option => `<option value="${esc(option)}" ${option === value ? 'selected' : ''}>${esc(option)}</option>`).join('')}
+          </select>
+        </label>
+      `;
+    }
+    if (schema.type === 'boolean') {
+      return `
+        <label class="field">${label}
+          <input class="component-field" ${data} type="checkbox" ${value ? 'checked' : ''}>
+        </label>
+      `;
+    }
+    if (schema.type === 'integer' || schema.type === 'number') {
+      const step = schema.type === 'integer' ? '1' : 'any';
+      return `
+        <label class="field">${label}
+          <input class="component-field" ${data} type="number" step="${step}" value="${esc(value ?? '')}">
+        </label>
+      `;
+    }
+    if (schema.type === 'array' || schema.type === 'object') {
+      return `
+        <label class="field full">${label}
+          <textarea class="component-field component-field-json" ${data} spellcheck="false">${esc(JSON.stringify(value ?? (schema.type === 'array' ? [] : {}), null, 2))}</textarea>
+        </label>
+      `;
+    }
+    return `
+      <label class="field wide">${label}
+        <input class="component-field" ${data} type="text" value="${esc(value ?? '')}" spellcheck="false">
+      </label>
+    `;
   }
 
   _renderGeneration(entity) {
@@ -1022,7 +1160,7 @@ class WorldEditor {
     for (const card of root.querySelectorAll('.component-card')) {
       const type = card.dataset.type;
       const textarea = card.querySelector('.component-json');
-      textarea.addEventListener('input', () => {
+      textarea?.addEventListener('input', () => {
         textarea.classList.remove('bad-json');
         try {
           const fields = parseObject(textarea.value);
@@ -1039,6 +1177,10 @@ class WorldEditor {
           textarea.classList.add('bad-json');
         }
       });
+      for (const input of card.querySelectorAll('.component-field')) {
+        input.addEventListener('input', () => this._updateTypedComponent(card, entity, type));
+        input.addEventListener('change', () => this._updateTypedComponent(card, entity, type));
+      }
     }
     for (const card of root.querySelectorAll('.edge-card')) {
       const type = card.dataset.type;
@@ -1083,6 +1225,47 @@ class WorldEditor {
       target.addEventListener('input', update);
       json.addEventListener('input', update);
     }
+  }
+
+  _updateTypedComponent(card, entity, type) {
+    try {
+      const fields = {};
+      for (const input of card.querySelectorAll('.component-field')) {
+        input.classList.remove('bad-json');
+        fields[input.dataset.field] = this._readComponentField(input);
+      }
+      entity.components[type] = fields;
+      const raw = card.querySelector('.component-json');
+      if (raw) raw.value = JSON.stringify(fields, null, 2);
+      this._renderJson();
+      this._renderEntities();
+      this._renderOptions();
+      this._debouncedPatch(
+        `component:${entity.id}:${type}`,
+        [{ op: 'set_component', entity_id: entity.id, component: { type, fields } }],
+        'Component patched'
+      );
+    } catch (err) {
+      if (err.input) err.input.classList.add('bad-json');
+    }
+  }
+
+  _readComponentField(input) {
+    const kind = input.dataset.kind;
+    const nullable = input.dataset.nullable === 'true';
+    if (nullable && input.value === '') return null;
+    if (kind === 'boolean') return input.checked;
+    if (kind === 'integer') return input.value === '' ? 0 : parseInt(input.value, 10);
+    if (kind === 'number') return input.value === '' ? 0 : Number(input.value);
+    if (kind === 'array' || kind === 'object') {
+      try {
+        return JSON.parse(input.value || (kind === 'array' ? '[]' : '{}'));
+      } catch (err) {
+        err.input = input;
+        throw err;
+      }
+    }
+    return input.value;
   }
 
   async _generateAndApply(path, body, selectEntity, label) {
@@ -1267,7 +1450,7 @@ class WorldEditor {
   async _addComponent() {
     const entity = this._selected();
     if (!entity) return;
-    const type = window.prompt('Component type', 'IdentityComponent');
+    const type = document.getElementById('add-component-type')?.value;
     if (!type) return;
     if (entity.components[type]) {
       this._status('Entity already has that component', 'err');
@@ -1292,6 +1475,14 @@ class WorldEditor {
   }
 
   _defaultComponent(type, entity) {
+    const schema = this._componentSchema(type);
+    if (schema?.properties) {
+      const fields = {};
+      for (const [name, rawSchema] of Object.entries(schema.properties)) {
+        fields[name] = this._defaultForSchema(rawSchema, schema);
+      }
+      return fields;
+    }
     if (type === 'IdentityComponent') return { name: entity.id, kind: 'entity', tags: [] };
     if (type === 'RoomComponent') return { title: entity.id, biome: 'unknown', indoor: false, private: false, safe: true };
     if (type === 'CharacterComponent') return { species: 'bunny', biography: '', public: true };
