@@ -55,11 +55,24 @@
       "oakdoor": { "name": "Oak Door", "kind": "door" },
       "gate": { "name": "Garden Gate", "kind": "door" }
     },
-    "NeedsComponent": {
+    "HungerComponent": {
+      "clover": { "meter": { "value": 75, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "ThirstComponent": {
+      "clover": { "meter": { "value": 45, "minimum": 0, "maximum": 100, "warning_at": 40, "urgent_at": 70, "crisis_at": 90 } }
+    },
+    "AffectComponent": {
       "clover": {
-        "hunger": { "value": 6.5, "minimum": 0, "maximum": 10 },
-        "thirst": { "value": 2.0, "minimum": 0, "maximum": 10 }
+        "baseline": { "valence": 0, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 },
+        "current": { "valence": 10, "arousal": 0, "stress": 0, "fear": 0, "anger": 0, "sadness": 0, "confidence": 0, "sociability": 0, "curiosity": 0, "focus": 0 },
+        "labels": ["content"]
       }
+    },
+    "DownedComponent": {
+      "pip": { "downed_at_epoch": 30, "cause": "exhaustion", "checks_remaining": 2, "stable": false }
+    },
+    "BleedingComponent": {
+      "pip": { "rate": 0.5, "accumulated_loss": 3.0, "last_updated_epoch": 40 }
     },
     "LLMControllerComponent": {
       "clover_ctl": {

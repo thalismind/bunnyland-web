@@ -245,6 +245,11 @@
       font-weight: bold;
       white-space: nowrap;
     }
+    .status-badges {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #cdd6f4;
+    }
 
     #inspector-body {
       flex: 1;
@@ -524,6 +529,59 @@ function controlInfo(entity, world) {
 const MOVED_RECENT_EPOCHS = 60;
 const MOVED_HIGHLIGHT = '#f9e2af';
 
+// A need's meter carries its own band thresholds; report the worst one it has crossed.
+function needBand(meter) {
+  if (!meter) return null;
+  const v = meter.value ?? 0;
+  if (meter.crisis_at != null && v >= meter.crisis_at) return 'crisis';
+  if (meter.urgent_at != null && v >= meter.urgent_at) return 'urgent';
+  if (meter.warning_at != null && v >= meter.warning_at) return 'warning';
+  return null;
+}
+
+// Map the server's affect labels to a face; unknown labels still show as a 💭 mood badge.
+const MOOD_FACES = {
+  angry: '😠', insulted: '😠', furious: '😠',
+  afraid: '😨', threatened: '😨', scared: '😨',
+  sad: '😢', unhappy: '🙁', grieving: '😢',
+  stressed: '😰', anxious: '😰',
+  content: '🙂', happy: '😀', flattered: '😊', comforted: '😌',
+  confident: '😎', calm: '😌', excited: '🤩', curious: '🧐', lonely: '🥺',
+};
+function moodBadge(affect) {
+  const labels = affect?.labels || [];
+  if (!labels.length) return null;
+  let icon = '💭';
+  for (const l of labels) { if (MOOD_FACES[l]) { icon = MOOD_FACES[l]; break; } }
+  return { icon, label: labels.join(', ') };
+}
+
+// Status badges for a character: lifecycle, injury, pregnancy, needs, mood, thoughts.
+// Returns [{ icon, label }]; non-characters get none. Several is expected — the node
+// renders them on their own row.
+function statusBadges(entity, world) {
+  const c = entity.components;
+  if (!c.CharacterComponent) return [];
+  const out = [];
+  if (c.DeadComponent) out.push({ icon: '💀', label: 'dead' });
+  else if (c.DownedComponent) out.push({ icon: '💫', label: 'downed' });
+  if (c.BleedingComponent && (c.BleedingComponent.rate || 0) > 0) out.push({ icon: '🩸', label: 'bleeding' });
+  if (c.InjuryComponent || entity.relationships?.HasInjury?.length) out.push({ icon: '🤕', label: 'injured' });
+  if (c.PregnancyComponent) out.push({ icon: '🤰', label: 'pregnant' });
+
+  const hb = needBand(c.HungerComponent?.meter);
+  if (hb) out.push({ icon: '🍽️', label: hb === 'crisis' ? 'starving' : hb === 'urgent' ? 'very hungry' : 'hungry' });
+  const tb = needBand(c.ThirstComponent?.meter);
+  if (tb) out.push({ icon: '💧', label: tb === 'crisis' ? 'parched' : tb === 'urgent' ? 'very thirsty' : 'thirsty' });
+
+  const mood = moodBadge(c.AffectComponent);
+  if (mood) out.push(mood);
+
+  const thoughts = entity.relationships?.HasThought?.length || 0;
+  if (thoughts) out.push({ icon: '💭', label: `${thoughts} thought${thoughts > 1 ? 's' : ''}` });
+  return out;
+}
+
 // Icons for the live event feed; anything not listed falls back to a bullet.
 const EVENT_ICONS = {
   ActorMovedEvent: '🏃', NoiseHeardEvent: '👂', EntitySeenEvent: '👁',
@@ -762,8 +820,12 @@ function showInspector(entityId, world) {
   const movedHtml = window.app?._movedRecently(entityId)
     ? ` <span class="control-badge" style="color:${MOVED_HIGHLIGHT}">🏃 moved recently</span>`
     : '';
+  const badges = statusBadges(entity, world);
+  const badgesHtml = badges.length
+    ? `<div class="status-badges">${badges.map(b => `${b.icon} ${esc(b.label)}`).join('  ·  ')}</div>`
+    : '';
   document.getElementById('inspector-kind').innerHTML =
-    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}${movedHtml}`;
+    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}${movedHtml}${badgesHtml}`;
 
   let html = '';
   for (const [cname, fields] of Object.entries(entity.components)) {
@@ -1319,6 +1381,19 @@ class BunnylandInspector {
       };
     }
 
+    // Status badges (characters): mood / needs / health / pregnancy / thoughts. These can
+    // be several, so they get their own row of icons; the inspector spells out the labels.
+    const badges = this.world ? statusBadges(entity, this.world) : [];
+    if (badges.length) {
+      const w = node.addWidget('text', '', badges.map(b => b.icon).join(' '), () => {});
+      w.type = 'label';
+      w.draw = function(ctx, _node, widget_width, y, H) {
+        ctx.fillStyle = '#cdd6f4';
+        ctx.font = '13px "Courier New", monospace';
+        ctx.fillText(this.value, 8, y + H * 0.72);
+      };
+    }
+
     // Widget: drill-in button, labelled for what the entity holds.
     if (enterFn) {
       const label = type === 'room' ? 'Enter Room →'
@@ -1339,7 +1414,7 @@ class BunnylandInspector {
 
     node.size = [
       200,
-      24 + (sub ? 22 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
+      24 + (sub ? 22 : 0) + (badges.length ? 20 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
     ];
     node.pos = [x, y];
 

@@ -65,6 +65,12 @@ the `ControlledBy` edge to the controller entity: 🤖 **LLM** (with profile / m
 **Discord** (with user id), or 💤 **Suspended** (with reason). The badge appears on the
 character's node subtitle and, with full detail, on the inspector's kind line.
 
+**Status badges** — characters carry a row of state icons derived from their components:
+health/lifecycle (💀 dead, 💫 downed, 🩸 bleeding, 🤕 injured), 🤰 pregnant, needs
+(🍽️ hungry, 💧 thirsty — banded by each meter's own thresholds), mood (a face from
+`AffectComponent` labels), and 💭 active thoughts. They render on their own row under the
+node subtitle; the inspector spells out each label.
+
 **Recent movement** — while connected to a live server, characters that just moved
 (an `ActorMovedEvent` within the last ~60 epochs) are flagged with a 🏃 marker and a
 highlighted title dot. The flag fades as the world advances and the graph refreshes; it
