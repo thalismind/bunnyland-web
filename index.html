@@ -126,16 +126,93 @@
     #drop-overlay .title { font-size: 20px; color: #cdd6f4; }
     #drop-overlay .hint { font-size: 11px; color: #585b70; margin-top: 4px; }
 
-    /* ── Inspector panel ── */
-    #inspector {
+    /* ── Right sidebar (inspector + optional event feed) ── */
+    #sidebar {
       width: 370px;
       min-width: 260px;
-      background: #181825;
       border-left: 1px solid #313244;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
+
+    /* ── Inspector panel ── */
+    #inspector {
+      flex: 1;
+      min-height: 0;
+      background: #181825;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Event feed panel (optional, under the inspector) ── */
+    #event-panel {
+      flex-shrink: 0;
+      height: 45%;
+      display: flex;
+      flex-direction: column;
+      background: #181825;
+      border-top: 1px solid #313244;
+    }
+    #event-panel.hidden { display: none; }
+    #event-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: #89dceb;
+      background: #1e1e2e;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+    #event-panel-header .ev-title { font-weight: bold; }
+    #event-count { color: #585b70; }
+    #event-clear {
+      margin-left: auto;
+      font-size: 10px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      padding: 1px 7px;
+      cursor: pointer;
+    }
+    #event-clear:hover { background: #45475a; }
+    #event-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 3px 0;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+    #event-list::-webkit-scrollbar { width: 6px; }
+    #event-list::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
+    #event-empty { padding: 16px; text-align: center; color: #585b70; }
+    .ev-row {
+      padding: 1px 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid #1a1a2a;
+    }
+    .ev-row:hover { background: #1e1e2e; }
+    .ev-epoch { color: #585b70; margin-right: 5px; }
+    .ev-icon { margin-right: 4px; }
+    .ev-actor { color: #89b4fa; cursor: pointer; }
+    .ev-actor:hover { text-decoration: underline; }
+    .ev-text { color: #a6adc8; }
+    #events-toggle {
+      font-size: 11px;
+      color: #a6adc8;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    #events-toggle input { cursor: pointer; }
 
     #inspector-header {
       padding: 8px 12px;
@@ -285,6 +362,9 @@
     <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
       <input type="checkbox" id="toggle-parents" checked> parent nodes
     </label>
+    <label id="events-toggle" title="Show a live feed of world events under the inspector">
+      <input type="checkbox" id="toggle-events"> events
+    </label>
     <span class="toolbar-sep">|</span>
     <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
     <span id="world-info"></span>
@@ -300,15 +380,27 @@
       <div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div>
     </div>
   </div>
-  <div id="inspector">
-    <div id="inspector-header">
-      <div id="inspector-name">No entity selected</div>
-      <div id="inspector-id"></div>
-      <div id="inspector-kind"></div>
+  <div id="sidebar">
+    <div id="inspector">
+      <div id="inspector-header">
+        <div id="inspector-name">No entity selected</div>
+        <div id="inspector-id"></div>
+        <div id="inspector-kind"></div>
+      </div>
+      <div id="inspector-body">
+        <div id="inspector-empty">
+          Load a snapshot and click any node<br>to inspect its ECS components.
+        </div>
+      </div>
     </div>
-    <div id="inspector-body">
-      <div id="inspector-empty">
-        Load a snapshot and click any node<br>to inspect its ECS components.
+    <div id="event-panel" class="hidden">
+      <div id="event-panel-header">
+        <span class="ev-title">⚡ Events</span>
+        <span id="event-count"></span>
+        <button id="event-clear">clear</button>
+      </div>
+      <div id="event-list">
+        <div id="event-empty">Connect to a live server to stream world events.</div>
       </div>
     </div>
   </div>
@@ -431,6 +523,27 @@ function controlInfo(entity, world) {
 // refreshes, not be tick-exact.
 const MOVED_RECENT_EPOCHS = 60;
 const MOVED_HIGHLIGHT = '#f9e2af';
+
+// Icons for the live event feed; anything not listed falls back to a bullet.
+const EVENT_ICONS = {
+  ActorMovedEvent: '🏃', NoiseHeardEvent: '👂', EntitySeenEvent: '👁',
+  AttentionShiftedEvent: '🔭', AffectChangedEvent: '💭',
+  ActionPointsChangedEvent: '⚡', FocusPointsChangedEvent: '🎯',
+  ControllerChangedEvent: '🎮', CharacterDownedEvent: '💫',
+  CharacterRevivedEvent: '✨', CharacterDiedEvent: '💀',
+  InjuryAddedEvent: '🤕', PainChangedEvent: '😣', BleedingChangedEvent: '🩸',
+  EncumbranceChangedEvent: '🎒', PartnershipStartedEvent: '💞',
+  PartnershipEndedEvent: '💔', PregnancyStartedEvent: '🤰',
+  BirthDueEvent: '👶', BirthResolvedEvent: '👶', AdoptionCompletedEvent: '🍼',
+  ResourceGatheredEvent: '🌿', ItemCraftedEvent: '🔨', JobAssignedEvent: '📋',
+  JobCompletedEvent: '✅', OwnershipClaimedEvent: '🏷', CommandExecutedEvent: '🛠',
+  CommandRejectedEvent: '🚫',
+};
+
+// "ActorMovedEvent" → "actor moved"
+function humanizeEvent(type) {
+  return type.replace(/Event$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+}
 
 // Edge types that express "what is inside / carried by" an entity. Rooms contain
 // characters & objects (Contains); characters carry items (Holding) and wear them
@@ -680,6 +793,8 @@ class BunnylandInspector {
     this._refreshTimer = null;
     this._apiBase = null;
     this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
+    this._events = [];  // rolling buffer of recent event messages for the feed
+    this._eventsPrimed = false;
 
     this._initCanvas();
     this._initFileInput();
@@ -699,6 +814,10 @@ class BunnylandInspector {
         if (url) this.connectLive(url);
       }
     });
+    document.getElementById('toggle-events').addEventListener('change', (e) => {
+      document.getElementById('event-panel').classList.toggle('hidden', !e.target.checked);
+    });
+    document.getElementById('event-clear').addEventListener('click', () => this._clearEvents());
   }
 
   _initCanvas() {
@@ -763,6 +882,7 @@ class BunnylandInspector {
   loadSnapshot(json) {
     this.disconnectLive();
     this._movedAt = {}; // movement is tracked from the live event stream only
+    this._clearEvents();
     this._applyWorld(parseSnapshot(json), { resetView: true });
   }
 
@@ -771,6 +891,8 @@ class BunnylandInspector {
   connectLive(url) {
     this.disconnectLive();
     this._movedAt = {};
+    this._eventsPrimed = false;
+    this._clearEvents();
     this._apiBase = url.replace(/\/$/, '');
 
     const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
@@ -787,8 +909,10 @@ class BunnylandInspector {
       if (msg.type === 'snapshot') {
         // Server sends full snapshot on connect — use it directly.
         this._applyWorld(parseApiSnapshot(msg.data), { resetView: !this.world });
+        if (!this._eventsPrimed) { this._eventsPrimed = true; this._primeEvents(); }
       } else if (msg.type === 'event') {
         this._noteEvent(msg.data);
+        this._appendEvent(msg.data); // feed updates live, independent of the graph refresh
         // Debounce: re-fetch the snapshot 400 ms after the last event burst.
         clearTimeout(this._refreshTimer);
         this._refreshTimer = setTimeout(() => this._refreshFromApi(), 400);
@@ -851,6 +975,81 @@ class BunnylandInspector {
     const at = this._movedAt[entityId];
     if (at == null || !this.world) return false;
     return (this.world.epoch - at) <= MOVED_RECENT_EPOCHS;
+  }
+
+  // ── Live event feed ──────────────────────────────────────────────────────────
+
+  _nameFor(id) {
+    const e = this.world?.entities?.[id];
+    return e ? entityDisplayName(e) : String(id).slice(0, 14);
+  }
+
+  // A short human summary for an event, using entity names where we can resolve them.
+  _eventSummary(type, ev) {
+    const names = (ids) => (ids || []).map((t) => this._nameFor(t)).join(', ');
+    switch (type) {
+      case 'ActorMovedEvent':
+        return `moved ${ev.direction ? ev.direction + ' ' : ''}→ ${this._nameFor(ev.to_room_id)}`;
+      case 'ActionPointsChangedEvent': return `AP → ${ev.current}/${ev.maximum}`;
+      case 'FocusPointsChangedEvent':  return `focus → ${ev.current}/${ev.maximum}`;
+      case 'NoiseHeardEvent':          return 'heard a noise';
+      case 'EntitySeenEvent':          return `saw ${names(ev.target_ids) || 'something'}`;
+      case 'CharacterDiedEvent':       return 'died';
+      case 'CharacterDownedEvent':     return 'was downed';
+      case 'CharacterRevivedEvent':    return 'revived';
+      case 'InjuryAddedEvent':         return 'was injured';
+      case 'PartnershipStartedEvent':  return `partnered with ${names(ev.target_ids)}`;
+      case 'PartnershipEndedEvent':    return `partnership ended`;
+      case 'ResourceGatheredEvent':    return 'gathered a resource';
+      case 'ItemCraftedEvent':         return 'crafted an item';
+      case 'CommandRejectedEvent':     return `command rejected${ev.reason ? ': ' + ev.reason : ''}`;
+      default:                         return humanizeEvent(type);
+    }
+  }
+
+  _eventRow(data) {
+    const type = data.event_type || 'Event';
+    const ev = data.event || {};
+    const icon = EVENT_ICONS[type] || '•';
+    const epoch = ev.world_epoch != null ? `${ev.world_epoch}s` : '';
+    const actor = ev.actor_id != null
+      ? `<span class="ev-actor" onclick="window.app.selectEntity('${esc(ev.actor_id)}')">${esc(this._nameFor(ev.actor_id))}</span> `
+      : '';
+    return `<div class="ev-row" title="${esc(type)}">`
+      + `<span class="ev-epoch">${esc(epoch)}</span>`
+      + `<span class="ev-icon">${icon}</span>`
+      + `${actor}<span class="ev-text">${esc(this._eventSummary(type, ev))}</span></div>`;
+  }
+
+  _appendEvent(data) {
+    const list = document.getElementById('event-list');
+    const empty = document.getElementById('event-empty');
+    if (empty) empty.remove();
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    list.insertAdjacentHTML('beforeend', this._eventRow(data));
+    this._events.push(data);
+    while (list.children.length > 250) list.removeChild(list.firstChild);
+    if (this._events.length > 250) this._events.splice(0, this._events.length - 250);
+    if (atBottom) list.scrollTop = list.scrollHeight; // keep the newest in view
+    document.getElementById('event-count').textContent = `(${this._events.length})`;
+  }
+
+  // Prime the feed with the server's recent-event history on connect.
+  async _primeEvents() {
+    if (!this._apiBase) return;
+    try {
+      const res = await fetch(`${this._apiBase}/world/events/recent`);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const msg of (data.events || [])) this._appendEvent(msg.data || msg);
+    } catch (_) { /* feed just stays empty */ }
+  }
+
+  _clearEvents() {
+    this._events = [];
+    document.getElementById('event-list').innerHTML =
+      '<div id="event-empty">Connect to a live server to stream world events.</div>';
+    document.getElementById('event-count').textContent = '';
   }
 
   // Apply a parsed world object, optionally preserving the current view.
