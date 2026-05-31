@@ -25,6 +25,26 @@ similar to Chrome's memory snapshot tools.
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
 
+## Configuration
+
+On load the client reads `config.json` (next to `index.html`) for deploy-specific
+settings:
+
+```json
+{
+  "serverUrl": "http://localhost:8765",
+  "autoConnect": false
+}
+```
+
+- `serverUrl` pre-fills the **Server** field so you connect to the right host without
+  retyping it.
+- `autoConnect` — when `true`, the client also opens the live connection on load;
+  when `false` it just fills the field and waits for you to click **Connect Live**.
+
+Edit `config.json` for your deployment. A missing or invalid file is harmless — the
+client falls back to its built-in defaults.
+
 ## Interface
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),

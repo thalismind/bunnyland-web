@@ -1129,6 +1129,25 @@ class BunnylandInspector {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 window.app = new BunnylandInspector();
 
+// Optional deploy-specific settings from config.json next to index.html:
+//   { "serverUrl": "http://host:port", "autoConnect": true }
+// serverUrl pre-fills the Server field; autoConnect also opens the live connection.
+// A missing or invalid file is fine — the client just keeps its defaults.
+(async function applyConfig() {
+  let cfg;
+  try {
+    const res = await fetch('config.json', { cache: 'no-store' });
+    if (!res.ok) return; // no config deployed
+    cfg = await res.json();
+  } catch (_) {
+    return; // not served over http, or unparseable — ignore
+  }
+  if (cfg && typeof cfg.serverUrl === 'string' && cfg.serverUrl) {
+    document.getElementById('api-url').value = cfg.serverUrl;
+    if (cfg.autoConnect) window.app.connectLive(cfg.serverUrl);
+  }
+})();
+
 // Allow loading the test snapshot from the CLI for development
 // e.g. fetch('/snapshot.json').then(r=>r.json()).then(j=>app.loadSnapshot(j))
 </script>
