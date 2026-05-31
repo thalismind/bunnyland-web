@@ -21,13 +21,22 @@
     /* ── Toolbar ── */
     #toolbar {
       display: flex;
-      align-items: center;
-      gap: 8px;
+      flex-direction: column;
+      gap: 5px;
       padding: 5px 12px;
       background: #181825;
       border-bottom: 1px solid #313244;
       flex-shrink: 0;
       font-size: 12px;
+    }
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #toolbar-row2 {
+      border-top: 1px solid #26263a;
+      padding-top: 5px;
     }
     #toolbar label { color: #a6adc8; }
     #toolbar input[type=file] {
@@ -262,19 +271,24 @@
 <body>
 
 <div id="toolbar">
-  <label for="file-input">Snapshot:</label>
-  <input type="file" id="file-input" accept=".json">
-  <span class="toolbar-sep">|</span>
-  <label for="api-url">Server:</label>
-  <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
-  <button id="btn-connect">Connect Live</button>
-  <span id="api-status">○ Offline</span>
-  <button id="btn-back" disabled>← Back</button>
-  <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
-    <input type="checkbox" id="toggle-parents" checked> parent nodes
-  </label>
-  <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
-  <span id="world-info"></span>
+  <div class="toolbar-row" id="toolbar-row1">
+    <label for="file-input">Snapshot:</label>
+    <input type="file" id="file-input" accept=".json">
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+    <button id="btn-connect">Connect Live</button>
+    <span id="api-status">○ Offline</span>
+    <button id="btn-back" disabled>← Back</button>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
+    <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
+      <input type="checkbox" id="toggle-parents" checked> parent nodes
+    </label>
+    <span class="toolbar-sep">|</span>
+    <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
+    <span id="world-info"></span>
+  </div>
 </div>
 
 <div id="main">
