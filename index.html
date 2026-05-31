@@ -80,6 +80,46 @@
       width: 190px;
     }
     #api-status { font-size: 11px; white-space: nowrap; }
+
+    /* ── Search / jump-to-entity ── */
+    #search-box { position: relative; }
+    #search-input {
+      font-size: 11px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      padding: 2px 6px;
+      width: 170px;
+    }
+    #search-input:focus { outline: none; border-color: #89b4fa; }
+    #search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 3px;
+      min-width: 240px;
+      max-height: 320px;
+      overflow-y: auto;
+      background: #1e1e2e;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      z-index: 20;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+    #search-results.hidden { display: none; }
+    .search-item {
+      padding: 4px 9px;
+      font-size: 11px;
+      color: #cdd6f4;
+      cursor: pointer;
+      white-space: nowrap;
+      border-bottom: 1px solid #181825;
+    }
+    .search-item:hover, .search-item.first { background: #313244; }
+    .search-item .si-icon { margin-right: 4px; }
+    .search-item .si-type { color: #6c7086; margin-left: 5px; }
+    .search-empty { padding: 8px 10px; font-size: 11px; color: #585b70; }
     #parents-toggle {
       font-size: 11px;
       color: #a6adc8;
@@ -396,6 +436,10 @@
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <button id="btn-back" disabled>← Back</button>
+    <span id="search-box">
+      <input type="text" id="search-input" placeholder="🔍 find entity…" spellcheck="false" autocomplete="off">
+      <div id="search-results" class="hidden"></div>
+    </span>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <span id="view-switch">
@@ -946,6 +990,17 @@ class BunnylandInspector {
     document.getElementById('btn-view-map').addEventListener('click', () => this.setRootView('map'));
     document.getElementById('btn-view-social').addEventListener('click', () => this.setRootView('social'));
     document.getElementById('btn-view-quest').addEventListener('click', () => this.setRootView('quest'));
+
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', (e) => this._search(e.target.value));
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && this._searchHits?.length) this._pickSearch(this._searchHits[0].id);
+      else if (e.key === 'Escape') { document.getElementById('search-results').classList.add('hidden'); searchInput.blur(); }
+    });
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => document.getElementById('search-results').classList.add('hidden'), 150);
+    });
+    searchInput.addEventListener('focus', (e) => { if (e.target.value.trim()) this._search(e.target.value); });
   }
 
   _initCanvas() {
@@ -1226,11 +1281,15 @@ class BunnylandInspector {
   // Switch top-level view (from the toolbar) and return to that root.
   setRootView(view) {
     this._rootView = view;
-    for (const v of ['map', 'social', 'quest']) {
-      document.getElementById('btn-view-' + v).classList.toggle('active', v === view);
-    }
+    this._syncViewButtons();
     this.viewStack = [];
     this.showRoot();
+  }
+
+  _syncViewButtons() {
+    for (const v of ['map', 'social', 'quest']) {
+      document.getElementById('btn-view-' + v).classList.toggle('active', v === this._rootView);
+    }
   }
 
   showRoomMap() {
@@ -1724,6 +1783,89 @@ class BunnylandInspector {
     showInspector(entityId, this.world);
     const node = this._nodeMap[entityId];
     if (node) this.lgcanvas.selectNode(node, false);
+  }
+
+  // ── Search / jump-to-entity ──────────────────────────────────────────────────
+
+  // child entityId → parent entityId, following containment edges (room/inventory/box).
+  _parentMap() {
+    const parent = {};
+    for (const e of Object.values(this.world.entities)) {
+      for (const rtype of CONTAINMENT_EDGES) {
+        for (const { target } of (e.relationships?.[rtype] || [])) parent[target] = e.id;
+      }
+    }
+    return parent;
+  }
+
+  // Navigate to wherever an entity lives and select it: rooms/contents under the map,
+  // quest pieces under the quest view, building the drilldown path for nested entities.
+  jumpToEntity(id) {
+    const entity = this.world?.entities[id];
+    if (!entity) return;
+    const type = entityType(entity);
+
+    if (type === 'quest' || type === 'objective' || type === 'reward') {
+      this.setRootView('quest');
+      this.selectEntity(id);
+      return;
+    }
+    if (type === 'room') {
+      this.setRootView('map');
+      this.selectEntity(id);
+      return;
+    }
+
+    // Contained entity: walk up to the root room, then show its parent's view.
+    const parent = this._parentMap();
+    const chain = [];
+    let cur = id, guard = 0;
+    while (parent[cur] != null && guard++ < 64) { cur = parent[cur]; chain.push(cur); }
+    chain.reverse(); // root room → … → direct parent of id
+
+    if (chain.length) {
+      this._rootView = 'map';
+      this._syncViewButtons();
+      this.viewStack = chain.map((eid) => ({ label: entityDisplayName(this.world.entities[eid]), entityId: eid }));
+      this._showEntity(chain[chain.length - 1]);
+      this.selectEntity(id);
+    } else {
+      this.selectEntity(id); // orphan (e.g. a controller) — inspector only
+    }
+  }
+
+  _search(query) {
+    const box = document.getElementById('search-results');
+    const q = query.trim().toLowerCase();
+    if (!q || !this.world) { box.classList.add('hidden'); box.innerHTML = ''; this._searchHits = []; return; }
+
+    const hits = [];
+    for (const e of Object.values(this.world.entities)) {
+      const name = entityDisplayName(e);
+      const type = entityType(e);
+      const hay = `${name} ${e.id} ${type} ${e.components.IdentityComponent?.kind || ''}`.toLowerCase();
+      if (hay.includes(q)) hits.push({ id: e.id, name, type });
+      if (hits.length >= 15) break;
+    }
+    hits.sort((a, b) => a.name.localeCompare(b.name));
+    this._searchHits = hits;
+
+    box.innerHTML = hits.length
+      ? hits.map((h, i) => {
+          const icon = (ENTITY_STYLE[h.type] || ENTITY_STYLE.other).icon;
+          return `<div class="search-item${i === 0 ? ' first' : ''}" onmousedown="window.app._pickSearch('${esc(h.id)}')">`
+            + `<span class="si-icon">${icon}</span> ${esc(h.name)} <span class="si-type">${esc(h.type)}</span></div>`;
+        }).join('')
+      : '<div class="search-empty">no matches</div>';
+    box.classList.remove('hidden');
+  }
+
+  _pickSearch(id) {
+    const box = document.getElementById('search-results');
+    box.classList.add('hidden');
+    document.getElementById('search-input').value = '';
+    this._searchHits = [];
+    this.jumpToEntity(id);
   }
 }
 
