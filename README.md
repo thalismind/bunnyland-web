@@ -36,6 +36,11 @@ and other entities (gray); **Inventory →** a character to see what it holds an
 **Open →** a container to see its contents — including containers nested inside other
 containers, to any depth. Each entity connects from the current header node.
 
+**Control indicator** — characters are tagged with who is driving them, found by following
+the `ControlledBy` edge to the controller entity: 🤖 **LLM** (with profile / model), 🎮
+**Discord** (with user id), or 💤 **Suspended** (with reason). The badge appears on the
+character's node subtitle and, with full detail, on the inspector's kind line.
+
 **ECS Inspector** — right panel shows all ECS components attached to the selected entity,
 with collapsible sections and inline sub-object expansion. Meter values (hunger, thirst, etc.)
 render with a colored progress bar. Relationships list target entities as clickable links

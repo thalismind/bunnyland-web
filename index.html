@@ -155,6 +155,10 @@
       margin-top: 3px;
       color: #a6adc8;
     }
+    .control-badge {
+      font-weight: bold;
+      white-space: nowrap;
+    }
 
     #inspector-body {
       flex: 1;
@@ -371,6 +375,39 @@ function entitySubtitle(entity) {
   return '';
 }
 
+// A character's controller is a separate entity reached by the ControlledBy edge; its
+// component type says who is driving it: an LLM, a Discord player, or nobody (suspended).
+const CONTROL_STYLE = {
+  llm:       { icon: '🤖', label: 'LLM',       color: '#89b4fa' },
+  discord:   { icon: '🎮', label: 'Discord',   color: '#cba6f7' },
+  suspended: { icon: '💤', label: 'Suspended', color: '#6c7086' },
+};
+
+// Returns { kind, icon, label, color, detail } for whoever controls this entity, or null
+// if it has no controller (most non-character entities).
+function controlInfo(entity, world) {
+  const edges = entity.relationships?.ControlledBy;
+  if (!edges?.length) return null;
+  const controller = world.entities[edges[0].target];
+  if (!controller) return null;
+  const c = controller.components;
+  if (c.LLMControllerComponent) {
+    const m = c.LLMControllerComponent;
+    return { kind: 'llm', ...CONTROL_STYLE.llm,
+             detail: [m.profile_name, m.model].filter(Boolean).join(' / ') };
+  }
+  if (c.DiscordControllerComponent) {
+    const d = c.DiscordControllerComponent;
+    return { kind: 'discord', ...CONTROL_STYLE.discord,
+             detail: d.discord_user_id ? `user ${d.discord_user_id}` : '' };
+  }
+  if (c.SuspendedControllerComponent) {
+    const s = c.SuspendedControllerComponent;
+    return { kind: 'suspended', ...CONTROL_STYLE.suspended, detail: s.reason || '' };
+  }
+  return null;
+}
+
 // Edge types that express "what is inside / carried by" an entity. Rooms contain
 // characters & objects (Contains); characters carry items (Holding) and wear them
 // (Wearing); containers hold their contents (Contains). Walking these recursively is
@@ -578,8 +615,14 @@ function showInspector(entityId, world) {
 
   document.getElementById('inspector-name').textContent = style.icon + ' ' + name;
   document.getElementById('inspector-id').textContent = entityId;
+
+  const ctrl = controlInfo(entity, world);
+  const ctrlHtml = ctrl
+    ? ` <span class="control-badge" style="color:${ctrl.color}">${ctrl.icon} ${esc(ctrl.label)}`
+      + `${ctrl.detail ? ' · ' + esc(ctrl.detail) : ''}</span>`
+    : '';
   document.getElementById('inspector-kind').innerHTML =
-    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}`;
+    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}`;
 
   let html = '';
   for (const [cname, fields] of Object.entries(entity.components)) {
@@ -935,7 +978,11 @@ class BunnylandInspector {
     const type  = entityType(entity);
     const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
     const name  = style.icon + ' ' + entityDisplayName(entity);
-    const sub   = entitySubtitle(entity);
+
+    // Tag controlled entities (characters) with who is driving them, after the subtitle.
+    let sub = entitySubtitle(entity);
+    const ctrl = this.world ? controlInfo(entity, this.world) : null;
+    if (ctrl) sub = [sub, `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
 
     const node = LiteGraph.createNode(`bunnyland/${type}`);
     node.title   = name;
