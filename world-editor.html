@@ -285,6 +285,8 @@
     <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
     <button id="btn-fetch">Load Snapshot</button>
     <button id="btn-save-live">Save Live</button>
+    <button id="btn-pause-live">Pause</button>
+    <button id="btn-resume-live">Resume</button>
     <span class="toolbar-sep">|</span>
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
@@ -574,6 +576,8 @@ class WorldEditor {
     document.getElementById('btn-new').addEventListener('click', () => this._newWorld());
     document.getElementById('btn-fetch').addEventListener('click', () => this._fetchSnapshot());
     document.getElementById('btn-save-live').addEventListener('click', () => this._saveLive());
+    document.getElementById('btn-pause-live').addEventListener('click', () => this._pauseLive());
+    document.getElementById('btn-resume-live').addEventListener('click', () => this._resumeLive());
     document.getElementById('btn-download').addEventListener('click', () => this._download());
     document.getElementById('btn-copy').addEventListener('click', () => this._copy());
     document.getElementById('btn-add-entity').addEventListener('click', () => this._addEntity());
@@ -640,7 +644,7 @@ class WorldEditor {
 
   async _sendPatch(operations, { merge = false, status = 'Patch applied' } = {}) {
     if (!this.liveBase || !operations.length) return null;
-    const data = await this._sendAdmin('/world', {
+    const data = await this._sendAdmin('/admin/world', {
       method: 'PATCH',
       body: JSON.stringify({ operations }),
       status
@@ -667,7 +671,7 @@ class WorldEditor {
 
   async _saveLive() {
     try {
-      const data = await this._sendAdmin('/world/save', {
+      const data = await this._sendAdmin('/admin/world/save', {
         method: 'POST',
         status: 'World saved'
       });
@@ -678,6 +682,32 @@ class WorldEditor {
       }
     } catch (err) {
       this._status(`Save error: ${err.message}`, 'err');
+    }
+  }
+
+  async _pauseLive() {
+    try {
+      const data = await this._sendAdmin('/admin/pause', {
+        method: 'POST',
+        status: 'World paused'
+      });
+      if (data.world_epoch != null) this.world.metadata.epoch = data.world_epoch;
+      this._renderInfo();
+    } catch (err) {
+      this._status(`Pause error: ${err.message}`, 'err');
+    }
+  }
+
+  async _resumeLive() {
+    try {
+      const data = await this._sendAdmin('/admin/resume', {
+        method: 'POST',
+        status: 'World resumed'
+      });
+      if (data.world_epoch != null) this.world.metadata.epoch = data.world_epoch;
+      this._renderInfo();
+    } catch (err) {
+      this._status(`Resume error: ${err.message}`, 'err');
     }
   }
 
