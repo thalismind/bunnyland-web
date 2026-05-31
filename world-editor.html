@@ -434,25 +434,29 @@ function parseSaveSnapshot(json) {
 function parseApiSnapshot(json) {
   const entities = {};
   for (const item of json.entities || []) {
-    const relationships = {};
-    for (const [rtype, edges] of Object.entries(item.relationships || {})) {
-      relationships[rtype] = (edges || []).map(edge => ({
-        target: edge.target_id || edge.target,
-        edge: edge.edge || {}
-      }));
-    }
-    entities[item.id] = {
-      id: item.id,
-      prefab: 'entity',
-      created_epoch: 0,
-      components: item.components || {},
-      relationships
-    };
+    entities[item.id] = parseApiEntity(item);
   }
   return {
     metadata: { version: '1.0', epoch: json.world_epoch || 0 },
     meta: json.metadata || {},
     entities
+  };
+}
+
+function parseApiEntity(item) {
+  const relationships = {};
+  for (const [rtype, edges] of Object.entries(item.relationships || {})) {
+    relationships[rtype] = (edges || []).map(edge => ({
+      target: edge.target_id || edge.target,
+      edge: edge.edge || {}
+    }));
+  }
+  return {
+    id: item.id,
+    prefab: item.prefab || 'entity',
+    created_epoch: 0,
+    components: item.components || {},
+    relationships
   };
 }
 
@@ -554,6 +558,9 @@ class WorldEditor {
     this.world = makeEmptyWorld();
     this.selectedId = 'entity_1';
     this.search = '';
+    this.liveBase = null;
+    this.authHeader = null;
+    this._patchTimers = {};
     this._bind();
     this._renderAll();
   }
@@ -595,6 +602,8 @@ class WorldEditor {
     try {
       this.world = parseWorld(JSON.parse(await file.text()));
       this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this.liveBase = null;
+      this.authHeader = null;
       this._renderAll();
       this._status('World loaded', 'ok');
     } catch (err) {
@@ -610,8 +619,9 @@ class WorldEditor {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.world = parseWorld(await res.json());
       this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this.liveBase = base;
       this._renderAll();
-      this._status('Server snapshot loaded', 'ok');
+      this._status('Server snapshot loaded · live patches enabled', 'ok');
     } catch (err) {
       this._status(`Server error: ${err.message}`, 'err');
     }
@@ -620,8 +630,62 @@ class WorldEditor {
   _newWorld() {
     this.world = makeEmptyWorld();
     this.selectedId = 'entity_1';
+    this.liveBase = null;
+    this.authHeader = null;
     this._renderAll();
     this._status('New world created', 'ok');
+  }
+
+  async _sendPatch(operations, { merge = false, status = 'Patch applied' } = {}) {
+    if (!this.liveBase || !operations.length) return null;
+    const body = JSON.stringify({ operations });
+    const headers = () => ({
+      'Content-Type': 'application/json',
+      ...(this.authHeader ? { Authorization: this.authHeader } : {})
+    });
+    let res = await fetch(`${this.liveBase}/world`, { method: 'PATCH', headers: headers(), body });
+    if (res.status === 401 && this._promptBasicAuth()) {
+      res = await fetch(`${this.liveBase}/world`, { method: 'PATCH', headers: headers(), body });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (merge) this._mergePatchResponse(data);
+    this._status(status, 'ok');
+    return data;
+  }
+
+  _promptBasicAuth() {
+    const username = window.prompt('World editor username');
+    if (!username) return false;
+    const password = window.prompt('World editor password');
+    if (password == null) return false;
+    this.authHeader = `Basic ${btoa(`${username}:${password}`)}`;
+    return true;
+  }
+
+  _mergePatchResponse(data) {
+    for (const id of data.deleted_entities || []) {
+      delete this.world.entities[id];
+    }
+    for (const item of data.changed_entities || []) {
+      this.world.entities[item.id] = parseApiEntity(item);
+    }
+    if (data.world_epoch != null) {
+      this.world.metadata.epoch = data.world_epoch;
+      this.world.meta.saved_at_epoch = data.world_epoch;
+    }
+  }
+
+  _debouncedPatch(key, operations, status) {
+    if (!this.liveBase) return;
+    clearTimeout(this._patchTimers[key]);
+    this._patchTimers[key] = setTimeout(async () => {
+      try {
+        await this._sendPatch(operations, { status });
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+      }
+    }, 350);
   }
 
   _renderAll() {
@@ -785,10 +849,16 @@ class WorldEditor {
       textarea.addEventListener('input', () => {
         textarea.classList.remove('bad-json');
         try {
-          entity.components[type] = parseObject(textarea.value);
+          const fields = parseObject(textarea.value);
+          entity.components[type] = fields;
           this._renderJson();
           this._renderEntities();
           this._renderOptions();
+          this._debouncedPatch(
+            `component:${entity.id}:${type}`,
+            [{ op: 'set_component', entity_id: entity.id, component: { type, fields } }],
+            'Component patched'
+          );
         } catch (_err) {
           textarea.classList.add('bad-json');
         }
@@ -799,14 +869,37 @@ class WorldEditor {
       const index = Number(card.dataset.index);
       const target = card.querySelector('.edge-target');
       const json = card.querySelector('.edge-json');
+      let lastTarget = entity.relationships[type]?.[index]?.target || '';
       const update = () => {
         json.classList.remove('bad-json');
         try {
-          entity.relationships[type][index] = {
-            target: target.value.trim(),
-            edge: parseObject(json.value)
-          };
+          const nextTarget = target.value.trim();
+          const edge = parseObject(json.value);
+          entity.relationships[type][index] = { target: nextTarget, edge };
           this._renderJson();
+          if (nextTarget) {
+            const operations = [];
+            if (lastTarget && lastTarget !== nextTarget) {
+              operations.push({
+                op: 'remove_edge',
+                source_id: entity.id,
+                target_id: lastTarget,
+                edge_type: type
+              });
+            }
+            operations.push({
+              op: 'set_edge',
+              source_id: entity.id,
+              target_id: nextTarget,
+              edge: { type, fields: edge }
+            });
+            lastTarget = nextTarget;
+            this._debouncedPatch(
+              `edge:${entity.id}:${type}:${index}`,
+              operations,
+              'Edge patched'
+            );
+          }
         } catch (_err) {
           json.classList.add('bad-json');
         }
@@ -826,6 +919,10 @@ class WorldEditor {
     }
     if (nextId !== entity.id && this.world.entities[nextId]) {
       this._status('Entity ID already exists', 'err');
+      return;
+    }
+    if (this.liveBase && nextId !== entity.id) {
+      this._status('Live ECS entity IDs cannot be renamed', 'err');
       return;
     }
     entity.prefab = document.getElementById('entity-prefab').value.trim() || 'entity';
@@ -856,7 +953,27 @@ class WorldEditor {
     return `entity_${i}`;
   }
 
-  _addEntity() {
+  async _addEntity() {
+    if (this.liveBase) {
+      try {
+        const data = await this._sendPatch(
+          [{
+            op: 'add_entity',
+            components: [{
+              type: 'IdentityComponent',
+              fields: { name: 'entity', kind: 'entity', tags: [] }
+            }]
+          }],
+          { merge: true, status: 'Entity added' }
+        );
+        const created = data?.changed_entities?.[0]?.id;
+        if (created) this.selectedId = created;
+        this._renderAll();
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+      }
+      return;
+    }
     const id = this._nextEntityId();
     this.world.entities[id] = {
       id,
@@ -870,11 +987,23 @@ class WorldEditor {
     this._status('Entity added', 'ok');
   }
 
-  _deleteEntity() {
+  async _deleteEntity() {
     const entity = this._selected();
     if (!entity) return;
     if (!window.confirm(`Delete ${entity.id}? Incoming edges will also be removed.`)) return;
-    delete this.world.entities[entity.id];
+    if (this.liveBase) {
+      try {
+        await this._sendPatch(
+          [{ op: 'delete_entity', entity_id: entity.id }],
+          { merge: true, status: 'Entity deleted' }
+        );
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+        return;
+      }
+    } else {
+      delete this.world.entities[entity.id];
+    }
     for (const other of Object.values(this.world.entities)) {
       for (const [type, edges] of Object.entries(other.relationships || {})) {
         other.relationships[type] = (edges || []).filter(edge => edge.target !== entity.id);
@@ -886,7 +1015,7 @@ class WorldEditor {
     this._status('Entity deleted', 'ok');
   }
 
-  _addComponent() {
+  async _addComponent() {
     const entity = this._selected();
     if (!entity) return;
     const type = window.prompt('Component type', 'IdentityComponent');
@@ -895,7 +1024,20 @@ class WorldEditor {
       this._status('Entity already has that component', 'err');
       return;
     }
-    entity.components[type] = this._defaultComponent(type, entity);
+    const fields = this._defaultComponent(type, entity);
+    if (this.liveBase) {
+      try {
+        await this._sendPatch(
+          [{ op: 'add_component', entity_id: entity.id, component: { type, fields } }],
+          { merge: true, status: 'Component added' }
+        );
+        this._renderAll();
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+      }
+      return;
+    }
+    entity.components[type] = fields;
     this._renderAll();
     this._status('Component added', 'ok');
   }
@@ -908,23 +1050,52 @@ class WorldEditor {
     return {};
   }
 
-  _deleteComponent(type) {
+  async _deleteComponent(type) {
     const entity = this._selected();
     if (!entity) return;
+    if (this.liveBase) {
+      try {
+        await this._sendPatch(
+          [{ op: 'remove_component', entity_id: entity.id, component_type: type }],
+          { merge: true, status: 'Component deleted' }
+        );
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+        return;
+      }
+    }
     delete entity.components[type];
     this._renderAll();
     this._status('Component deleted', 'ok');
   }
 
-  _addEdge() {
+  async _addEdge() {
     const entity = this._selected();
     if (!entity) return;
     const type = window.prompt('Edge type', 'Contains');
     if (!type) return;
     const target = window.prompt('Target entity id', Object.keys(this.world.entities).find(id => id !== entity.id) || '');
     if (!target) return;
+    const edge = this._defaultEdge(type);
+    if (this.liveBase) {
+      try {
+        await this._sendPatch(
+          [{
+            op: 'set_edge',
+            source_id: entity.id,
+            target_id: target,
+            edge: { type, fields: edge }
+          }],
+          { merge: true, status: 'Edge added' }
+        );
+        this._renderAll();
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+      }
+      return;
+    }
     if (!entity.relationships[type]) entity.relationships[type] = [];
-    entity.relationships[type].push({ target, edge: this._defaultEdge(type) });
+    entity.relationships[type].push({ target, edge });
     this._renderAll();
     this._status('Edge added', 'ok');
   }
@@ -936,9 +1107,21 @@ class WorldEditor {
     return {};
   }
 
-  _deleteEdge(type, index) {
+  async _deleteEdge(type, index) {
     const entity = this._selected();
     if (!entity?.relationships?.[type]) return;
+    const target = entity.relationships[type][index]?.target;
+    if (this.liveBase && target) {
+      try {
+        await this._sendPatch(
+          [{ op: 'remove_edge', source_id: entity.id, target_id: target, edge_type: type }],
+          { merge: true, status: 'Edge deleted' }
+        );
+      } catch (err) {
+        this._status(`Patch error: ${err.message}`, 'err');
+        return;
+      }
+    }
     entity.relationships[type].splice(index, 1);
     if (!entity.relationships[type].length) delete entity.relationships[type];
     this._renderAll();

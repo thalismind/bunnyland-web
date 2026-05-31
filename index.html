@@ -1135,6 +1135,9 @@ class BunnylandInspector {
         // Debounce: re-fetch the snapshot 400 ms after the last event burst.
         clearTimeout(this._refreshTimer);
         this._refreshTimer = setTimeout(() => this._refreshFromApi(), 400);
+      } else if (msg.type === 'patch') {
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refreshFromApi(), 100);
       }
     };
 
