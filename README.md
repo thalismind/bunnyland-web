@@ -45,6 +45,24 @@ settings:
 Edit `config.json` for your deployment. A missing or invalid file is harmless — the
 client falls back to its built-in defaults.
 
+## Deep links
+
+The URL captures where you are so you can bookmark or share it:
+
+```
+?server=<url>#<tab>/<entity>
+e.g.  ?server=http://localhost:8765#social/clover
+      #map/frost_rune          (no live server — view + entity only)
+      #quest                   (just a tab)
+```
+
+- `?server=` (query string) is the live server; on load the client fills the **Server**
+  field and connects to it. The URL takes precedence over `config.json`.
+- `#<tab>/<entity>` (hash) is the active tab (`map` / `social` / `quest`) and the inspected
+  entity. On load it selects the entity where it lives, rebuilding the full drilldown path
+  for nested ones. The hash updates as you switch tabs and select entities. (A `server=`
+  embedded in the hash is also accepted, for links pasted as `#tab/entity?server=…`.)
+
 ## Interface
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),

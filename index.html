@@ -946,6 +946,8 @@ function showInspector(entityId, world) {
 
   const body = document.getElementById('inspector-body');
   body.innerHTML = html || '<div id="inspector-empty">No components.</div>';
+
+  window.app?._noteSelection(entityId); // mirror the selected entity into the URL hash
 }
 
 // ── Main application ─────────────────────────────────────────────────────────
@@ -969,6 +971,9 @@ class BunnylandInspector {
     this._socialLinks = []; // [{fromId,toId,color,off}] drawn behind nodes in social view
     this._searchHits = [];
     this._searchIndex = 0; // highlighted result for keyboard navigation
+    this._selectedId = null;     // currently inspected entity (mirrored to the URL hash)
+    this._pendingNav = null;     // deep-link {view, entity} to apply once a world loads
+    this._applyingDeepLink = false;
 
     this._initCanvas();
     this._initFileInput();
@@ -1097,6 +1102,7 @@ class BunnylandInspector {
     ws.onopen = () => {
       this._setApiStatus('live', '● Connected');
       document.getElementById('btn-connect').textContent = 'Disconnect';
+      this._syncUrl(); // reflect the live server in ?server=
     };
 
     ws.onmessage = (evt) => {
@@ -1136,6 +1142,7 @@ class BunnylandInspector {
     }
     this._setApiStatus('', '○ Offline');
     document.getElementById('btn-connect').textContent = 'Connect Live';
+    this._syncUrl(); // drop ?server= now that we're offline
   }
 
   async _refreshFromApi() {
@@ -1262,6 +1269,13 @@ class BunnylandInspector {
       [m.seed && `seed: ${m.seed}`, m.generator && `gen: ${m.generator}`,
        `epoch: ${world.epoch}s`, `entities: ${entityCount}`].filter(Boolean).join(' · ');
 
+    if (this._pendingNav) {
+      // First world after a deep link — honour the URL's view/entity instead of the default.
+      const nav = this._pendingNav;
+      this._pendingNav = null;
+      this._applyDeepLink(nav);
+      return;
+    }
     if (prevEntityId && world.entities[prevEntityId]) {
       // Stay on the same entity, rebuild its subgraph with fresh data.
       this._showEntity(prevEntityId);
@@ -1289,9 +1303,11 @@ class BunnylandInspector {
   // Switch top-level view (from the toolbar) and return to that root.
   setRootView(view) {
     this._rootView = view;
+    this._selectedId = null; // switching tabs is not "looking at" a specific entity
     this._syncViewButtons();
     this.viewStack = [];
     this.showRoot();
+    this._syncUrl();
   }
 
   _syncViewButtons() {
@@ -1788,9 +1804,46 @@ class BunnylandInspector {
 
   selectEntity(entityId) {
     if (!this.world) return;
-    showInspector(entityId, this.world);
+    showInspector(entityId, this.world); // sets _selectedId + syncs the URL via _noteSelection
     const node = this._nodeMap[entityId];
     if (node) this.lgcanvas.selectNode(node, false);
+  }
+
+  // ── Deep linking (URL hash + ?server) ────────────────────────────────────────
+  //   ?server=<url> (query) reflects the live connection;
+  //   #<tab>/<entity> (hash) reflects the active view and the inspected entity.
+
+  _noteSelection(entityId) {
+    this._selectedId = entityId;
+    this._syncUrl();
+  }
+
+  _syncUrl() {
+    if (this._applyingDeepLink) return;
+    const url = new URL(location.href);
+    if (this._ws && this._apiBase) url.searchParams.set('server', this._apiBase);
+    else url.searchParams.delete('server');
+    let hash = this._rootView;
+    if (this._selectedId) hash += '/' + encodeURIComponent(this._selectedId);
+    url.hash = hash;
+    history.replaceState(null, '', url.toString());
+  }
+
+  // Apply a parsed { view, entity } once a world is available.
+  _applyDeepLink(nav) {
+    this._applyingDeepLink = true;
+    try {
+      if (nav.view && ['map', 'social', 'quest'].includes(nav.view)) this.setRootView(nav.view);
+      else this.showRoot();
+      if (nav.entity && this.world?.entities[nav.entity]) {
+        // Visible in the current view → just select it; otherwise drill to where it lives.
+        if (this._nodeMap[nav.entity]) this.selectEntity(nav.entity);
+        else this.jumpToEntity(nav.entity);
+      }
+    } finally {
+      this._applyingDeepLink = false;
+      this._syncUrl();
+    }
   }
 
   // ── Search / jump-to-entity ──────────────────────────────────────────────────
@@ -1902,21 +1955,43 @@ window.app = new BunnylandInspector();
 
 // Optional deploy-specific settings from config.json next to index.html:
 //   { "serverUrl": "http://host:port", "autoConnect": true }
-// serverUrl pre-fills the Server field; autoConnect also opens the live connection.
-// A missing or invalid file is fine — the client just keeps its defaults.
-(async function applyConfig() {
-  let cfg;
+async function readConfig() {
   try {
     const res = await fetch('config.json', { cache: 'no-store' });
-    if (!res.ok) return; // no config deployed
-    cfg = await res.json();
+    if (!res.ok) return null;
+    return await res.json();
   } catch (_) {
-    return; // not served over http, or unparseable — ignore
+    return null; // not served over http, or unparseable
   }
-  if (cfg && typeof cfg.serverUrl === 'string' && cfg.serverUrl) {
-    document.getElementById('api-url').value = cfg.serverUrl;
-    if (cfg.autoConnect) window.app.connectLive(cfg.serverUrl);
+}
+
+// Deep link: ?server=<url> in the query string, #<tab>/<entity> in the hash.
+// (a server= embedded in the hash is also accepted, for links pasted as #tab/entity?server=…)
+function parseDeepLink() {
+  let server = new URLSearchParams(location.search).get('server');
+  let hash = location.hash.replace(/^#/, '');
+  const qi = hash.indexOf('?');
+  if (qi >= 0) {
+    if (!server) server = new URLSearchParams(hash.slice(qi + 1)).get('server');
+    hash = hash.slice(0, qi);
   }
+  const parts = hash.split('/').filter(Boolean).map(decodeURIComponent);
+  return { server, view: parts[0] || null, entity: parts.slice(1).join('/') || null };
+}
+
+(async function boot() {
+  const cfg = await readConfig();
+  const dl = parseDeepLink();
+
+  // The URL's server wins over config; otherwise fall back to config's serverUrl.
+  const server = dl.server || (cfg && typeof cfg.serverUrl === 'string' ? cfg.serverUrl : null);
+  if (server) document.getElementById('api-url').value = server;
+
+  // Hold the view/entity to apply once a world is available.
+  if (dl.view || dl.entity) window.app._pendingNav = { view: dl.view, entity: dl.entity };
+
+  // Connect if the URL provided a server, or config asked to auto-connect.
+  if (dl.server || (cfg && cfg.autoConnect && server)) window.app.connectLive(server);
 })();
 
 // Allow loading the test snapshot from the CLI for development
