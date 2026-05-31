@@ -13,6 +13,8 @@
     "pouch": { "prefab": "entity", "created_epoch": 0 },
     "seed": { "prefab": "entity", "created_epoch": 0 },
     "rock": { "prefab": "entity", "created_epoch": 0 },
+    "oakdoor": { "prefab": "entity", "created_epoch": 0 },
+    "gate": { "prefab": "entity", "created_epoch": 0 },
     "clover_ctl": { "prefab": "entity", "created_epoch": 0 },
     "pip_ctl": { "prefab": "entity", "created_epoch": 0 }
   },
@@ -35,6 +37,13 @@
       "seed": { "weight": 0.1 },
       "rock": { "weight": 3 }
     },
+    "DoorComponent": {
+      "oakdoor": { "open": false, "open_on_use": true, "auto_close_after_ticks": null },
+      "gate": { "open": true, "open_on_use": true, "auto_close_after_ticks": null }
+    },
+    "LockableComponent": {
+      "oakdoor": { "locked": true }
+    },
     "IdentityComponent": {
       "clover": { "name": "Clover", "kind": "rabbit" },
       "pip": { "name": "Pip", "kind": "rabbit" },
@@ -42,7 +51,9 @@
       "carrot": { "name": "Carrot", "kind": "food" },
       "pouch": { "name": "Tiny Pouch", "kind": "container" },
       "seed": { "name": "Sunflower Seed", "kind": "food" },
-      "rock": { "name": "Pebble", "kind": "junk" }
+      "rock": { "name": "Pebble", "kind": "junk" },
+      "oakdoor": { "name": "Oak Door", "kind": "door" },
+      "gate": { "name": "Garden Gate", "kind": "door" }
     },
     "NeedsComponent": {
       "clover": {
@@ -81,7 +92,9 @@
       "room1": [
         { "target": "clover", "edge": { "mode": "occupant" } },
         { "target": "pip", "edge": { "mode": "occupant" } },
-        { "target": "rock", "edge": { "mode": "ground" } }
+        { "target": "rock", "edge": { "mode": "ground" } },
+        { "target": "oakdoor", "edge": { "mode": "fixture" } },
+        { "target": "gate", "edge": { "mode": "fixture" } }
       ],
       "satchel": [
         { "target": "carrot", "edge": { "mode": "stored" } },

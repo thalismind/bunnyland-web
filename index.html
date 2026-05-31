@@ -351,6 +351,7 @@ function entityType(entity) {
   const c = entity.components;
   if (c.RoomComponent) return 'room';
   if (c.CharacterComponent) return 'character';
+  if (c.DoorComponent) return 'door';
   if (c.ContainerComponent) return 'container';
   if (c.PortableComponent) return 'item';
   return 'other';
@@ -370,6 +371,9 @@ function entitySubtitle(entity) {
     return [r.biome, r.indoor ? 'indoor' : 'outdoor'].filter(Boolean).join(' · ');
   }
   if (c.CharacterComponent) return c.CharacterComponent.species || '';
+  if (c.DoorComponent) {
+    return c.LockableComponent?.locked ? '🔒 locked' : '';
+  }
   if (c.DescriptionComponent) return c.DescriptionComponent.short || '';
   if (c.IdentityComponent) return c.IdentityComponent.kind || '';
   return '';
