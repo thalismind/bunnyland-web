@@ -30,6 +30,24 @@ similar to Chrome's memory snapshot tools.
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
 
+## Container
+
+The published image serves the static client with nginx and proxies same-origin `/api/`
+requests to the Bunnyland server:
+
+```bash
+docker run --rm -p 8080:80 \
+  -e BUNNYLAND_API_UPSTREAM=http://host.docker.internal:8765 \
+  ghcr.io/thalismind/bunnyland-web:latest
+```
+
+The server repo's `compose.yml` wires this image to the server container over Docker DNS.
+The default nginx template blocks `/api/admin/`; production deployments should enable that
+route only behind authentication.
+
+CI builds and publishes `ghcr.io/thalismind/bunnyland-web` on pushes to `main`, with
+`latest`, branch, and commit-SHA tags.
+
 ## Configuration
 
 On load the client reads `config.json` (next to `index.html`) for deploy-specific
