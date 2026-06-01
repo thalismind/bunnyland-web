@@ -276,6 +276,40 @@
       align-items: center;
     }
     .tag-entry input { flex: 1; }
+    .meter-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .meter-line {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    input[type=range].meter-range {
+      width: 100%;
+      padding: 0;
+      accent-color: #89b4fa;
+    }
+    .meter-readout {
+      color: #cdd6f4;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .meter-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .meter-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 10px;
+      color: #a6adc8;
+    }
+    .meter-grid input { width: 100%; }
     .bad-json { border-color: #f38ba8 !important; }
     .button-row {
       display: flex;
@@ -1220,6 +1254,17 @@ class WorldEditor {
         </div>
       `;
     }
+    if (this._isMeterField(schema)) {
+      const meter = this._meterValue(schema, value);
+      return `
+        <div class="field full">${label}
+          <div class="meter-editor">
+            <input class="component-field component-meter-value" ${data} type="hidden" value="${esc(JSON.stringify(meter))}">
+            <div class="meter-controls">${this._renderMeterEditor(meter)}</div>
+          </div>
+        </div>
+      `;
+    }
     if (schema.enum?.length) {
       return `
         <label class="field wide">${label}
@@ -1279,6 +1324,63 @@ class WorldEditor {
       itemSchema?.type === 'string' &&
       (fieldName === 'tags' || fieldName === 'labels' || title === 'tags' || title === 'labels')
     );
+  }
+
+  _isMeterField(schema) {
+    const properties = schema.properties || {};
+    return (
+      schema.type === 'object' &&
+      (schema.title === 'Meter' ||
+        ('value' in properties && 'minimum' in properties && 'maximum' in properties))
+    );
+  }
+
+  _meterValue(schema, value) {
+    const properties = schema.properties || {};
+    const meter = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+    for (const [key, field] of Object.entries(properties)) {
+      if (!Object.prototype.hasOwnProperty.call(meter, key) && Object.prototype.hasOwnProperty.call(field, 'default')) {
+        meter[key] = field.default;
+      }
+    }
+    return {
+      value: 0,
+      minimum: 0,
+      maximum: 100,
+      ...meter
+    };
+  }
+
+  _renderMeterEditor(meter) {
+    const minimum = Number(meter.minimum ?? 0);
+    const maximum = Number(meter.maximum ?? 100);
+    const value = Math.max(minimum, Math.min(maximum, Number(meter.value ?? minimum)));
+    const fields = [
+      ['value', 'Value'],
+      ['minimum', 'Minimum'],
+      ['maximum', 'Maximum'],
+      ['warning_at', 'Warning'],
+      ['urgent_at', 'Urgent'],
+      ['crisis_at', 'Crisis']
+    ].filter(([key]) => Object.prototype.hasOwnProperty.call(meter, key));
+    return `
+      <div class="meter-line">
+        <input class="meter-range" data-meter-key="value" type="range" min="${esc(minimum)}" max="${esc(maximum)}" step="any" value="${esc(value)}">
+        <span class="meter-readout">${esc(this._formatMeterValue(value))} / ${esc(this._formatMeterValue(maximum))}</span>
+      </div>
+      <div class="meter-grid">
+        ${fields.map(([key, title]) => `
+          <label>${esc(title)}
+            <input class="meter-input" data-meter-key="${esc(key)}" type="number" step="any" value="${esc(meter[key] ?? '')}">
+          </label>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  _formatMeterValue(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toFixed(1) : String(value ?? '');
   }
 
   _renderGeneration(entity) {
@@ -1411,6 +1513,9 @@ class WorldEditor {
       for (const editor of card.querySelectorAll('.tag-editor')) {
         this._bindTagEditor(editor, card, entity, type);
       }
+      for (const editor of card.querySelectorAll('.meter-editor')) {
+        this._bindMeterEditor(editor, card, entity, type);
+      }
     }
     for (const card of root.querySelectorAll('.edge-card')) {
       const type = card.dataset.type;
@@ -1507,6 +1612,57 @@ class WorldEditor {
         </span>
       `).join('')
       : '<span class="tiny">No tags.</span>';
+  }
+
+  _bindMeterEditor(editor, card, entity, type) {
+    const hidden = editor.querySelector('.component-meter-value');
+    const readMeter = () => {
+      try {
+        const parsed = JSON.parse(hidden.value || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch (_err) {
+        return {};
+      }
+    };
+    const writeMeter = (meter) => {
+      const minimum = Number(meter.minimum ?? 0);
+      const maximum = Number(meter.maximum ?? 100);
+      const value = Number(meter.value ?? minimum);
+      if (Number.isFinite(minimum) && Number.isFinite(maximum) && Number.isFinite(value)) {
+        meter.value = Math.max(minimum, Math.min(maximum, value));
+      }
+      hidden.value = JSON.stringify(meter);
+      this._syncMeterEditor(editor, meter);
+      this._updateTypedComponent(card, entity, type);
+    };
+    editor.addEventListener('input', (event) => {
+      const control = event.target.closest('[data-meter-key]');
+      if (!control) return;
+      const meter = readMeter();
+      const value = Number(control.value);
+      meter[control.dataset.meterKey] = Number.isFinite(value) ? value : 0;
+      writeMeter(meter);
+    });
+  }
+
+  _syncMeterEditor(editor, meter) {
+    const minimum = Number(meter.minimum ?? 0);
+    const maximum = Number(meter.maximum ?? 100);
+    const value = Number(meter.value ?? minimum);
+    const range = editor.querySelector('.meter-range');
+    if (range) {
+      range.min = String(minimum);
+      range.max = String(maximum);
+      range.value = String(value);
+    }
+    const readout = editor.querySelector('.meter-readout');
+    if (readout) {
+      readout.textContent = `${this._formatMeterValue(value)} / ${this._formatMeterValue(maximum)}`;
+    }
+    for (const input of editor.querySelectorAll('.meter-input')) {
+      if (input === document.activeElement) continue;
+      input.value = String(meter[input.dataset.meterKey] ?? '');
+    }
   }
 
   _updateTypedComponent(card, entity, type) {
