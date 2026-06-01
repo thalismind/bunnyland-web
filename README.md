@@ -38,7 +38,7 @@ requests to the Bunnyland server:
 ```bash
 docker run --rm -p 8080:80 \
   -e BUNNYLAND_API_UPSTREAM=http://host.docker.internal:8765 \
-  ghcr.io/thalismind/bunnyland-web:latest
+  ghcr.io/thalismind/bunnyland-web:main
 ```
 
 The server repo's `compose.yml` wires this image to the server container over Docker DNS.
@@ -46,7 +46,7 @@ The default nginx template blocks `/api/admin/`; production deployments should e
 route only behind authentication.
 
 CI builds and publishes `ghcr.io/thalismind/bunnyland-web` on pushes to `main`, with
-`latest`, branch, and commit-SHA tags.
+branch tags and `latest` for the default branch.
 
 ## Configuration
 
