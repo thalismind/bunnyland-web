@@ -1157,6 +1157,10 @@ class WorldEditor {
     const label = esc(schema.title || name);
     const nullable = schema.nullable ? ' data-nullable="true"' : '';
     const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}`;
+    const hasMaxLength = Object.prototype.hasOwnProperty.call(schema, 'maxLength');
+    const multilineTextNames = new Set([
+      'appearance', 'biography', 'description', 'long', 'prompt', 'short', 'summary', 'text'
+    ]);
     if (schema.enum?.length) {
       return `
         <label class="field wide">${label}
@@ -1185,6 +1189,18 @@ class WorldEditor {
       return `
         <label class="field full">${label}
           <textarea class="component-field component-field-json" ${data} spellcheck="false">${esc(JSON.stringify(value ?? (schema.type === 'array' ? [] : {}), null, 2))}</textarea>
+        </label>
+      `;
+    }
+    if (
+      schema.type === 'string' &&
+      (hasMaxLength
+        ? Number(schema.maxLength || 0) > 80
+        : multilineTextNames.has(String(name).toLowerCase()))
+    ) {
+      return `
+        <label class="field full">${label}
+          <textarea class="component-field" ${data} spellcheck="false">${esc(value ?? '')}</textarea>
         </label>
       `;
     }
