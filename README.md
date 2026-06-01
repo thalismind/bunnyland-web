@@ -81,7 +81,8 @@ components, and outgoing edges. It exports the same save-file JSON shape that Bu
 uses for persistence.
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
-connected by edges. Click any room to inspect it in the right panel.
+connected by edges. Each room shows a 🐰 count for the characters currently inside it.
+Click any room to inspect it in the right panel.
 
 **Social view** — the **Map / Social / Quests** switch flips the top level to a social
 graph: every character as a node, with their relationships drawn as colour-coded directed

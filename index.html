@@ -741,6 +741,12 @@ function hasChildren(entity, world) {
   return entityChildren(entity, world).length > 0;
 }
 
+function roomCharacterCount(room, world) {
+  return (room.relationships?.Contains || [])
+    .filter(({ target }) => world.entities[target]?.components?.CharacterComponent)
+    .length;
+}
+
 // ── Room layout ──────────────────────────────────────────────────────────────
 
 const DIR_OFFSET = {
@@ -1455,7 +1461,8 @@ class BunnylandInspector {
     for (const id of roomIds) {
       const entity = this.world.entities[id];
       const [x, y] = positions[id] || [100, 100];
-      const node = this._makeNode(entity, x, y, () => this._pushEntity(id));
+      const occupants = `🐰 ${roomCharacterCount(entity, this.world)}`;
+      const node = this._makeNode(entity, x, y, () => this._pushEntity(id), null, occupants);
       roomNodes[id] = node;
     }
 
@@ -1763,13 +1770,14 @@ class BunnylandInspector {
 
   // ── Node factory ───────────────────────────────────────────────────────────
 
-  _makeNode(entity, x, y, enterFn, backFn) {
+  _makeNode(entity, x, y, enterFn, backFn, extraSub) {
     const type  = entityType(entity);
     const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
     const name  = entityIcon(entity) + ' ' + entityDisplayName(entity);
 
     // Tag controlled entities (characters) with who is driving them, after the subtitle.
     let sub = entitySubtitle(entity);
+    if (extraSub) sub = [sub, extraSub].filter(Boolean).join('  ·  ');
     const ctrl = this.world ? controlInfo(entity, this.world) : null;
     if (ctrl) sub = [sub, `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
 
