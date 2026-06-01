@@ -239,6 +239,43 @@
       border-color: #89b4fa;
       color: #ffffff;
     }
+    .tag-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-height: 24px;
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      padding: 3px 6px;
+      border: 1px solid #585b70;
+      border-radius: 3px;
+      background: #313244;
+      color: #cdd6f4;
+      font-size: 11px;
+    }
+    .tag-pill span {
+      overflow-wrap: anywhere;
+    }
+    .tag-pill button {
+      padding: 0 4px;
+      border-color: #6c7086;
+      line-height: 1.2;
+    }
+    .tag-entry {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .tag-entry input { flex: 1; }
     .bad-json { border-color: #f38ba8 !important; }
     .button-row {
       display: flex;
@@ -1161,6 +1198,28 @@ class WorldEditor {
     const multilineTextNames = new Set([
       'appearance', 'biography', 'description', 'long', 'prompt', 'short', 'summary', 'text'
     ]);
+    if (this._isTagListField(name, schema)) {
+      const tags = Array.isArray(value) ? value.map(tag => String(tag)) : [];
+      return `
+        <div class="field full">${label}
+          <div class="tag-editor" data-tags-field="${esc(name)}">
+            <input class="component-field component-tags-value" ${data} type="hidden" value="${esc(JSON.stringify(tags))}">
+            <div class="tag-list">
+              ${tags.map(tag => `
+                <span class="tag-pill">
+                  <span>${esc(tag)}</span>
+                  <button type="button" data-remove-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">x</button>
+                </span>
+              `).join('') || '<span class="tiny">No tags.</span>'}
+            </div>
+            <div class="tag-entry">
+              <input class="tag-input" type="text" placeholder="add tag..." spellcheck="false">
+              <button type="button" data-add-tag>Add Tag</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
     if (schema.enum?.length) {
       return `
         <label class="field wide">${label}
@@ -1209,6 +1268,17 @@ class WorldEditor {
         <input class="component-field" ${data} type="text" value="${esc(value ?? '')}" spellcheck="false">
       </label>
     `;
+  }
+
+  _isTagListField(name, schema) {
+    const itemSchema = Array.isArray(schema.items) ? schema.items[0] : schema.items;
+    const fieldName = String(name).toLowerCase();
+    const title = String(schema.title || '').toLowerCase();
+    return (
+      schema.type === 'array' &&
+      itemSchema?.type === 'string' &&
+      (fieldName === 'tags' || fieldName === 'labels' || title === 'tags' || title === 'labels')
+    );
   }
 
   _renderGeneration(entity) {
@@ -1338,6 +1408,9 @@ class WorldEditor {
         input.addEventListener('input', () => this._updateTypedComponent(card, entity, type));
         input.addEventListener('change', () => this._updateTypedComponent(card, entity, type));
       }
+      for (const editor of card.querySelectorAll('.tag-editor')) {
+        this._bindTagEditor(editor, card, entity, type);
+      }
     }
     for (const card of root.querySelectorAll('.edge-card')) {
       const type = card.dataset.type;
@@ -1382,6 +1455,58 @@ class WorldEditor {
       target.addEventListener('input', update);
       json.addEventListener('input', update);
     }
+  }
+
+  _bindTagEditor(editor, card, entity, type) {
+    const input = editor.querySelector('.tag-input');
+    const add = editor.querySelector('[data-add-tag]');
+    const hidden = editor.querySelector('.component-tags-value');
+    const update = (tags) => {
+      hidden.value = JSON.stringify(tags);
+      this._renderTagEditor(editor, tags);
+      this._updateTypedComponent(card, entity, type);
+    };
+    const readTags = () => {
+      try {
+        const parsed = JSON.parse(hidden.value || '[]');
+        return Array.isArray(parsed) ? parsed.map(tag => String(tag)) : [];
+      } catch (_err) {
+        return [];
+      }
+    };
+    const addTag = () => {
+      const tag = input.value.trim();
+      if (!tag) return;
+      const tags = readTags();
+      if (!tags.includes(tag)) tags.push(tag);
+      input.value = '';
+      update(tags);
+      input.focus();
+    };
+    add?.addEventListener('click', addTag);
+    input?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      addTag();
+    });
+    editor.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove-tag]');
+      if (!button) return;
+      update(readTags().filter(tag => tag !== button.dataset.removeTag));
+    });
+  }
+
+  _renderTagEditor(editor, tags) {
+    const list = editor.querySelector('.tag-list');
+    if (!list) return;
+    list.innerHTML = tags.length
+      ? tags.map(tag => `
+        <span class="tag-pill">
+          <span>${esc(tag)}</span>
+          <button type="button" data-remove-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">x</button>
+        </span>
+      `).join('')
+      : '<span class="tiny">No tags.</span>';
   }
 
   _updateTypedComponent(card, entity, type) {
