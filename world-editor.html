@@ -89,6 +89,12 @@
       min-height: 0;
       overflow: hidden;
     }
+    #main.snapshot-hidden {
+      grid-template-columns: minmax(250px, 330px) minmax(560px, 1fr);
+    }
+    #main.snapshot-hidden #preview-pane {
+      display: none;
+    }
     .pane {
       min-width: 0;
       min-height: 0;
@@ -206,6 +212,33 @@
       line-height: 1.45;
       tab-size: 2;
     }
+    .component-json {
+      display: block;
+      width: 100%;
+      min-height: 136px;
+      margin-top: 4px;
+    }
+    .raw-json {
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid #313244;
+      color: #cdd6f4;
+    }
+    .raw-json summary {
+      display: inline-block;
+      min-height: 22px;
+      padding: 4px 8px;
+      border: 1px solid #45475a;
+      border-radius: 3px;
+      color: #cdd6f4;
+      background: #313244;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .raw-json summary:hover {
+      border-color: #89b4fa;
+      color: #ffffff;
+    }
     .bad-json { border-color: #f38ba8 !important; }
     .button-row {
       display: flex;
@@ -291,6 +324,7 @@
     <span class="toolbar-sep">|</span>
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
+    <button id="btn-toggle-snapshot">Hide Snapshot</button>
     <span class="toolbar-sep">|</span>
     <label for="fragment-file">Fragments:</label>
     <input type="file" id="fragment-file" accept=".json,application/json">
@@ -597,6 +631,7 @@ class WorldEditor {
     this.runtimeRunning = false;
     this.worldSchema = null;
     this.libraryFragments = [];
+    this.snapshotVisible = localStorage.getItem('bunnyland.editor.snapshotVisible') !== 'false';
     this._patchTimers = {};
     this._bind();
     this._renderAll();
@@ -618,6 +653,7 @@ class WorldEditor {
     document.getElementById('btn-toggle-live').addEventListener('click', () => this._toggleLive());
     document.getElementById('btn-download').addEventListener('click', () => this._download());
     document.getElementById('btn-copy').addEventListener('click', () => this._copy());
+    document.getElementById('btn-toggle-snapshot').addEventListener('click', () => this._toggleSnapshot());
     document.getElementById('btn-refresh-library').addEventListener('click', () => this._refreshLibrary({ prompt: true }));
     document.getElementById('btn-import-fragment').addEventListener('click', () => this._importSelectedFragment());
     document.getElementById('btn-export-fragment').addEventListener('click', () => this._exportSelectedFragment());
@@ -838,6 +874,20 @@ class WorldEditor {
     this._renderRuntime();
   }
 
+  _toggleSnapshot() {
+    this.snapshotVisible = !this.snapshotVisible;
+    localStorage.setItem('bunnyland.editor.snapshotVisible', String(this.snapshotVisible));
+    this._renderSnapshotVisibility();
+  }
+
+  _renderSnapshotVisibility() {
+    const main = document.getElementById('main');
+    const button = document.getElementById('btn-toggle-snapshot');
+    main.classList.toggle('snapshot-hidden', !this.snapshotVisible);
+    button.textContent = this.snapshotVisible ? 'Hide Snapshot' : 'Show Snapshot';
+    button.title = this.snapshotVisible ? 'Hide snapshot JSON pane' : 'Show snapshot JSON pane';
+  }
+
   _renderRuntime() {
     const button = document.getElementById('btn-toggle-live');
     const status = document.getElementById('runtime-status');
@@ -905,6 +955,7 @@ class WorldEditor {
     this._renderJson();
     this._renderInfo();
     this._renderLibraryControls();
+    this._renderSnapshotVisibility();
   }
 
   _renderOptions() {
@@ -1095,7 +1146,7 @@ class WorldEditor {
     }).join('');
     return `
       <div class="form-grid typed-component-fields">${rows}</div>
-      <details class="tiny">
+      <details class="raw-json">
         <summary>Raw JSON</summary>
         <textarea class="component-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
       </details>
