@@ -276,7 +276,7 @@
       gap: 6px;
       align-items: center;
     }
-    .tag-entry input { flex: 1; }
+    .tag-entry input, .tag-entry select { flex: 1; }
     .meter-editor {
       display: flex;
       flex-direction: column;
@@ -1059,19 +1059,46 @@ class WorldEditor {
 
   _fieldSchema(schema, root) {
     const resolved = this._resolveSchemaRef(schema, root);
-    if (!resolved.anyOf) return resolved;
-    const concrete = resolved.anyOf.find(item => item.type !== 'null') || resolved.anyOf[0];
-    return {
-      ...this._resolveSchemaRef(concrete, root),
-      default: resolved.default,
-      nullable: resolved.anyOf.some(item => item.type === 'null')
-    };
+    const variants = this._schemaVariants(resolved);
+    const concrete = variants
+      ? variants.find(item => item.type !== 'null') || variants[0]
+      : resolved;
+    const field = { ...this._resolveSchemaRef(concrete, root) };
+    if (Object.prototype.hasOwnProperty.call(schema || {}, 'default')) field.default = schema.default;
+    if (Object.prototype.hasOwnProperty.call(resolved, 'default')) field.default = resolved.default;
+    if (Object.prototype.hasOwnProperty.call(schema || {}, 'title')) field.title = schema.title;
+    if (Object.prototype.hasOwnProperty.call(schema || {}, 'description')) field.description = schema.description;
+    if (variants) field.nullable = variants.some(item => item.type === 'null');
+    return field;
+  }
+
+  _schemaVariants(schema) {
+    if (Array.isArray(schema?.anyOf)) return schema.anyOf;
+    if (Array.isArray(schema?.oneOf)) return schema.oneOf;
+    return null;
+  }
+
+  _enumOptions(schema, root) {
+    const resolved = this._resolveSchemaRef(schema, root);
+    if (Array.isArray(resolved.enum)) return resolved.enum;
+    if (Object.prototype.hasOwnProperty.call(resolved, 'const')) return [resolved.const];
+    const variants = this._schemaVariants(resolved);
+    if (!variants) return [];
+    const options = [];
+    for (const variant of variants) {
+      if (variant.type === 'null') continue;
+      for (const option of this._enumOptions(variant, root)) {
+        if (!options.includes(option)) options.push(option);
+      }
+    }
+    return options;
   }
 
   _defaultForSchema(schema, root) {
     const field = this._fieldSchema(schema, root);
     if (Object.prototype.hasOwnProperty.call(field, 'default')) return clone(field.default);
-    if (field.enum?.length) return field.enum[0];
+    const enumOptions = this._enumOptions(field, root);
+    if (enumOptions.length) return enumOptions[0];
     if (field.type === 'boolean') return false;
     if (field.type === 'integer' || field.type === 'number') return 0;
     if (field.type === 'array') return [];
@@ -1215,7 +1242,7 @@ class WorldEditor {
       const value = Object.prototype.hasOwnProperty.call(fields, name)
         ? fields[name]
         : this._defaultForSchema(field, schema);
-      return this._renderComponentField(name, field, value);
+      return this._renderComponentField(name, field, value, schema);
     }).join('');
     return `
       <div class="form-grid typed-component-fields">${rows}</div>
@@ -1226,10 +1253,11 @@ class WorldEditor {
     `;
   }
 
-  _renderComponentField(name, schema, value) {
+  _renderComponentField(name, schema, value, root) {
     const label = esc(schema.title || name);
     const nullable = schema.nullable ? ' data-nullable="true"' : '';
     const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}`;
+    const enumOptions = this._enumOptions(schema, root);
     const hasMaxLength = Object.prototype.hasOwnProperty.call(schema, 'maxLength');
     const multilineTextNames = new Set([
       'appearance', 'biography', 'description', 'long', 'prompt', 'short', 'summary', 'text'
@@ -1256,6 +1284,34 @@ class WorldEditor {
         </div>
       `;
     }
+    const itemEnumOptions = schema.type === 'array'
+      ? this._enumOptions(Array.isArray(schema.items) ? schema.items[0] : schema.items, root)
+      : [];
+    if (schema.type === 'array' && itemEnumOptions.length) {
+      const selected = Array.isArray(value) ? value.map(option => String(option)) : [];
+      const available = itemEnumOptions.map(option => String(option)).filter(option => !selected.includes(option));
+      return `
+        <div class="field full">${label}
+          <div class="tag-editor enum-list-editor" data-enum-list-field="${esc(name)}" data-enum-options="${esc(JSON.stringify(itemEnumOptions.map(option => String(option))))}">
+            <input class="component-field component-enum-list-value" ${data} type="hidden" value="${esc(JSON.stringify(selected))}">
+            <div class="tag-list enum-list">
+              ${selected.map(option => `
+                <span class="tag-pill">
+                  <span>${esc(option)}</span>
+                  <button type="button" data-remove-enum-option="${esc(option)}" aria-label="Remove ${esc(option)}">x</button>
+                </span>
+              `).join('') || '<span class="tiny">No options selected.</span>'}
+            </div>
+            <div class="tag-entry">
+              <select class="enum-list-select" ${available.length ? '' : 'disabled'}>
+                ${available.map(option => `<option value="${esc(option)}">${esc(option)}</option>`).join('')}
+              </select>
+              <button type="button" data-add-enum-option ${available.length ? '' : 'disabled'}>Add Option</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
     if (this._isMeterField(schema)) {
       const meter = this._meterValue(schema, value);
       return `
@@ -1267,11 +1323,15 @@ class WorldEditor {
         </div>
       `;
     }
-    if (schema.enum?.length) {
+    if (enumOptions.length) {
       return `
         <label class="field wide">${label}
           <select class="component-field" ${data}>
-            ${schema.enum.map(option => `<option value="${esc(option)}" ${option === value ? 'selected' : ''}>${esc(option)}</option>`).join('')}
+            ${schema.nullable ? `<option value="" ${value == null ? 'selected' : ''}></option>` : ''}
+            ${enumOptions.map(option => {
+              const optionValue = String(option);
+              return `<option value="${esc(optionValue)}" ${optionValue === String(value ?? '') ? 'selected' : ''}>${esc(optionValue)}</option>`;
+            }).join('')}
           </select>
         </label>
       `;
@@ -1512,8 +1572,11 @@ class WorldEditor {
         input.addEventListener('input', () => this._updateTypedComponent(card, entity, type));
         input.addEventListener('change', () => this._updateTypedComponent(card, entity, type));
       }
-      for (const editor of card.querySelectorAll('.tag-editor')) {
+      for (const editor of card.querySelectorAll('.tag-editor:not(.enum-list-editor)')) {
         this._bindTagEditor(editor, card, entity, type);
+      }
+      for (const editor of card.querySelectorAll('.enum-list-editor')) {
+        this._bindEnumListEditor(editor, card, entity, type);
       }
       for (const editor of card.querySelectorAll('.meter-editor')) {
         this._bindMeterEditor(editor, card, entity, type);
@@ -1614,6 +1677,60 @@ class WorldEditor {
         </span>
       `).join('')
       : '<span class="tiny">No tags.</span>';
+  }
+
+  _bindEnumListEditor(editor, card, entity, type) {
+    const select = editor.querySelector('.enum-list-select');
+    const add = editor.querySelector('[data-add-enum-option]');
+    const hidden = editor.querySelector('.component-enum-list-value');
+    const options = JSON.parse(editor.dataset.enumOptions || '[]');
+    const readSelected = () => {
+      try {
+        const parsed = JSON.parse(hidden.value || '[]');
+        return Array.isArray(parsed) ? parsed.map(option => String(option)) : [];
+      } catch (_err) {
+        return [];
+      }
+    };
+    const writeSelected = (selected) => {
+      hidden.value = JSON.stringify(selected);
+      this._renderEnumListEditor(editor, options, selected);
+      this._updateTypedComponent(card, entity, type);
+    };
+    add?.addEventListener('click', () => {
+      const value = select.value;
+      if (!value) return;
+      const selected = readSelected();
+      if (!selected.includes(value)) selected.push(value);
+      writeSelected(selected);
+    });
+    editor.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove-enum-option]');
+      if (!button) return;
+      writeSelected(readSelected().filter(option => option !== button.dataset.removeEnumOption));
+    });
+  }
+
+  _renderEnumListEditor(editor, options, selected) {
+    const list = editor.querySelector('.enum-list');
+    const select = editor.querySelector('.enum-list-select');
+    const add = editor.querySelector('[data-add-enum-option]');
+    const available = options.filter(option => !selected.includes(option));
+    if (list) {
+      list.innerHTML = selected.length
+        ? selected.map(option => `
+          <span class="tag-pill">
+            <span>${esc(option)}</span>
+            <button type="button" data-remove-enum-option="${esc(option)}" aria-label="Remove ${esc(option)}">x</button>
+          </span>
+        `).join('')
+        : '<span class="tiny">No options selected.</span>';
+    }
+    if (select) {
+      select.innerHTML = available.map(option => `<option value="${esc(option)}">${esc(option)}</option>`).join('');
+      select.disabled = available.length === 0;
+    }
+    if (add) add.disabled = available.length === 0;
   }
 
   _bindMeterEditor(editor, card, entity, type) {
