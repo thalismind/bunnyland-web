@@ -632,6 +632,7 @@ function controlInfo(entity, world) {
 const MOVED_RECENT_EPOCHS = 60;
 const GRAPH_NODE_WIDTH = 240;
 const GRAPH_MIN_FIT_SCALE = 0.65;
+const GRAPH_WIDGET_HEIGHT = 24;
 const MOVED_HIGHLIGHT = '#f9e2af';
 
 // A need's meter carries its own band thresholds; report the worst one it has crossed.
@@ -1063,6 +1064,11 @@ class BunnylandInspector {
     this.lgcanvas.title_text_font = '15px "Courier New", monospace';
     this.lgcanvas.inner_text_font = '13px "Courier New", monospace';
     this.lgcanvas.node_title_color = '#cdd6f4';
+    LiteGraph.NODE_WIDGET_HEIGHT = GRAPH_WIDGET_HEIGHT;
+    LiteGraph.WIDGET_BGCOLOR = '#313244';
+    LiteGraph.WIDGET_OUTLINE_COLOR = '#89b4fa';
+    LiteGraph.WIDGET_TEXT_COLOR = '#cdd6f4';
+    LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#a6adc8';
 
     this.lgcanvas.onNodeSelected = (node) => {
       if (node?.entityId && this.world) {
@@ -1733,7 +1739,7 @@ class BunnylandInspector {
       };
     }
 
-    node.addWidget('button', 'Go to Room →', null, () => this._goToRoom(dest.id));
+    node.addWidget('button', '🚪 Go to Room →', null, () => this._goToRoom(dest.id));
     node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 26 + 14];
     node.pos = [x, y];
     this.lgraph.add(node);
@@ -1756,7 +1762,7 @@ class BunnylandInspector {
     node.title   = rootIcon + root;
     node.color   = ENTITY_STYLE.other.color;
     node.bgcolor = ENTITY_STYLE.other.bgcolor;
-    node.addWidget('button', '↑ ' + root, null, () => this._goToRoot());
+    node.addWidget('button', '🗺 ↑ ' + root, null, () => this._goToRoot());
     node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 14];
     node.pos = [x, y];
     this.lgraph.add(node);
@@ -1825,19 +1831,19 @@ class BunnylandInspector {
 
     // Widget: drill-in button, labelled for what the entity holds.
     if (enterFn) {
-      const label = type === 'room' ? 'Enter Room →'
-        : type === 'character' ? 'Inventory →'
-        : type === 'container' ? 'Open →'
-        : 'Enter →';
+      const label = type === 'room' ? '🚪 Enter Room →'
+        : type === 'character' ? '🎒 Inventory →'
+        : type === 'container' ? '📦 Open →'
+        : '↳ Enter →';
       node.addWidget('button', label, null, () => enterFn());
     }
 
     // Widget: zoom-out button on a parent node, mirroring the drill-in label.
     if (backFn) {
-      const label = type === 'room' ? '↑ Room'
-        : type === 'character' ? '↑ Inventory'
-        : type === 'container' ? '↑ Contents'
-        : '↑ Back';
+      const label = type === 'room' ? '🏠 ↑ Room'
+        : type === 'character' ? '🎒 ↑ Inventory'
+        : type === 'container' ? '📦 ↑ Contents'
+        : '↖ Back';
       node.addWidget('button', label, null, () => backFn());
     }
 
