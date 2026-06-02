@@ -630,6 +630,8 @@ function controlInfo(entity, world) {
 // "recently moved". Approximate by design — it just needs to fade out as the graph
 // refreshes, not be tick-exact.
 const MOVED_RECENT_EPOCHS = 60;
+const GRAPH_NODE_WIDTH = 240;
+const GRAPH_MIN_FIT_SCALE = 0.65;
 const MOVED_HIGHLIGHT = '#f9e2af';
 
 // A need's meter carries its own band thresholds; report the worst one it has crossed.
@@ -832,6 +834,7 @@ function entityIcon(entity) {
       this.addOutput('→', '');
     }
     EntityNode.title = kind;
+    EntityNode.title_text_color = style.titleColor;
     EntityNode.prototype = Object.create(LGraphNode.prototype);
     EntityNode.prototype.constructor = EntityNode;
     LiteGraph.registerNodeType(`bunnyland/${kind}`, EntityNode);
@@ -1057,6 +1060,9 @@ class BunnylandInspector {
     this.lgcanvas.default_link_color = '#45475a';
     this.lgcanvas.highquality_render = false;
     this.lgcanvas.links_render_mode = LiteGraph.STRAIGHT_LINK;
+    this.lgcanvas.title_text_font = '15px "Courier New", monospace';
+    this.lgcanvas.inner_text_font = '13px "Courier New", monospace';
+    this.lgcanvas.node_title_color = '#cdd6f4';
 
     this.lgcanvas.onNodeSelected = (node) => {
       if (node?.entityId && this.world) {
@@ -1134,7 +1140,7 @@ class BunnylandInspector {
       this._setApiStatus('live', '● Connected');
       document.getElementById('btn-connect').textContent = 'Disconnect';
       this._setRuntime(null, true);
-      this._refreshRuntime({ prompt: true });
+      this._refreshRuntime({ prompt: false });
       this._syncUrl(); // reflect the live server in ?server=
     };
 
@@ -1494,7 +1500,7 @@ class BunnylandInspector {
     const R = Math.max(200, chars.length * 70);
     chars.forEach((e, i) => {
       const ang = (i / Math.max(1, chars.length)) * Math.PI * 2 - Math.PI / 2;
-      const x = cx + R * Math.cos(ang) - 100; // -100 ≈ half node width
+      const x = cx + R * Math.cos(ang) - GRAPH_NODE_WIDTH / 2;
       const y = cy + R * Math.sin(ang);
       nodes[e.id] = this._makeNode(e, x, y, null);
     });
@@ -1609,7 +1615,7 @@ class BunnylandInspector {
     this._hideSocialLegend();
 
     const entity = this.world.entities[entityId];
-    const NODE_W = 200, GAP = 16;
+    const NODE_W = GRAPH_NODE_WIDTH, GAP = 16;
 
     // Render the ancestor chain (Room Map root + every entity above this one) as a row of
     // parent nodes leading into the header. The header sits just after the chain.
@@ -1687,7 +1693,7 @@ class BunnylandInspector {
     const exits = room.relationships?.ExitTo || [];
     if (!exits.length) return;
 
-    const NODE_W = 200, GAP = 16;
+    const NODE_W = GRAPH_NODE_WIDTH, GAP = 16;
     const totalW = exits.length * NODE_W + (exits.length - 1) * GAP;
     let x = Math.max(40, centerX - totalW / 2);
 
@@ -1721,14 +1727,14 @@ class BunnylandInspector {
       const w = node.addWidget('text', '', sub, () => {});
       w.type = 'label';
       w.draw = function (ctx, _n, _w, wy, H) {
-        ctx.fillStyle = oneWay ? '#f9e2af' : '#888a9a';
-        ctx.font = '10px "Courier New", monospace';
-        ctx.fillText(this.value, 8, wy + H * 0.72);
+        ctx.fillStyle = oneWay ? '#f9e2af' : '#cdd6f4';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText(this.value, 10, wy + H * 0.7, _w - 18);
       };
     }
 
     node.addWidget('button', 'Go to Room →', null, () => this._goToRoom(dest.id));
-    node.size = [200, 24 + 22 + 26 + 14];
+    node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 26 + 14];
     node.pos = [x, y];
     this.lgraph.add(node);
     return node;
@@ -1751,7 +1757,7 @@ class BunnylandInspector {
     node.color   = ENTITY_STYLE.other.color;
     node.bgcolor = ENTITY_STYLE.other.bgcolor;
     node.addWidget('button', '↑ ' + root, null, () => this._goToRoot());
-    node.size = [200, 24 + 26 + 14];
+    node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 14];
     node.pos = [x, y];
     this.lgraph.add(node);
     return node;
@@ -1798,9 +1804,9 @@ class BunnylandInspector {
       const w = node.addWidget('text', '', sub, () => {});
       w.type = 'label'; // unknown type → LiteGraph skips mouse handling
       w.draw = function(ctx, _node, widget_width, y, H) {
-        ctx.fillStyle = '#888a9a';
-        ctx.font = '10px "Courier New", monospace';
-        ctx.fillText(this.value, 8, y + H * 0.72);
+        ctx.fillStyle = '#cdd6f4';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText(this.value, 10, y + H * 0.7, widget_width - 18);
       };
     }
 
@@ -1812,8 +1818,8 @@ class BunnylandInspector {
       w.type = 'label';
       w.draw = function(ctx, _node, widget_width, y, H) {
         ctx.fillStyle = '#cdd6f4';
-        ctx.font = '13px "Courier New", monospace';
-        ctx.fillText(this.value, 8, y + H * 0.72);
+        ctx.font = '15px "Courier New", monospace';
+        ctx.fillText(this.value, 10, y + H * 0.72, widget_width - 18);
       };
     }
 
@@ -1836,8 +1842,8 @@ class BunnylandInspector {
     }
 
     node.size = [
-      200,
-      24 + (sub ? 22 : 0) + (badges.length ? 20 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
+      GRAPH_NODE_WIDTH,
+      24 + (sub ? 26 : 0) + (badges.length ? 24 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
     ];
     node.pos = [x, y];
 
@@ -1861,8 +1867,8 @@ class BunnylandInspector {
   }
 
   _fitView() {
-    // Frame all current nodes: scale down if they're wider/taller than the canvas
-    // (parent chains can run wide) and center them.
+    // Frame current nodes while keeping labels readable; very wide parent chains may
+    // need panning instead of shrinking below the readability floor.
     const nodes = this.lgraph._nodes;
     const ds = this.lgcanvas.ds;
     if (!nodes.length) {
@@ -1886,7 +1892,7 @@ class BunnylandInspector {
     const ch = this.lgcanvas.canvas.height;
     const w = (maxX - minX) + margin * 2;
     const h = (maxY - minY) + margin * 2;
-    const scale = Math.max(0.2, Math.min(1, Math.min(cw / w, ch / h)));
+    const scale = Math.max(GRAPH_MIN_FIT_SCALE, Math.min(1, Math.min(cw / w, ch / h)));
     ds.scale = scale;
     // screenX = (graphX + offsetX) * scale; place the content box, then center the slack.
     ds.offset = [
