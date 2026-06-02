@@ -33,7 +33,7 @@
       gap: 8px;
       min-height: 24px;
     }
-    #toolbar-row2 {
+    #toolbar-row2, #toolbar-row3 {
       border-top: 1px solid #26263a;
       padding-top: 5px;
     }
@@ -67,6 +67,7 @@
     .toolbar-sep { color: #313244; }
     #api-url { width: 220px; }
     #library-select { width: 230px; }
+    #fragment-file { max-width: 220px; }
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
     #meta-epoch { width: 90px; }
@@ -392,17 +393,6 @@
     <button id="btn-save-live">Save Live</button>
     <button id="btn-toggle-live" disabled>⏯</button>
     <span id="runtime-status">runtime: offline</span>
-    <span class="toolbar-sep">|</span>
-    <button id="btn-download">Download JSON</button>
-    <button id="btn-copy">Copy JSON</button>
-    <button id="btn-toggle-snapshot">Hide Snapshot</button>
-    <span class="toolbar-sep">|</span>
-    <label for="fragment-file">Fragments:</label>
-    <input type="file" id="fragment-file" accept=".json,application/json">
-    <select id="library-select" disabled></select>
-    <button id="btn-refresh-library">Refresh Library</button>
-    <button id="btn-import-fragment" disabled>Import Fragment</button>
-    <button id="btn-export-fragment">Export Selected Fragment</button>
     <span id="status">Ready</span>
     <a class="nav-link push" href="index.html">Inspector</a>
     <a class="nav-link" href="script-editor.html">Script Editor</a>
@@ -415,7 +405,19 @@
     <label for="meta-epoch">Epoch:</label>
     <input type="number" id="meta-epoch" min="0">
     <span class="toolbar-sep">|</span>
+    <button id="btn-download">Download JSON</button>
+    <button id="btn-copy">Copy JSON</button>
+    <button id="btn-toggle-snapshot">Hide Snapshot</button>
+    <span class="toolbar-sep">|</span>
     <span id="world-info"></span>
+  </div>
+  <div class="toolbar-row" id="toolbar-row3">
+    <label for="fragment-file">Fragments:</label>
+    <input type="file" id="fragment-file" accept=".json,application/json">
+    <select id="library-select" disabled></select>
+    <button id="btn-refresh-library">Refresh Library</button>
+    <button id="btn-import-fragment" disabled>Import Fragment</button>
+    <button id="btn-export-fragment">Export Selected Fragment</button>
   </div>
 </div>
 
