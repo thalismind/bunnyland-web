@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Playwright checks for the Bunnyland world editor toolbar layout."""
+
+from pathlib import Path
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+SCREENSHOT = SCREENSHOT_DIR / "bunnyland-world-editor-toolbar.png"
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+        page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+
+        fragment_parent = page.locator("#fragment-file").evaluate("node => node.closest('.toolbar-row').id")
+        if fragment_parent != "toolbar-row3":
+            raise AssertionError(f"expected fragments controls in toolbar-row3, found {fragment_parent!r}")
+
+        script_editor = page.locator('a.nav-link[href="script-editor.html"]')
+        script_editor.wait_for()
+        if not script_editor.is_visible():
+            raise AssertionError("Script Editor link is not visible")
+
+        boxes = page.evaluate(
+            """
+            () => {
+              const ids = ['toolbar-row1', 'toolbar-row2', 'toolbar-row3'];
+              return Object.fromEntries(ids.map((id) => {
+                const rect = document.getElementById(id).getBoundingClientRect();
+                return [id, { top: rect.top, bottom: rect.bottom, height: rect.height }];
+              }));
+            }
+            """
+        )
+        if boxes["toolbar-row1"]["bottom"] > boxes["toolbar-row2"]["top"]:
+            raise AssertionError("toolbar row 1 overlaps row 2")
+        if boxes["toolbar-row2"]["bottom"] > boxes["toolbar-row3"]["top"]:
+            raise AssertionError("toolbar row 2 overlaps row 3")
+        if boxes["toolbar-row3"]["height"] < 20:
+            raise AssertionError("toolbar row 3 is unexpectedly collapsed")
+
+        page.locator("#toolbar").screenshot(path=str(SCREENSHOT))
+        browser.close()
+
+    print("world_editor_toolbar=ok")
+    print(f"screenshot={SCREENSHOT}")
+
+
+if __name__ == "__main__":
+    main()

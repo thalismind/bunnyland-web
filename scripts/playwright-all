@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${BUNNYLAND_WEB_PORT:-8091}"
+BASE_URL="${BUNNYLAND_WEB_BASE_URL:-http://127.0.0.1:${PORT}}"
+export BUNNYLAND_WEB_BASE_URL="${BASE_URL}"
+export PYTHONDONTWRITEBYTECODE=1
+
+server_pid=""
+if [[ "${BUNNYLAND_WEB_NO_SERVER:-0}" != "1" ]]; then
+  if ! curl -fsS "${BASE_URL}/index.html" >/dev/null 2>&1; then
+    ./serve.sh "${PORT}" >/tmp/bunnyland-web-playwright-server.log 2>&1 &
+    server_pid="$!"
+    for _ in {1..50}; do
+      if curl -fsS "${BASE_URL}/index.html" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if ! curl -fsS "${BASE_URL}/index.html" >/dev/null 2>&1; then
+      echo "Timed out waiting for ${BASE_URL}" >&2
+      exit 1
+    fi
+  fi
+fi
+
+cleanup() {
+  if [[ -n "${server_pid}" ]]; then
+    kill "${server_pid}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+scripts/playwright-inspector
+scripts/playwright-world-editor-toolbar
+scripts/playwright-world-editor

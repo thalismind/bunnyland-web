@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Playwright checks for the Bunnyland snapshot inspector."""
+
+from pathlib import Path
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+SCREENSHOT = SCREENSHOT_DIR / "bunnyland-web-node-readability.png"
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+        page.add_init_script(
+            """
+            window.__promptCalls = [];
+            window.prompt = (message) => {
+              window.__promptCalls.push(String(message || ''));
+              return null;
+            };
+            window.WebSocket = class {
+              constructor(url) {
+                this.url = url;
+                setTimeout(() => {
+                  if (this.onopen) this.onopen({});
+                }, 0);
+              }
+              close() {
+                if (this.onclose) this.onclose({});
+              }
+            };
+            """
+        )
+        page.route("**/admin/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
+        page.goto(f"{BASE_URL}/index.html?server=http://127.0.0.1:18080", wait_until="domcontentloaded")
+        page.wait_for_function("window.app && window.app._apiBase")
+        page.wait_for_timeout(200)
+        prompt_calls = page.evaluate("window.__promptCalls")
+        if prompt_calls:
+            raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
+
+        page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
+        page.evaluate(
+            """
+            async () => {
+              const snapshot = await fetch('/examples/seed-world.json').then((res) => res.json());
+              window.app.loadSnapshot(snapshot);
+            }
+            """
+        )
+        page.wait_for_function("window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
+        page.locator("#graph-wrapper").screenshot(path=str(SCREENSHOT))
+        scale = page.evaluate("window.app.lgcanvas.ds.scale")
+        nodes = page.evaluate("window.app.lgraph._nodes.length")
+        browser.close()
+
+    print("prompt_calls=0")
+    print(f"nodes={nodes}")
+    print(f"scale={scale}")
+    print(f"screenshot={SCREENSHOT}")
+
+
+if __name__ == "__main__":
+    main()

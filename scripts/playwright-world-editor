@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Playwright checks for the Bunnyland world editor."""
+
+from pathlib import Path
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+SCREENSHOT = SCREENSHOT_DIR / "bunnyland-enum-editor.png"
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+        page.evaluate(
+            """
+            () => {
+              const enumDefs = {
+                ContainmentMode: {
+                  type: 'string',
+                  enum: ['room_content', 'inventory', 'container'],
+                  title: 'ContainmentMode'
+                },
+                BoundaryTag: {
+                  type: 'string',
+                  enum: ['flirting', 'romance', 'pvp'],
+                  title: 'BoundaryTag'
+                }
+              };
+              window.app.worldSchema = {
+                components: {
+                  InventoryComponent: {
+                    json_schema: {
+                      type: 'object',
+                      properties: {
+                        default_drop_mode: {
+                          $ref: '#/$defs/ContainmentMode',
+                          default: 'inventory'
+                        }
+                      },
+                      $defs: enumDefs
+                    }
+                  },
+                  WorldPolicyComponent: {
+                    json_schema: {
+                      type: 'object',
+                      properties: {
+                        enabled: {
+                          type: 'array',
+                          items: { $ref: '#/$defs/BoundaryTag' },
+                          default: []
+                        }
+                      },
+                      $defs: enumDefs
+                    }
+                  }
+                }
+              };
+              window.app.world = {
+                metadata: { epoch: 1 },
+                entities: {
+                  enum_test: {
+                    id: 'enum_test',
+                    prefab: 'entity',
+                    created_epoch: 0,
+                    components: {
+                      InventoryComponent: { default_drop_mode: 'inventory' },
+                      WorldPolicyComponent: { enabled: ['pvp'] }
+                    },
+                    relationships: {}
+                  }
+                },
+                relationships: {}
+              };
+              window.app.selectedId = 'enum_test';
+              window.app._renderAll();
+            }
+            """
+        )
+        scalar = page.locator('select.component-field[data-field="default_drop_mode"]')
+        enum_list = page.locator(".enum-list-editor")
+        add_select = page.locator(".enum-list-select")
+        scalar.wait_for()
+        enum_list.wait_for()
+        assert scalar.input_value() == "inventory"
+        assert add_select.input_value() == "flirting"
+        add_select.select_option("romance")
+        page.locator("[data-add-enum-option]").click()
+        raw = page.locator(".component-card[data-type='WorldPolicyComponent'] .component-json")
+        assert '"pvp"' in raw.input_value()
+        assert '"romance"' in raw.input_value()
+        page.locator('[data-remove-enum-option="pvp"]').click()
+        assert '"pvp"' not in raw.input_value()
+        page.screenshot(path=str(SCREENSHOT), full_page=True)
+        browser.close()
+
+    print("world_editor_enum_dropdowns=ok")
+    print(f"screenshot={SCREENSHOT}")
+
+
+if __name__ == "__main__":
+    main()

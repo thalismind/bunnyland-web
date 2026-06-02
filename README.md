@@ -30,6 +30,17 @@ similar to Chrome's memory snapshot tools.
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
 
+## Playwright checks
+
+Reusable browser checks live in [`scripts/`](scripts/):
+
+```bash
+scripts/playwright-all
+```
+
+The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_URL` and
+`BUNNYLAND_WEB_NO_SERVER=1` to point the checks at an already-running server.
+
 ## Container
 
 The published image serves the static client with nginx and proxies same-origin `/api/`
