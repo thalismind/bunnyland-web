@@ -4,82 +4,12 @@
   <meta charset="utf-8">
   <title>Bunnyland Script Editor</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Courier New', monospace;
-      background: #1e1e2e;
-      color: #cdd6f4;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    #toolbar {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      padding: 5px 12px;
-      background: #181825;
-      border-bottom: 1px solid #313244;
-      flex-shrink: 0;
-      font-size: 12px;
-    }
-    .toolbar-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 24px;
-    }
-    #toolbar-row2 {
-      border-top: 1px solid #26263a;
-      padding-top: 5px;
-    }
-    label { color: #a6adc8; }
-    input, select, textarea, button {
-      font-family: 'Courier New', monospace;
-    }
-    input[type=file], input[type=text], input[type=number], select, textarea {
-      font-size: 11px;
-      color: #cdd6f4;
-      background: #313244;
-      border: 1px solid #45475a;
-      border-radius: 3px;
-      padding: 3px 6px;
-    }
-    input[type=file] { padding: 2px 6px; cursor: pointer; }
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: #89b4fa;
-    }
-    button {
-      padding: 3px 10px;
-      background: #313244;
-      border: 1px solid #45475a;
-      color: #cdd6f4;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    button:hover:not(:disabled) { background: #45475a; }
-    button:disabled { opacity: 0.4; cursor: default; }
-    .toolbar-sep { color: #313244; }
     #script-id { width: 230px; }
     #script-name { width: 220px; }
     #script-version { width: 78px; }
-    #world-info, #save-status { font-size: 10px; color: #585b70; }
-    #save-status.ok { color: #a6e3a1; }
-    #save-status.err { color: #f38ba8; }
-    .nav-link {
-      color: #89b4fa;
-      text-decoration: none;
-      font-size: 11px;
-      margin-left: auto;
-    }
-    .nav-link:hover { text-decoration: underline; }
+    .nav-link:first-of-type { margin-left: auto; }
 
     #main {
       display: grid;
@@ -89,49 +19,6 @@
       overflow: hidden;
     }
 
-    .pane {
-      min-width: 0;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      background: #181825;
-      border-right: 1px solid #313244;
-      overflow: hidden;
-    }
-    .pane:last-child { border-right: none; }
-    .pane-header {
-      flex-shrink: 0;
-      padding: 7px 10px;
-      border-bottom: 1px solid #313244;
-      background: #1e1e2e;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 33px;
-    }
-    .pane-title {
-      color: #89dceb;
-      font-weight: bold;
-      font-size: 12px;
-      white-space: nowrap;
-    }
-    .pane-count {
-      color: #585b70;
-      font-size: 10px;
-      white-space: nowrap;
-    }
-    .pane-body {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-    }
-    .pane-body::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 6px; }
-    .pane-body::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track { background: #181825; }
-    .pane-body::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
-      background: #313244;
-      border-radius: 3px;
-    }
-
     #entity-search {
       width: 100%;
       margin: 8px 10px 6px 10px;
@@ -139,32 +26,9 @@
     }
     #entity-list {
       padding-bottom: 8px;
-      border-bottom: 1px solid #313244;
+      border-bottom: 1px solid var(--bl-border);
       max-height: 45%;
       overflow-y: auto;
-    }
-    .entity-row {
-      padding: 5px 10px;
-      border-bottom: 1px solid #1a1a2a;
-      cursor: pointer;
-      font-size: 11px;
-      display: grid;
-      grid-template-columns: 18px minmax(0, 1fr);
-      gap: 5px;
-    }
-    .entity-row:hover, .entity-row.active { background: #313244; }
-    .entity-name {
-      color: #cdd6f4;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .entity-meta {
-      color: #6c7086;
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     #entity-detail {
       padding: 10px;
@@ -172,7 +36,7 @@
       line-height: 1.65;
     }
     .detail-title {
-      color: #cdd6f4;
+      color: var(--bl-text);
       font-size: 13px;
       font-weight: bold;
       margin-bottom: 2px;
@@ -181,8 +45,8 @@
       text-overflow: ellipsis;
     }
     .detail-id {
-      color: #585b70;
-      font-size: 10px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
       word-break: break-all;
       margin-bottom: 8px;
     }
@@ -193,12 +57,12 @@
       margin: 5px 0 9px 0;
     }
     .pill {
-      color: #cdd6f4;
-      background: #313244;
-      border: 1px solid #45475a;
-      border-radius: 3px;
+      color: var(--bl-text);
+      background: var(--bl-surface);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
       padding: 1px 5px;
-      font-size: 10px;
+      font-size: var(--bl-text-xs);
       white-space: nowrap;
     }
     .mini-actions {
@@ -207,14 +71,6 @@
       gap: 5px;
       margin-top: 8px;
     }
-    .empty {
-      padding: 18px;
-      text-align: center;
-      color: #585b70;
-      font-size: 12px;
-      line-height: 1.7;
-    }
-
     #editor-grid {
       flex: 1;
       min-height: 0;
@@ -223,122 +79,29 @@
       overflow: hidden;
     }
     #block-list {
-      border-right: 1px solid #313244;
+      border-right: 1px solid var(--bl-border);
       min-height: 0;
       overflow-y: auto;
     }
     .block-row {
       padding: 7px 9px;
-      border-bottom: 1px solid #1a1a2a;
+      border-bottom: 1px solid var(--bl-bg-row);
       cursor: pointer;
-      font-size: 11px;
+      font-size: var(--bl-text-sm);
     }
-    .block-row:hover, .block-row.active { background: #313244; }
+    .block-row:hover, .block-row.active { background: var(--bl-surface); }
     .block-name {
-      color: #cdd6f4;
+      color: var(--bl-text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .block-meta {
-      color: #6c7086;
-      font-size: 10px;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
       margin-top: 3px;
     }
-    .editor-scroll {
-      min-width: 0;
-      min-height: 0;
-      overflow-y: auto;
-      padding: 10px;
-    }
-    .form-section {
-      border-bottom: 1px solid #1e1e2e;
-      padding-bottom: 12px;
-      margin-bottom: 12px;
-    }
-    .section-title {
-      color: #89dceb;
-      font-size: 11px;
-      font-weight: bold;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .field {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      font-size: 10px;
-      color: #a6adc8;
-    }
-    .field.wide { grid-column: span 2; }
-    .field.full { grid-column: 1 / -1; }
-    .field input, .field select, .field textarea { width: 100%; }
-    textarea {
-      min-height: 74px;
-      resize: vertical;
-      line-height: 1.45;
-      tab-size: 2;
-    }
-    .tiny { font-size: 10px; color: #585b70; }
-    .bad-json { border-color: #f38ba8 !important; }
-    .action-card {
-      border: 1px solid #313244;
-      border-radius: 4px;
-      margin-bottom: 9px;
-      background: #1e1e2e;
-      overflow: hidden;
-    }
-    .action-head {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 8px;
-      border-bottom: 1px solid #313244;
-      color: #89b4fa;
-      font-size: 11px;
-    }
-    .action-head button { margin-left: auto; padding: 1px 7px; }
-    .action-body { padding: 8px; }
-    .button-row {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-
-    #json-output {
-      flex: 1;
-      min-height: 0;
-      width: 100%;
-      border: none;
-      border-radius: 0;
-      padding: 10px;
-      background: #11111b;
-      color: #cdd6f4;
-      font-size: 11px;
-      line-height: 1.45;
-      resize: none;
-    }
-    #problems {
-      flex-shrink: 0;
-      border-top: 1px solid #313244;
-      background: #181825;
-      color: #f38ba8;
-      font-size: 11px;
-      padding: 7px 10px;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-    #problems.ok { color: #a6e3a1; }
+    textarea { min-height: 74px; }
 
     @media (max-width: 1050px) {
       #main { grid-template-columns: 280px minmax(520px, 1fr); }
@@ -417,6 +180,7 @@
   </section>
 </div>
 
+<script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
 
@@ -459,15 +223,11 @@ function parseSnapshot(json) {
 }
 
 function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return BunnylandUI.escapeHtml(s);
 }
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+  return BunnylandUI.cloneJson(value);
 }
 
 function parseJsonObject(text, fallback) {

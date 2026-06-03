@@ -5,102 +5,26 @@
   <title>Bunnyland Inspector</title>
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/css/litegraph.css">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Courier New', monospace;
-      background: #1e1e2e;
-      color: #cdd6f4;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    /* ── Toolbar ── */
-    #toolbar {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      padding: 5px 12px;
-      background: #181825;
-      border-bottom: 1px solid #313244;
-      flex-shrink: 0;
-      font-size: 12px;
-    }
-    .toolbar-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    #toolbar-row2 {
-      border-top: 1px solid #26263a;
-      padding-top: 5px;
-    }
-    #toolbar label { color: #a6adc8; }
-    #toolbar input[type=file] {
-      font-size: 11px;
-      color: #cdd6f4;
-      background: #313244;
-      border: 1px solid #45475a;
-      border-radius: 3px;
-      padding: 2px 6px;
-      cursor: pointer;
-    }
-    #toolbar button {
-      padding: 3px 10px;
-      background: #313244;
-      border: 1px solid #45475a;
-      color: #cdd6f4;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 11px;
-    }
-    #toolbar button:hover:not(:disabled) { background: #45475a; }
-    #toolbar button:disabled { opacity: 0.4; cursor: default; }
     #breadcrumb {
       flex: 1;
-      font-size: 11px;
-      color: #6c7086;
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text-dim);
       padding-left: 4px;
     }
-    #breadcrumb .crumb { color: #89b4fa; cursor: pointer; }
+    #breadcrumb .crumb { color: var(--bl-accent); cursor: pointer; }
     #breadcrumb .crumb:hover { text-decoration: underline; }
-    #breadcrumb .crumb-current { color: #cdd6f4; }
-    #world-info { font-size: 10px; color: #585b70; }
-    .toolbar-sep { color: #313244; }
-    #api-url {
-      font-size: 11px;
-      background: #313244;
-      border: 1px solid #45475a;
-      color: #cdd6f4;
-      border-radius: 3px;
-      padding: 2px 6px;
-      width: 190px;
-    }
-    #api-status { font-size: 11px; white-space: nowrap; }
-    #runtime-status { font-size: 11px; color: #585b70; white-space: nowrap; }
-    .toolbar-link {
-      color: #89b4fa;
-      text-decoration: none;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .toolbar-link:hover { text-decoration: underline; }
+    #breadcrumb .crumb-current { color: var(--bl-text); }
+    #api-url { width: 190px; }
+    #api-status { font-size: var(--bl-text-sm); white-space: nowrap; }
+    #runtime-status { white-space: nowrap; }
 
     /* ── Search / jump-to-entity ── */
     #search-box { position: relative; }
     #search-input {
-      font-size: 11px;
-      background: #313244;
-      border: 1px solid #45475a;
-      color: #cdd6f4;
-      border-radius: 3px;
-      padding: 2px 6px;
       width: 170px;
     }
-    #search-input:focus { outline: none; border-color: #89b4fa; }
     #search-results {
       position: absolute;
       top: 100%;
@@ -109,28 +33,28 @@
       min-width: 240px;
       max-height: 320px;
       overflow-y: auto;
-      background: #1e1e2e;
-      border: 1px solid #45475a;
-      border-radius: 4px;
+      background: var(--bl-bg);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
       z-index: 20;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      box-shadow: var(--bl-shadow-popover);
     }
     #search-results.hidden { display: none; }
     .search-item {
       padding: 4px 9px;
-      font-size: 11px;
-      color: #cdd6f4;
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text);
       cursor: pointer;
       white-space: nowrap;
-      border-bottom: 1px solid #181825;
+      border-bottom: 1px solid var(--bl-bg-strong);
     }
-    .search-item:hover, .search-item.active { background: #313244; }
+    .search-item:hover, .search-item.active { background: var(--bl-surface); }
     .search-item .si-icon { margin-right: 4px; }
-    .search-item .si-type { color: #6c7086; margin-left: 5px; }
-    .search-empty { padding: 8px 10px; font-size: 11px; color: #585b70; }
+    .search-item .si-type { color: var(--bl-text-dim); margin-left: 5px; }
+    .search-empty { padding: 8px 10px; font-size: var(--bl-text-sm); color: var(--bl-text-muted); }
     #parents-toggle {
-      font-size: 11px;
-      color: #a6adc8;
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text-soft);
       display: flex;
       align-items: center;
       gap: 3px;
@@ -138,8 +62,6 @@
       cursor: pointer;
     }
     #parents-toggle input { cursor: pointer; }
-    #api-status.live { color: #a6e3a1; }
-    #api-status.error { color: #f38ba8; }
 
     /* ── Main layout ── */
     #main {
@@ -506,6 +428,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
+<script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
 
@@ -845,11 +768,7 @@ function entityIcon(entity) {
 // ── Inspector rendering ───────────────────────────────────────────────────────
 
 function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return BunnylandUI.escapeHtml(s);
 }
 
 function renderScalar(v) {

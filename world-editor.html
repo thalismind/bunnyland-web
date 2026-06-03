@@ -4,84 +4,14 @@
   <meta charset="utf-8">
   <title>Bunnyland World Editor</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Courier New', monospace;
-      background: #1e1e2e;
-      color: #cdd6f4;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    #toolbar {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      padding: 5px 12px;
-      background: #181825;
-      border-bottom: 1px solid #313244;
-      flex-shrink: 0;
-      font-size: 12px;
-    }
-    .toolbar-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 24px;
-    }
-    #toolbar-row2, #toolbar-row3 {
-      border-top: 1px solid #26263a;
-      padding-top: 5px;
-    }
-    label { color: #a6adc8; }
-    input, select, textarea, button { font-family: 'Courier New', monospace; }
-    input[type=file], input[type=text], input[type=number], select, textarea {
-      font-size: 11px;
-      color: #cdd6f4;
-      background: #313244;
-      border: 1px solid #45475a;
-      border-radius: 3px;
-      padding: 3px 6px;
-    }
-    input[type=file] { padding: 2px 6px; cursor: pointer; }
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: #89b4fa;
-    }
-    button {
-      padding: 3px 10px;
-      background: #313244;
-      border: 1px solid #45475a;
-      color: #cdd6f4;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    button:hover:not(:disabled) { background: #45475a; }
-    button:disabled { opacity: 0.4; cursor: default; }
-    .toolbar-sep { color: #313244; }
     #api-url { width: 220px; }
     #library-select { width: 230px; }
     #fragment-file { max-width: 220px; }
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
     #meta-epoch { width: 90px; }
-    #world-info, #status, #runtime-status { font-size: 10px; color: #585b70; }
-    #status.ok { color: #a6e3a1; }
-    #status.err { color: #f38ba8; }
-    .nav-link {
-      color: #89b4fa;
-      text-decoration: none;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .nav-link:hover { text-decoration: underline; }
-    .push { margin-left: auto; }
 
     #main {
       display: grid;
@@ -96,49 +26,6 @@
     #main.snapshot-hidden #preview-pane {
       display: none;
     }
-    .pane {
-      min-width: 0;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      background: #181825;
-      border-right: 1px solid #313244;
-      overflow: hidden;
-    }
-    .pane:last-child { border-right: none; }
-    .pane-header {
-      flex-shrink: 0;
-      padding: 7px 10px;
-      border-bottom: 1px solid #313244;
-      background: #1e1e2e;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 33px;
-    }
-    .pane-title {
-      color: #89dceb;
-      font-weight: bold;
-      font-size: 12px;
-      white-space: nowrap;
-    }
-    .pane-count {
-      color: #585b70;
-      font-size: 10px;
-      white-space: nowrap;
-    }
-    .pane-body {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-    }
-    .pane-body::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 6px; }
-    .pane-body::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track { background: #181825; }
-    .pane-body::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
-      background: #313244;
-      border-radius: 3px;
-    }
-
     #entity-search {
       margin: 8px 10px 6px 10px;
       width: calc(100% - 20px);
@@ -146,72 +33,9 @@
     #entity-list {
       padding-bottom: 8px;
     }
-    .entity-row {
-      padding: 5px 10px;
-      border-bottom: 1px solid #1a1a2a;
-      cursor: pointer;
-      font-size: 11px;
-      display: grid;
-      grid-template-columns: 18px minmax(0, 1fr);
-      gap: 5px;
-    }
-    .entity-row:hover, .entity-row.active { background: #313244; }
-    .entity-name {
-      color: #cdd6f4;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .entity-meta {
-      color: #6c7086;
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .editor-scroll {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      padding: 10px;
-    }
-    .section {
-      border-bottom: 1px solid #1e1e2e;
-      padding-bottom: 12px;
-      margin-bottom: 12px;
-    }
-    .section-title {
-      color: #89dceb;
-      font-size: 11px;
-      font-weight: bold;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .section-title button { margin-left: auto; padding: 1px 7px; }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .field {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      font-size: 10px;
-      color: #a6adc8;
-    }
-    .field.wide { grid-column: span 2; }
-    .field.full { grid-column: 1 / -1; }
-    .field input, .field select, .field textarea { width: 100%; }
+    .editor-scroll { flex: 1; }
     textarea {
       min-height: 82px;
-      resize: vertical;
-      line-height: 1.45;
-      tab-size: 2;
     }
     .component-json {
       display: block;
@@ -222,23 +46,23 @@
     .raw-json {
       margin-top: 12px;
       padding-top: 8px;
-      border-top: 1px solid #313244;
-      color: #cdd6f4;
+      border-top: 1px solid var(--bl-border);
+      color: var(--bl-text);
     }
     .raw-json summary {
       display: inline-block;
       min-height: 22px;
       padding: 4px 8px;
-      border: 1px solid #45475a;
-      border-radius: 3px;
-      color: #cdd6f4;
-      background: #313244;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text);
+      background: var(--bl-surface);
       cursor: pointer;
-      font-size: 11px;
+      font-size: var(--bl-text-sm);
     }
     .raw-json summary:hover {
-      border-color: #89b4fa;
-      color: #ffffff;
+      border-color: var(--bl-accent);
+      color: var(--bl-text-inverse);
     }
     .tag-editor {
       display: flex;
@@ -257,18 +81,18 @@
       gap: 5px;
       max-width: 100%;
       padding: 3px 6px;
-      border: 1px solid #585b70;
-      border-radius: 3px;
-      background: #313244;
-      color: #cdd6f4;
-      font-size: 11px;
+      border: 1px solid var(--bl-border-strong);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      color: var(--bl-text);
+      font-size: var(--bl-text-sm);
     }
     .tag-pill span {
       overflow-wrap: anywhere;
     }
     .tag-pill button {
       padding: 0 4px;
-      border-color: #6c7086;
+      border-color: var(--bl-text-dim);
       line-height: 1.2;
     }
     .tag-entry {
@@ -291,11 +115,11 @@
     input[type=range].meter-range {
       width: 100%;
       padding: 0;
-      accent-color: #89b4fa;
+      accent-color: var(--bl-accent);
     }
     .meter-readout {
-      color: #cdd6f4;
-      font-size: 11px;
+      color: var(--bl-text);
+      font-size: var(--bl-text-sm);
       white-space: nowrap;
     }
     .meter-grid {
@@ -307,70 +131,10 @@
       display: flex;
       flex-direction: column;
       gap: 3px;
-      font-size: 10px;
-      color: #a6adc8;
+      font-size: var(--bl-text-xs);
+      color: var(--bl-text-soft);
     }
     .meter-grid input { width: 100%; }
-    .bad-json { border-color: #f38ba8 !important; }
-    .button-row {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .record-card {
-      border: 1px solid #313244;
-      border-radius: 4px;
-      margin-bottom: 9px;
-      background: #1e1e2e;
-      overflow: hidden;
-    }
-    .record-head {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 8px;
-      border-bottom: 1px solid #313244;
-      color: #89b4fa;
-      font-size: 11px;
-    }
-    .record-head button { margin-left: auto; padding: 1px 7px; }
-    .record-body { padding: 8px; }
-    .empty {
-      padding: 18px;
-      text-align: center;
-      color: #585b70;
-      font-size: 12px;
-      line-height: 1.7;
-    }
-    .danger { color: #f38ba8; }
-    .tiny { font-size: 10px; color: #585b70; }
-
-    #json-output {
-      flex: 1;
-      min-height: 0;
-      width: 100%;
-      border: none;
-      border-radius: 0;
-      padding: 10px;
-      background: #11111b;
-      color: #cdd6f4;
-      font-size: 11px;
-      line-height: 1.45;
-      resize: none;
-    }
-    #problems {
-      flex-shrink: 0;
-      border-top: 1px solid #313244;
-      background: #181825;
-      color: #f38ba8;
-      font-size: 11px;
-      padding: 7px 10px;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-    #problems.ok { color: #a6e3a1; }
 
     @media (max-width: 1050px) {
       #main { grid-template-columns: 290px minmax(560px, 1fr); }
@@ -457,6 +221,7 @@
 <datalist id="edge-options"></datalist>
 <datalist id="entity-options"></datalist>
 
+<script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
 
@@ -471,15 +236,11 @@ const COMMON_COMPONENTS = [
 const COMMON_EDGES = ['Contains', 'ControlledBy', 'ExitTo', 'HasThought', 'Holding', 'Wearing'];
 
 function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return BunnylandUI.escapeHtml(s);
 }
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+  return BunnylandUI.cloneJson(value);
 }
 
 function parseObject(text) {
