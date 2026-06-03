@@ -153,6 +153,27 @@ def main() -> None:
         add_select = page.locator(".enum-list-select")
         scalar.wait_for()
         enum_list.wait_for()
+        component_search = page.locator("#add-component-dropdown .search-dropdown-input")
+        component_search.fill("ActionPoints")
+        component_search.press("Enter")
+        assert page.locator("#add-component-type").input_value() == "ActionPointsComponent"
+        page.evaluate(
+            """
+            () => {
+              window.app.libraryFragments = [{
+                id: 'fragment.alpha',
+                title: 'Alpha Fragment',
+                kind: 'room',
+                operations: []
+              }];
+              window.app._renderLibraryControls();
+            }
+            """
+        )
+        fragment_search = page.locator("#fragment-dropdown .search-dropdown-input")
+        fragment_search.fill("alpha")
+        fragment_search.press("Enter")
+        assert page.locator("#library-select").input_value() == "fragment.alpha"
         assert scalar.input_value() == "inventory"
         nullable = page.locator('.nullable-toggle[data-field="nickname"]')
         nullable.wait_for()

@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 220px; }
-    #library-select { width: 230px; }
+    #fragment-dropdown { width: 230px; }
+    #add-component-dropdown { width: 260px; }
     #fragment-file { max-width: 220px; }
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
@@ -178,7 +179,7 @@
   <div class="toolbar-row" id="toolbar-row3">
     <label for="fragment-file">Fragments:</label>
     <input type="file" id="fragment-file" accept=".json,application/json">
-    <select id="library-select" disabled></select>
+    <span id="library-select-wrap"></span>
     <button id="btn-refresh-library">Refresh Library</button>
     <button id="btn-import-fragment" disabled>Import Fragment</button>
     <button id="btn-export-fragment">Export Selected Fragment</button>
@@ -883,14 +884,42 @@ class WorldEditor {
   }
 
   _renderLibraryControls() {
-    const select = document.getElementById('library-select');
+    const wrap = document.getElementById('library-select-wrap');
     const button = document.getElementById('btn-import-fragment');
-    if (!select || !button) return;
-    select.innerHTML = this.libraryFragments.map(fragment => `
-      <option value="${esc(fragment.id)}">${esc(fragment.kind)} · ${esc(fragment.title)}</option>
-    `).join('');
-    select.disabled = !this.libraryFragments.length;
+    if (!wrap || !button) return;
+    const value = this.libraryFragments[0]?.id || '';
+    wrap.innerHTML = this._renderSearchDropdown({
+      id: 'library-select',
+      dropdownId: 'fragment-dropdown',
+      options: this.libraryFragments.map(fragment => ({
+        value: fragment.id,
+        label: `${fragment.kind} · ${fragment.title}`
+      })),
+      value,
+      placeholder: 'find fragment...',
+      disabled: !this.libraryFragments.length
+    });
+    this._bindSearchDropdown(wrap.querySelector('.search-dropdown'));
     button.disabled = !this.libraryFragments.length;
+  }
+
+  _renderSearchDropdown({ id, dropdownId, options, value = '', placeholder = 'search...', disabled = false }) {
+    const selected = options.find(option => option.value === value) || options[0] || null;
+    return `
+      <span class="search-dropdown" id="${esc(dropdownId)}" data-options="${esc(JSON.stringify(options))}">
+        <input class="search-dropdown-input" type="text" value="${esc(selected?.label || '')}" placeholder="${esc(placeholder)}" spellcheck="false" autocomplete="off" ${disabled ? 'disabled' : ''}>
+        <input class="search-dropdown-value" id="${esc(id)}" type="hidden" value="${esc(selected?.value || '')}">
+        <div class="search-dropdown-menu hidden"></div>
+      </span>
+    `;
+  }
+
+  _bindSearchDropdown(root) {
+    if (!root) return;
+    BunnylandUI.bindSearchDropdown(root, {
+      options: JSON.parse(root.dataset.options || '[]'),
+      value: root.querySelector('.search-dropdown-value')?.value || ''
+    });
   }
 
   _renderEntities() {
@@ -1030,9 +1059,13 @@ class WorldEditor {
     const options = this._componentNames().filter(name => !existing.has(name));
     const disabled = options.length ? '' : ' disabled';
     return `
-      <select id="add-component-type"${disabled}>
-        ${options.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')}
-      </select>
+      ${this._renderSearchDropdown({
+        id: 'add-component-type',
+        dropdownId: 'add-component-dropdown',
+        options: options.map(name => ({ value: name, label: name })),
+        placeholder: 'find component...',
+        disabled: !options.length
+      })}
       <button id="btn-add-component"${disabled}>Add Component</button>
     `;
   }
@@ -1374,6 +1407,7 @@ class WorldEditor {
     document.getElementById('btn-rename-entity').addEventListener('click', () => this._applyEntityFields());
     document.getElementById('btn-add-component').addEventListener('click', () => this._addComponent());
     document.getElementById('btn-add-edge').addEventListener('click', () => this._addEdge());
+    this._bindSearchDropdown(root.querySelector('#add-component-dropdown'));
     root.querySelector('#btn-gen-room')?.addEventListener('click', () => this._generateRoom());
     root.querySelector('#btn-gen-character')?.addEventListener('click', () => this._generateCharacter());
     root.querySelector('#btn-gen-item')?.addEventListener('click', () => this._generateItem());
