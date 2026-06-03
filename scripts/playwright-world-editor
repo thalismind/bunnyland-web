@@ -32,6 +32,8 @@ def main() -> None:
     with sync_playwright() as playwright:
         browser = launch_browser(playwright)
         page = browser.new_page(viewport={"width": 1400, "height": 900})
+        prompt_messages = []
+        page.on("dialog", lambda dialog: (prompt_messages.append(dialog.message), dialog.dismiss()))
         page.route(
             "**/world/snapshot",
             lambda route: route.fulfill(
@@ -202,6 +204,21 @@ def main() -> None:
         component_search.fill("ActionPoints")
         component_search.press("Enter")
         assert page.locator("#add-component-type").input_value() == "ActionPointsComponent"
+        edge_type_search = page.locator("#add-edge-type-dropdown .search-dropdown-input")
+        edge_target_search = page.locator("#add-edge-target-dropdown .search-dropdown-input")
+        assert edge_type_search.input_value() == ""
+        assert page.locator("#add-edge-type").input_value() == ""
+        assert edge_target_search.input_value() == ""
+        assert page.locator("#add-edge-target").input_value() == ""
+        edge_type_search.fill("ExitTo")
+        edge_type_search.press("Enter")
+        edge_target_search.fill("Target")
+        edge_target_search.press("Enter")
+        assert page.locator("#add-edge-type").input_value() == "ExitTo"
+        assert page.locator("#add-edge-target").input_value() == "target_entity"
+        page.locator("#btn-add-edge").click()
+        assert page.locator(".edge-card[data-type='ExitTo']").count() == 1
+        assert prompt_messages == []
         page.evaluate(
             """
             () => {
@@ -226,7 +243,7 @@ def main() -> None:
         edge_visible = page.locator('.edge-card input.edge-field[data-field="visible"]')
         assert edge_visible.is_checked()
         edge_visible.uncheck()
-        edge_raw = page.locator(".edge-card .edge-json")
+        edge_raw = page.locator(".edge-card[data-type='Contains'] .edge-json")
         assert '"mode": "inventory"' in edge_raw.input_value()
         assert '"visible": false' in edge_raw.input_value()
         assert scalar.input_value() == "inventory"

@@ -9,6 +9,8 @@
     #api-url { width: 220px; }
     #fragment-dropdown { width: 230px; }
     #add-component-dropdown { width: 260px; }
+    #add-edge-type-dropdown { width: 190px; }
+    #add-edge-target-dropdown { width: 260px; }
     #fragment-file { max-width: 220px; }
     #meta-seed { width: 190px; }
     #meta-generator { width: 120px; }
@@ -859,6 +861,12 @@ class WorldEditor {
     return [...names].sort();
   }
 
+  _edgeNames() {
+    const names = new Set(edgeNames(this.world));
+    for (const name of Object.keys(this.worldSchema?.edges || {})) names.add(name);
+    return [...names].sort();
+  }
+
   _componentSchema(type) {
     return this.worldSchema?.components?.[type]?.json_schema || null;
   }
@@ -1087,7 +1095,7 @@ class WorldEditor {
       </div>
       ${this._renderGeneration(entity)}
       <div class="section">
-        <div class="section-title">Outgoing Edges <button id="btn-add-edge">Add Edge</button></div>
+        <div class="section-title">Outgoing Edges ${this._renderAddEdgeControl(entity)}</div>
         <div id="edge-list">${this._renderEdges(entity)}</div>
       </div>
     `;
@@ -1107,6 +1115,33 @@ class WorldEditor {
         disabled: !options.length
       })}
       <button id="btn-add-component"${disabled}>Add Component</button>
+    `;
+  }
+
+  _renderAddEdgeControl(entity) {
+    const targets = Object.values(this.world.entities)
+      .filter(target => target.id !== entity.id)
+      .sort((a, b) => entityName(a).localeCompare(entityName(b)));
+    const disabled = targets.length ? '' : ' disabled';
+    return `
+      ${this._renderSearchDropdown({
+        id: 'add-edge-type',
+        dropdownId: 'add-edge-type-dropdown',
+        options: this._edgeNames().map(name => ({ value: name, label: name })),
+        placeholder: 'edge type...',
+        disabled: !targets.length
+      })}
+      ${this._renderSearchDropdown({
+        id: 'add-edge-target',
+        dropdownId: 'add-edge-target-dropdown',
+        options: targets.map(target => ({
+          value: target.id,
+          label: `${entityName(target)} · ${target.id}`
+        })),
+        placeholder: 'target entity...',
+        disabled: !targets.length
+      })}
+      <button id="btn-add-edge"${disabled}>Add Edge</button>
     `;
   }
 
@@ -1475,6 +1510,8 @@ class WorldEditor {
     document.getElementById('btn-add-component').addEventListener('click', () => this._addComponent());
     document.getElementById('btn-add-edge').addEventListener('click', () => this._addEdge());
     this._bindSearchDropdown(root.querySelector('#add-component-dropdown'));
+    this._bindSearchDropdown(root.querySelector('#add-edge-type-dropdown'));
+    this._bindSearchDropdown(root.querySelector('#add-edge-target-dropdown'));
     root.querySelector('#btn-gen-room')?.addEventListener('click', () => this._generateRoom());
     root.querySelector('#btn-gen-character')?.addEventListener('click', () => this._generateCharacter());
     root.querySelector('#btn-gen-item')?.addEventListener('click', () => this._generateItem());
@@ -2220,10 +2257,16 @@ class WorldEditor {
   async _addEdge() {
     const entity = this._selected();
     if (!entity) return;
-    const type = window.prompt('Edge type', 'Contains');
-    if (!type) return;
-    const target = window.prompt('Target entity id', Object.keys(this.world.entities).find(id => id !== entity.id) || '');
-    if (!target) return;
+    const type = document.getElementById('add-edge-type')?.value;
+    const target = document.getElementById('add-edge-target')?.value;
+    if (!type) {
+      this._status('Choose an edge type', 'err');
+      return;
+    }
+    if (!target) {
+      this._status('Choose a target entity', 'err');
+      return;
+    }
     const edge = this._defaultEdge(type);
     if (this.liveBase) {
       try {
