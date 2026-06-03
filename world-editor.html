@@ -136,6 +136,11 @@
       color: var(--bl-text-soft);
     }
     .meter-grid input { width: 100%; }
+    .problem-link {
+      padding: 0 4px;
+      margin-right: 4px;
+      font-size: var(--bl-text-xs);
+    }
 
     @media (max-width: 1050px) {
       #main { grid-template-columns: 290px minmax(560px, 1fr); }
@@ -975,7 +980,7 @@ class WorldEditor {
         <div>${entityIcon(entity)}</div>
         <div>
           <div class="entity-name">${esc(entityName(entity))}</div>
-          <div class="entity-meta">${esc(entityType(entity))} · ${esc(entity.id)}</div>
+          <div class="entity-meta">${hasInvalidEdges(entity, this.world) ? '<span class="danger">invalid · </span>' : ''}${esc(entityType(entity))} · ${esc(entity.id)}</div>
         </div>
       </div>
     `).join('');
@@ -2201,7 +2206,7 @@ class WorldEditor {
     const el = document.getElementById('problems');
     if (problems.length) {
       el.className = '';
-      el.innerHTML = problems.map(esc).join('<br>');
+      el.innerHTML = problems.map(problem => this._renderProblem(problem)).join('<br>');
     } else {
       el.className = 'ok';
       el.textContent = 'Valid world JSON.';
@@ -2212,16 +2217,26 @@ class WorldEditor {
     const problems = [];
     const ids = new Set(Object.keys(snapshot.entities || {}));
     const clocks = Object.entries(snapshot.components?.WorldClockComponent || {});
-    if (clocks.length !== 1) problems.push(`expected exactly one WorldClockComponent, found ${clocks.length}`);
+    if (clocks.length !== 1) problems.push({ message: `expected exactly one WorldClockComponent, found ${clocks.length}` });
     for (const [type, table] of Object.entries(snapshot.relationships || {})) {
       for (const [source, edges] of Object.entries(table || {})) {
-        if (!ids.has(source)) problems.push(`${type}: source ${source} does not exist`);
+        if (!ids.has(source)) problems.push({ message: `${type}: source ${source} does not exist` });
         for (const edge of edges || []) {
-          if (!ids.has(edge.target)) problems.push(`${type}: target ${edge.target} does not exist`);
+          if (!ids.has(edge.target)) {
+            problems.push({
+              entityId: source,
+              message: `${type}: ${source} targets missing entity ${edge.target}`
+            });
+          }
         }
       }
     }
     return problems;
+  }
+
+  _renderProblem(problem) {
+    if (!problem.entityId || !this.world.entities[problem.entityId]) return esc(problem.message);
+    return `<button type="button" class="problem-link" onclick="window.app._selectEntity('${esc(problem.entityId)}', { render: true })">${esc(problem.entityId)}</button> ${esc(problem.message)}`;
   }
 
   _download() {

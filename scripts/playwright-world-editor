@@ -159,12 +159,15 @@ def main() -> None:
             """
             () => {
               window.app.world.entities.enum_test.relationships.Contains = [{ target: 'missing_entity', edge: {} }];
+              window.app._renderJson();
               window.app._renderEntities();
             }
             """
         )
         page.locator("#entity-search").fill("invalid")
         assert page.locator(".entity-row").count() == 1
+        assert "invalid" in page.locator(".entity-row .entity-meta").text_content()
+        assert page.locator("#problems .problem-link").text_content() == "enum_test"
         component_search = page.locator("#add-component-dropdown .search-dropdown-input")
         component_search.fill("ActionPoints")
         component_search.press("Enter")
