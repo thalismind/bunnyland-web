@@ -1033,6 +1033,8 @@ class BunnylandInspector {
     LiteGraph.WIDGET_OUTLINE_COLOR = '#89b4fa';
     LiteGraph.WIDGET_TEXT_COLOR = '#cdd6f4';
     LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#a6adc8';
+    this.lgcanvas.getCanvasMenuOptions = () => null;
+    this.lgcanvas.getNodeMenuOptions = () => null;
 
     this.lgcanvas.onNodeSelected = (node) => {
       if (node?.entityId && this.world) {

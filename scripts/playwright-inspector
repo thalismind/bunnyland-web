@@ -70,6 +70,11 @@ def main() -> None:
             """
         )
         page.wait_for_function("window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
+        canvas_box = page.locator("#graph-canvas").bounding_box()
+        if not canvas_box:
+            raise AssertionError("graph canvas was not visible")
+        page.mouse.click(canvas_box["x"] + 100, canvas_box["y"] + 100, button="right")
+        assert page.locator(".litecontextmenu").count() == 0
         page.locator("#search-input").fill("component:RoomComponent")
         page.wait_for_function("document.querySelectorAll('#search-results .search-item').length > 0")
         first_type = page.locator("#search-results .search-item .si-type").first.text_content()
