@@ -467,6 +467,8 @@ class WorldEditor {
     this.libraryFragments = [];
     this.snapshotVisible = localStorage.getItem('bunnyland.editor.snapshotVisible') !== 'false';
     this._patchTimers = {};
+    this._pendingEntityId = null;
+    this._applyingDeepLink = false;
     this._bind();
     this._renderAll();
   }
@@ -518,12 +520,13 @@ class WorldEditor {
   async _loadFile(file) {
     try {
       this.world = parseWorld(JSON.parse(await file.text()));
-      this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this._selectEntity(this._initialEntityId(), { sync: false });
       this.liveBase = null;
       this.authHeader = null;
       this.worldSchema = null;
       this._setRuntime(null, false);
       this._renderAll();
+      this._syncUrl();
       this._status('World loaded', 'ok');
     } catch (err) {
       this._status(`Load error: ${err.message}`, 'err');
@@ -537,12 +540,13 @@ class WorldEditor {
       const res = await fetch(`${base}/world/snapshot`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.world = parseWorld(await res.json());
-      this.selectedId = Object.keys(this.world.entities)[0] || null;
+      this._selectEntity(this._initialEntityId(), { sync: false });
       this.liveBase = base;
       this._renderAll();
       await this._refreshRuntime({ prompt: true });
       await this._refreshSchema({ prompt: true });
       await this._refreshLibrary({ prompt: false });
+      this._syncUrl();
       this._status('Server snapshot loaded · live patches enabled', 'ok');
     } catch (err) {
       this._status(`Server error: ${err.message}`, 'err');
@@ -551,12 +555,13 @@ class WorldEditor {
 
   _newWorld() {
     this.world = makeEmptyWorld();
-    this.selectedId = 'entity_1';
+    this._selectEntity('entity_1', { sync: false });
     this.liveBase = null;
     this.authHeader = null;
     this.worldSchema = null;
     this._setRuntime(null, false);
     this._renderAll();
+    this._syncUrl();
     this._status('New world created', 'ok');
   }
 
@@ -765,6 +770,9 @@ class WorldEditor {
       this.world.metadata.epoch = data.world_epoch;
       this.world.meta.saved_at_epoch = data.world_epoch;
     }
+    if (this.selectedId && !this.world.entities[this.selectedId]) {
+      this._selectEntity(Object.keys(this.world.entities)[0] || null, { sync: false });
+    }
   }
 
   _debouncedPatch(key, operations, status) {
@@ -912,15 +920,52 @@ class WorldEditor {
     `).join('');
     for (const row of list.querySelectorAll('.entity-row')) {
       row.addEventListener('click', () => {
-        this.selectedId = row.dataset.id;
-        this._renderEntities();
-        this._renderEditor();
+        this._selectEntity(row.dataset.id, { render: true });
       });
     }
   }
 
   _selected() {
     return this.selectedId ? this.world.entities[this.selectedId] : null;
+  }
+
+  _initialEntityId() {
+    if (this._pendingEntityId && this.world.entities[this._pendingEntityId]) return this._pendingEntityId;
+    return Object.keys(this.world.entities)[0] || null;
+  }
+
+  _selectEntity(id, { render = false, sync = true } = {}) {
+    this.selectedId = id && this.world.entities[id] ? id : Object.keys(this.world.entities)[0] || null;
+    if (this.selectedId && this.selectedId === this._pendingEntityId) this._pendingEntityId = null;
+    if (render) {
+      this._renderEntities();
+      this._renderEditor();
+    }
+    if (sync) this._syncUrl();
+  }
+
+  _syncUrl() {
+    if (this._applyingDeepLink) return;
+    const url = new URL(location.href);
+    if (this.liveBase) url.searchParams.set('server', this.liveBase);
+    else url.searchParams.delete('server');
+    url.hash = this.selectedId ? encodeURIComponent(this.selectedId) : '';
+    history.replaceState(null, '', url.toString());
+  }
+
+  _applyDeepLink({ entity } = {}) {
+    this._pendingEntityId = entity || null;
+    if (!entity || !this.world.entities[entity]) {
+      this._syncUrl();
+      return;
+    }
+    this._applyingDeepLink = true;
+    try {
+      this._selectEntity(entity, { render: true, sync: false });
+    } finally {
+      this._applyingDeepLink = false;
+      this._syncUrl();
+    }
   }
 
   _renderEditor() {
@@ -1598,8 +1643,9 @@ class WorldEditor {
       if (!patch.length) throw new Error('Generator returned an empty patch');
       const applied = await this._sendPatch(patch, { merge: true, status: `${label} applied` });
       const nextId = selectEntity(generated, applied);
-      if (nextId && this.world.entities[nextId]) this.selectedId = nextId;
+      if (nextId && this.world.entities[nextId]) this._selectEntity(nextId, { sync: false });
       this._renderAll();
+      this._syncUrl();
     } catch (err) {
       this._status(`${label} error: ${err.message}`, 'err');
     }
@@ -1697,13 +1743,14 @@ class WorldEditor {
           status: `${fragment.title} imported`
         });
         const created = data?.changed_entities?.find(entity => entity.id !== this.selectedId)?.id;
-        if (created) this.selectedId = created;
+        if (created) this._selectEntity(created, { sync: false });
       } else {
         const created = this._applyLocalPatch(operations);
-        if (created[0]) this.selectedId = created[0];
+        if (created[0]) this._selectEntity(created[0], { sync: false });
         this._status(`${fragment.title} imported`, 'ok');
       }
       this._renderAll();
+      this._syncUrl();
     } catch (err) {
       this._status(`Import error: ${err.message}`, 'err');
     }
@@ -1836,7 +1883,7 @@ class WorldEditor {
         }
       }
     }
-    this.selectedId = nextId;
+    this._selectEntity(nextId, { sync: false });
   }
 
   _nextEntityId() {
@@ -1859,8 +1906,9 @@ class WorldEditor {
           { merge: true, status: 'Entity added' }
         );
         const created = data?.changed_entities?.[0]?.id;
-        if (created) this.selectedId = created;
+        if (created) this._selectEntity(created, { sync: false });
         this._renderAll();
+        this._syncUrl();
       } catch (err) {
         this._status(`Patch error: ${err.message}`, 'err');
       }
@@ -1874,8 +1922,9 @@ class WorldEditor {
       components: { IdentityComponent: { name: id, kind: 'entity', tags: [] } },
       relationships: {}
     };
-    this.selectedId = id;
+    this._selectEntity(id, { sync: false });
     this._renderAll();
+    this._syncUrl();
     this._status('Entity added', 'ok');
   }
 
@@ -1902,8 +1951,9 @@ class WorldEditor {
         if (!other.relationships[type].length) delete other.relationships[type];
       }
     }
-    this.selectedId = Object.keys(this.world.entities)[0] || null;
+    this._selectEntity(Object.keys(this.world.entities)[0] || null, { sync: false });
     this._renderAll();
+    this._syncUrl();
     this._status('Entity deleted', 'ok');
   }
 
@@ -2085,6 +2135,42 @@ class WorldEditor {
 }
 
 window.app = new WorldEditor();
+
+async function readConfig() {
+  try {
+    const res = await fetch('config.json', { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_err) {
+    return null;
+  }
+}
+
+function parseEditorDeepLink() {
+  let server = new URLSearchParams(location.search).get('server');
+  let hash = location.hash.replace(/^#/, '');
+  const qi = hash.indexOf('?');
+  if (qi >= 0) {
+    if (!server) server = new URLSearchParams(hash.slice(qi + 1)).get('server');
+    hash = hash.slice(0, qi);
+  }
+  const parts = hash.split('/').filter(Boolean).map(decodeURIComponent);
+  const entity = parts.length > 1 ? parts.slice(1).join('/') : parts[0] || null;
+  return { server, entity };
+}
+
+(async function boot() {
+  const cfg = await readConfig();
+  const dl = parseEditorDeepLink();
+  const server = dl.server || (cfg && typeof cfg.serverUrl === 'string' ? cfg.serverUrl : null);
+  if (server) document.getElementById('api-url').value = server;
+  if (dl.entity) window.app._pendingEntityId = dl.entity;
+  if (dl.server || (cfg && cfg.autoConnect && server)) {
+    await window.app._fetchSnapshot();
+  } else if (dl.entity) {
+    window.app._applyDeepLink(dl);
+  }
+}());
 </script>
 </body>
 </html>

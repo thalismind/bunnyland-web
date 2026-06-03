@@ -32,6 +32,43 @@ def main() -> None:
     with sync_playwright() as playwright:
         browser = launch_browser(playwright)
         page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.route(
+            "**/world/snapshot",
+            lambda route: route.fulfill(
+                status=200,
+                json={
+                    "world_epoch": 2,
+                    "entities": [
+                        {
+                            "id": "linked_entity",
+                            "components": {"IdentityComponent": {"name": "Linked Entity"}},
+                            "relationships": {},
+                        },
+                        {
+                            "id": "other_entity",
+                            "components": {"IdentityComponent": {"name": "Other Entity"}},
+                            "relationships": {},
+                        },
+                    ],
+                },
+            ),
+        )
+        page.route(
+            "**/admin/runtime",
+            lambda route: route.fulfill(status=200, json={"paused": False, "running": True, "world_epoch": 2}),
+        )
+        page.route("**/world/schema", lambda route: route.fulfill(status=200, json={"components": {}}))
+        page.route("**/world/library", lambda route: route.fulfill(status=200, json={"fragments": []}))
+        page.goto(
+            f"{BASE_URL}/world-editor.html?server=http://bunnyland.test#map/linked_entity",
+            wait_until="networkidle",
+        )
+        page.wait_for_function("window.app && window.app.selectedId === 'linked_entity'")
+        assert page.locator("#api-url").input_value() == "http://bunnyland.test"
+        assert page.locator("#selected-label").text_content() == "linked_entity"
+        assert page.evaluate("location.search") == "?server=http%3A%2F%2Fbunnyland.test"
+        assert page.evaluate("decodeURIComponent(location.hash)") == "#linked_entity"
+
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
         page.evaluate(
             """
