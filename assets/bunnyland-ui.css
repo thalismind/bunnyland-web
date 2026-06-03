@@ -304,6 +304,56 @@ textarea::-webkit-scrollbar-thumb {
   width: auto;
 }
 
+.search-dropdown {
+  position: relative;
+  min-width: 190px;
+}
+
+.search-dropdown-input {
+  width: 100%;
+}
+
+.search-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 3px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bl-bg);
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-md);
+  box-shadow: var(--bl-shadow-popover);
+  z-index: 30;
+}
+
+.search-dropdown-menu.hidden {
+  display: none;
+}
+
+.search-dropdown-option {
+  padding: 4px 8px;
+  color: var(--bl-text);
+  cursor: pointer;
+  font-size: var(--bl-text-sm);
+  border-bottom: 1px solid var(--bl-bg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-dropdown-option:hover,
+.search-dropdown-option.active {
+  background: var(--bl-surface);
+}
+
+.search-dropdown-empty {
+  padding: 8px;
+  color: var(--bl-text-muted);
+  font-size: var(--bl-text-sm);
+}
+
 textarea {
   resize: vertical;
   line-height: 1.45;
