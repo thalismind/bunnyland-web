@@ -1078,8 +1078,10 @@ class WorldEditor {
 
   _renderComponentField(name, schema, value, root) {
     const label = esc(schema.title || name);
+    const labelRow = this._fieldLabel(name, label, schema, value);
     const nullable = schema.nullable ? ' data-nullable="true"' : '';
-    const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}`;
+    const disabled = schema.nullable && value == null ? ' disabled' : '';
+    const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}${disabled}`;
     const enumOptions = this._enumOptions(schema, root);
     const hasMaxLength = Object.prototype.hasOwnProperty.call(schema, 'maxLength');
     const multilineTextNames = new Set([
@@ -1088,7 +1090,7 @@ class WorldEditor {
     if (this._isTagListField(name, schema)) {
       const tags = Array.isArray(value) ? value.map(tag => String(tag)) : [];
       return `
-        <div class="field full">${label}
+        <div class="field full">${labelRow}
           <div class="tag-editor" data-tags-field="${esc(name)}">
             <input class="component-field component-tags-value" ${data} type="hidden" value="${esc(JSON.stringify(tags))}">
             <div class="tag-list">
@@ -1114,7 +1116,7 @@ class WorldEditor {
       const selected = Array.isArray(value) ? value.map(option => String(option)) : [];
       const available = itemEnumOptions.map(option => String(option)).filter(option => !selected.includes(option));
       return `
-        <div class="field full">${label}
+        <div class="field full">${labelRow}
           <div class="tag-editor enum-list-editor" data-enum-list-field="${esc(name)}" data-enum-options="${esc(JSON.stringify(itemEnumOptions.map(option => String(option))))}">
             <input class="component-field component-enum-list-value" ${data} type="hidden" value="${esc(JSON.stringify(selected))}">
             <div class="tag-list enum-list">
@@ -1138,7 +1140,7 @@ class WorldEditor {
     if (this._isMeterField(schema)) {
       const meter = this._meterValue(schema, value);
       return `
-        <div class="field full">${label}
+        <div class="field full">${labelRow}
           <div class="meter-editor">
             <input class="component-field component-meter-value" ${data} type="hidden" value="${esc(JSON.stringify(meter))}">
             <div class="meter-controls">${this._renderMeterEditor(meter)}</div>
@@ -1148,7 +1150,7 @@ class WorldEditor {
     }
     if (enumOptions.length) {
       return `
-        <label class="field wide">${label}
+        <label class="field wide">${labelRow}
           <select class="component-field" ${data}>
             ${schema.nullable ? `<option value="" ${value == null ? 'selected' : ''}></option>` : ''}
             ${enumOptions.map(option => {
@@ -1161,7 +1163,7 @@ class WorldEditor {
     }
     if (schema.type === 'boolean') {
       return `
-        <label class="field">${label}
+        <label class="field">${labelRow}
           <input class="component-field" ${data} type="checkbox" ${value ? 'checked' : ''}>
         </label>
       `;
@@ -1169,14 +1171,14 @@ class WorldEditor {
     if (schema.type === 'integer' || schema.type === 'number') {
       const step = schema.type === 'integer' ? '1' : 'any';
       return `
-        <label class="field">${label}
+        <label class="field">${labelRow}
           <input class="component-field" ${data} type="number" step="${step}" value="${esc(value ?? '')}">
         </label>
       `;
     }
     if (schema.type === 'array' || schema.type === 'object') {
       return `
-        <label class="field full">${label}
+        <label class="field full">${labelRow}
           <textarea class="component-field component-field-json" ${data} spellcheck="false">${esc(JSON.stringify(value ?? (schema.type === 'array' ? [] : {}), null, 2))}</textarea>
         </label>
       `;
@@ -1188,15 +1190,28 @@ class WorldEditor {
         : multilineTextNames.has(String(name).toLowerCase()))
     ) {
       return `
-        <label class="field full">${label}
+        <label class="field full">${labelRow}
           <textarea class="component-field" ${data} spellcheck="false">${esc(value ?? '')}</textarea>
         </label>
       `;
     }
     return `
-      <label class="field wide">${label}
+      <label class="field wide">${labelRow}
         <input class="component-field" ${data} type="text" value="${esc(value ?? '')}" spellcheck="false">
       </label>
+    `;
+  }
+
+  _fieldLabel(name, label, schema, value) {
+    if (!schema.nullable) return label;
+    return `
+      <span class="field-label">
+        <span>${label}</span>
+        <span class="nullable-choice">
+          <input class="nullable-toggle" type="checkbox" data-field="${esc(name)}" ${value == null ? 'checked' : ''}>
+          null
+        </span>
+      </span>
     `;
   }
 
@@ -1394,6 +1409,13 @@ class WorldEditor {
       for (const input of card.querySelectorAll('.component-field')) {
         input.addEventListener('input', () => this._updateTypedComponent(card, entity, type));
         input.addEventListener('change', () => this._updateTypedComponent(card, entity, type));
+      }
+      for (const toggle of card.querySelectorAll('.nullable-toggle')) {
+        this._syncNullableControl(toggle);
+        toggle.addEventListener('change', () => {
+          this._syncNullableControl(toggle);
+          this._updateTypedComponent(card, entity, type);
+        });
       }
       for (const editor of card.querySelectorAll('.tag-editor:not(.enum-list-editor)')) {
         this._bindTagEditor(editor, card, entity, type);
@@ -1607,6 +1629,14 @@ class WorldEditor {
     }
   }
 
+  _syncNullableControl(toggle) {
+    const field = toggle.closest('.field');
+    if (!field) return;
+    for (const control of field.querySelectorAll('.component-field')) {
+      control.disabled = toggle.checked;
+    }
+  }
+
   _updateTypedComponent(card, entity, type) {
     try {
       const fields = {};
@@ -1633,6 +1663,8 @@ class WorldEditor {
   _readComponentField(input) {
     const kind = input.dataset.kind;
     const nullable = input.dataset.nullable === 'true';
+    const nullToggle = input.closest('.field')?.querySelector('.nullable-toggle');
+    if (nullable && nullToggle?.checked) return null;
     if (nullable && input.value === '') return null;
     if (kind === 'boolean') return input.checked;
     if (kind === 'integer') return input.value === '' ? 0 : parseInt(input.value, 10);

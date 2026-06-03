@@ -102,6 +102,11 @@ def main() -> None:
                         default_drop_mode: {
                           $ref: '#/$defs/ContainmentMode',
                           default: 'inventory'
+                        },
+                        nickname: {
+                          anyOf: [{ type: 'string' }, { type: 'null' }],
+                          default: null,
+                          title: 'Nickname'
                         }
                       },
                       $defs: enumDefs
@@ -130,7 +135,7 @@ def main() -> None:
                     prefab: 'entity',
                     created_epoch: 0,
                     components: {
-                      InventoryComponent: { default_drop_mode: 'inventory' },
+                      InventoryComponent: { default_drop_mode: 'inventory', nickname: null },
                       WorldPolicyComponent: { enabled: ['pvp'] }
                     },
                     relationships: {}
@@ -149,6 +154,16 @@ def main() -> None:
         scalar.wait_for()
         enum_list.wait_for()
         assert scalar.input_value() == "inventory"
+        nullable = page.locator('.nullable-toggle[data-field="nickname"]')
+        nullable.wait_for()
+        assert nullable.is_checked()
+        nickname = page.locator('input.component-field[data-field="nickname"]')
+        assert nickname.is_disabled()
+        nullable.uncheck()
+        assert not nickname.is_disabled()
+        nickname.fill("alias")
+        inventory_raw = page.locator(".component-card[data-type='InventoryComponent'] .component-json")
+        assert '"nickname": "alias"' in inventory_raw.input_value()
         assert add_select.input_value() == "flirting"
         add_select.select_option("romance")
         page.locator("[data-add-enum-option]").click()
