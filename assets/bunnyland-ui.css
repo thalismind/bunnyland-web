@@ -307,10 +307,31 @@ textarea::-webkit-scrollbar-thumb {
 .search-dropdown {
   position: relative;
   min-width: 190px;
+  display: inline-block;
+}
+
+.search-dropdown::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--bl-text-muted);
+  pointer-events: none;
+  transform: translateY(-35%);
 }
 
 .search-dropdown-input {
   width: 100%;
+  padding-right: 26px;
+  cursor: pointer;
+}
+
+.search-dropdown:focus-within::after {
+  border-top-color: var(--bl-accent);
 }
 
 .search-dropdown-menu {

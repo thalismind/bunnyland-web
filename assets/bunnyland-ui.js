@@ -45,7 +45,7 @@
     let active = 0;
 
     const setValue = (nextValue, notify = true) => {
-      const item = items.find(option => option.value === nextValue) || items[0] || null;
+      const item = items.find(option => option.value === nextValue) || null;
       hidden.value = item?.value || '';
       input.value = item?.label || '';
       if (notify && onChange) onChange(hidden.value, item);
@@ -71,6 +71,7 @@
         `).join('')
         : `<div class="search-dropdown-empty">${escapeHtml(emptyLabel)}</div>`;
       menu.classList.remove('hidden');
+      input.setAttribute('aria-expanded', 'true');
     };
 
     const chooseActive = () => {
@@ -78,6 +79,7 @@
       if (!item) return;
       setValue(item.value);
       menu.classList.add('hidden');
+      input.setAttribute('aria-expanded', 'false');
     };
 
     input.addEventListener('input', () => {
@@ -99,11 +101,15 @@
         chooseActive();
       } else if (event.key === 'Escape') {
         menu.classList.add('hidden');
+        input.setAttribute('aria-expanded', 'false');
         input.blur();
       }
     });
     input.addEventListener('blur', () => {
-      setTimeout(() => menu.classList.add('hidden'), 150);
+      setTimeout(() => {
+        menu.classList.add('hidden');
+        input.setAttribute('aria-expanded', 'false');
+      }, 150);
     });
     menu.addEventListener('mousedown', (event) => {
       const option = event.target.closest('.search-dropdown-option');
@@ -111,6 +117,7 @@
       event.preventDefault();
       setValue(option.dataset.value);
       menu.classList.add('hidden');
+      input.setAttribute('aria-expanded', 'false');
     });
 
     setValue(value, false);

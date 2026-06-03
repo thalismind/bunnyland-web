@@ -950,10 +950,10 @@ class WorldEditor {
   }
 
   _renderSearchDropdown({ id, dropdownId, options, value = '', placeholder = 'search...', disabled = false }) {
-    const selected = options.find(option => option.value === value) || options[0] || null;
+    const selected = options.find(option => option.value === value) || null;
     return `
       <span class="search-dropdown" id="${esc(dropdownId)}" data-options="${esc(JSON.stringify(options))}">
-        <input class="search-dropdown-input" type="text" value="${esc(selected?.label || '')}" placeholder="${esc(placeholder)}" spellcheck="false" autocomplete="off" ${disabled ? 'disabled' : ''}>
+        <input class="search-dropdown-input" type="text" value="${esc(selected?.label || '')}" placeholder="${esc(placeholder)}" spellcheck="false" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" ${disabled ? 'disabled' : ''}>
         <input class="search-dropdown-value" id="${esc(id)}" type="hidden" value="${esc(selected?.value || '')}">
         <div class="search-dropdown-menu hidden"></div>
       </span>
