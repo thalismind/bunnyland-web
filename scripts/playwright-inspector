@@ -70,6 +70,11 @@ def main() -> None:
             """
         )
         page.wait_for_function("window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
+        page.locator("#search-input").fill("component:RoomComponent")
+        page.wait_for_function("document.querySelectorAll('#search-results .search-item').length > 0")
+        first_type = page.locator("#search-results .search-item .si-type").first.text_content()
+        if "room" not in first_type:
+            raise AssertionError(f"component filter did not return a room result: {first_type!r}")
         selected = page.evaluate(
             """
             () => {

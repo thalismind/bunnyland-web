@@ -375,7 +375,7 @@
     <span id="runtime-status">runtime: offline</span>
     <button id="btn-back" disabled>← Back</button>
     <span id="search-box">
-      <input type="text" id="search-input" placeholder="🔍 find entity…" spellcheck="false" autocomplete="off">
+      <input type="text" id="search-input" placeholder="🔍 find, type:, component:" spellcheck="false" autocomplete="off">
       <div id="search-results" class="hidden"></div>
     </span>
     <a class="toolbar-link" href="script-editor.html">Script Editor</a>
@@ -871,6 +871,34 @@ function worldEditorHref(entityId) {
   else url.searchParams.delete('server');
   url.hash = entityId ? encodeURIComponent(entityId) : '';
   return url.toString();
+}
+
+function parseEntitySearch(query) {
+  const filters = [];
+  const text = [];
+  for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
+    const match = token.match(/^([a-z]+):(.*)$/i);
+    if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
+    else text.push(token.toLowerCase());
+  }
+  return { filters, text: text.join(' ') };
+}
+
+function matchesInspectorSearch(entity, parsed) {
+  const name = entityDisplayName(entity);
+  const type = entityType(entity);
+  const components = Object.keys(entity.components || {});
+  const hay = `${name} ${entity.id} ${type} ${entity.components.IdentityComponent?.kind || ''} ${components.join(' ')}`.toLowerCase();
+  if (parsed.text && !hay.includes(parsed.text)) return false;
+  return parsed.filters.every(({ key, value }) => {
+    if (key === 'type') return type.includes(value);
+    if (key === 'id') return entity.id.toLowerCase().includes(value);
+    if (key === 'name') return name.toLowerCase().includes(value);
+    if (key === 'kind') return String(entity.components.IdentityComponent?.kind || '').toLowerCase().includes(value);
+    if (key === 'component' || key === 'has') return components.some(component => component.toLowerCase().includes(value));
+    if (key === 'missing') return !components.some(component => component.toLowerCase().includes(value));
+    return hay.includes(`${key}:${value}`);
+  });
 }
 
 function showInspector(entityId, world) {
@@ -1978,15 +2006,14 @@ class BunnylandInspector {
 
   _search(query) {
     const box = document.getElementById('search-results');
-    const q = query.trim().toLowerCase();
-    if (!q || !this.world) { box.classList.add('hidden'); box.innerHTML = ''; this._searchHits = []; return; }
+    const parsed = parseEntitySearch(query);
+    if ((!parsed.text && !parsed.filters.length) || !this.world) { box.classList.add('hidden'); box.innerHTML = ''; this._searchHits = []; return; }
 
     const hits = [];
     for (const e of Object.values(this.world.entities)) {
       const name = entityDisplayName(e);
       const type = entityType(e);
-      const hay = `${name} ${e.id} ${type} ${e.components.IdentityComponent?.kind || ''}`.toLowerCase();
-      if (hay.includes(q)) hits.push({ id: e.id, name, type, icon: entityIcon(e) });
+      if (matchesInspectorSearch(e, parsed)) hits.push({ id: e.id, name, type, icon: entityIcon(e) });
       if (hits.length >= 15) break;
     }
     hits.sort((a, b) => a.name.localeCompare(b.name));

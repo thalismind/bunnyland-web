@@ -153,6 +153,18 @@ def main() -> None:
         add_select = page.locator(".enum-list-select")
         scalar.wait_for()
         enum_list.wait_for()
+        page.locator("#entity-search").fill("component:InventoryComponent")
+        assert page.locator(".entity-row").count() == 1
+        page.evaluate(
+            """
+            () => {
+              window.app.world.entities.enum_test.relationships.Contains = [{ target: 'missing_entity', edge: {} }];
+              window.app._renderEntities();
+            }
+            """
+        )
+        page.locator("#entity-search").fill("invalid")
+        assert page.locator(".entity-row").count() == 1
         component_search = page.locator("#add-component-dropdown .search-dropdown-input")
         component_search.fill("ActionPoints")
         component_search.press("Enter")

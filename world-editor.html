@@ -195,7 +195,7 @@
       <button id="btn-delete-entity">Delete</button>
     </div>
     <div class="pane-body">
-      <input type="text" id="entity-search" placeholder="find entity..." spellcheck="false" autocomplete="off">
+      <input type="text" id="entity-search" placeholder="find, type:, component:, invalid" spellcheck="false" autocomplete="off">
       <div id="entity-list"></div>
     </div>
   </section>
@@ -454,6 +454,43 @@ function edgeNames(world) {
     for (const name of Object.keys(entity.relationships || {})) names.add(name);
   }
   return [...names].sort();
+}
+
+function parseEntitySearch(query) {
+  const filters = [];
+  const text = [];
+  for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
+    const match = token.match(/^([a-z]+):(.*)$/i);
+    if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
+    else text.push(token.toLowerCase());
+  }
+  return { filters, invalid: text.includes('invalid'), text: text.filter(token => token !== 'invalid').join(' ') };
+}
+
+function hasInvalidEdges(entity, world) {
+  for (const edges of Object.values(entity.relationships || {})) {
+    for (const edge of edges || []) {
+      if (edge.target && !world.entities[edge.target]) return true;
+    }
+  }
+  return false;
+}
+
+function matchesEditorSearch(entity, world, parsed) {
+  const name = entityName(entity);
+  const type = entityType(entity);
+  const components = Object.keys(entity.components || {});
+  const hay = `${name} ${entity.id} ${type} ${components.join(' ')}`.toLowerCase();
+  if (parsed.invalid && !hasInvalidEdges(entity, world)) return false;
+  if (parsed.text && !hay.includes(parsed.text)) return false;
+  return parsed.filters.every(({ key, value }) => {
+    if (key === 'type') return type.includes(value);
+    if (key === 'id') return entity.id.toLowerCase().includes(value);
+    if (key === 'name') return name.toLowerCase().includes(value);
+    if (key === 'component' || key === 'has') return components.some(component => component.toLowerCase().includes(value));
+    if (key === 'missing') return !components.some(component => component.toLowerCase().includes(value));
+    return hay.includes(`${key}:${value}`);
+  });
 }
 
 class WorldEditor {
@@ -924,16 +961,10 @@ class WorldEditor {
 
   _renderEntities() {
     const list = document.getElementById('entity-list');
-    const q = this.search.trim().toLowerCase();
+    const parsed = parseEntitySearch(this.search);
     const entities = Object.values(this.world.entities)
       .sort((a, b) => entityName(a).localeCompare(entityName(b)))
-      .filter(entity => {
-        if (!q) return true;
-        return [
-          entity.id, entityName(entity), entityType(entity),
-          ...Object.keys(entity.components || {})
-        ].join(' ').toLowerCase().includes(q);
-      });
+      .filter(entity => matchesEditorSearch(entity, this.world, parsed));
     document.getElementById('entity-count').textContent = `${entities.length}/${Object.keys(this.world.entities).length}`;
     if (!entities.length) {
       list.innerHTML = '<div class="empty">No entities.</div>';
