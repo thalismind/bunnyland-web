@@ -941,7 +941,9 @@ class WorldEditor {
     const wrap = document.getElementById('library-select-wrap');
     const button = document.getElementById('btn-import-fragment');
     if (!wrap || !button) return;
-    const value = this.libraryFragments[0]?.id || '';
+    const current = document.getElementById('library-select')?.value || '';
+    const fragmentIds = new Set(this.libraryFragments.map(fragment => fragment.id));
+    const value = fragmentIds.has(current) ? current : '';
     wrap.innerHTML = this._renderSearchDropdown({
       id: 'library-select',
       dropdownId: 'fragment-dropdown',

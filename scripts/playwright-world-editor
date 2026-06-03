@@ -233,6 +233,9 @@ def main() -> None:
             """
         )
         fragment_search = page.locator("#fragment-dropdown .search-dropdown-input")
+        assert fragment_search.input_value() == ""
+        assert fragment_search.get_attribute("placeholder") == "find fragment..."
+        assert page.locator("#library-select").input_value() == ""
         fragment_search.fill("alpha")
         fragment_search.press("Enter")
         assert page.locator("#library-select").input_value() == "fragment.alpha"
