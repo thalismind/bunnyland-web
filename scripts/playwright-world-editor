@@ -125,6 +125,25 @@ def main() -> None:
                       $defs: enumDefs
                     }
                   }
+                },
+                edges: {
+                  Contains: {
+                    json_schema: {
+                      type: 'object',
+                      properties: {
+                        mode: {
+                          $ref: '#/$defs/ContainmentMode',
+                          default: 'container'
+                        },
+                        visible: {
+                          type: 'boolean',
+                          default: true,
+                          title: 'Visible'
+                        }
+                      },
+                      $defs: enumDefs
+                    }
+                  }
                 }
               };
               window.app.world = {
@@ -138,6 +157,15 @@ def main() -> None:
                       InventoryComponent: { default_drop_mode: 'inventory', nickname: null },
                       WorldPolicyComponent: { enabled: ['pvp'] }
                     },
+                    relationships: {
+                      Contains: [{ target: 'target_entity', edge: { mode: 'container', visible: true } }]
+                    }
+                  },
+                  target_entity: {
+                    id: 'target_entity',
+                    prefab: 'entity',
+                    created_epoch: 0,
+                    components: { IdentityComponent: { name: 'Target Entity' } },
                     relationships: {}
                   }
                 },
@@ -189,6 +217,16 @@ def main() -> None:
         fragment_search.fill("alpha")
         fragment_search.press("Enter")
         assert page.locator("#library-select").input_value() == "fragment.alpha"
+        edge_mode = page.locator('.edge-card select.edge-field[data-field="mode"]')
+        edge_mode.wait_for()
+        assert edge_mode.input_value() == "container"
+        edge_mode.select_option("inventory")
+        edge_visible = page.locator('.edge-card input.edge-field[data-field="visible"]')
+        assert edge_visible.is_checked()
+        edge_visible.uncheck()
+        edge_raw = page.locator(".edge-card .edge-json")
+        assert '"mode": "inventory"' in edge_raw.input_value()
+        assert '"visible": false' in edge_raw.input_value()
         assert scalar.input_value() == "inventory"
         nullable = page.locator('.nullable-toggle[data-field="nickname"]')
         nullable.wait_for()

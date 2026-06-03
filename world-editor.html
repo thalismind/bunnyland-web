@@ -863,6 +863,10 @@ class WorldEditor {
     return this.worldSchema?.components?.[type]?.json_schema || null;
   }
 
+  _edgeSchema(type) {
+    return this.worldSchema?.edges?.[type]?.json_schema || null;
+  }
+
   _resolveSchemaRef(schema, root) {
     if (!schema?.$ref) return schema || {};
     const prefix = '#/$defs/';
@@ -1419,6 +1423,7 @@ class WorldEditor {
     const rows = [];
     for (const [type, edges] of Object.entries(entity.relationships || {}).sort(([a], [b]) => a.localeCompare(b))) {
       for (const [index, edge] of (edges || []).entries()) {
+        const fieldsHtml = this._renderEdgeFields(type, edge.edge || {});
         rows.push(`
           <div class="record-card edge-card" data-type="${esc(type)}" data-index="${index}">
             <div class="record-head">${esc(type)} → ${esc(edge.target || '')} <button data-delete-edge="${esc(type)}:${index}">Delete</button></div>
@@ -1427,9 +1432,7 @@ class WorldEditor {
                 <label class="field wide">Target
                   <input class="edge-target" list="entity-options" type="text" value="${esc(edge.target || '')}" spellcheck="false">
                 </label>
-                <label class="field full">Edge Fields
-                  <textarea class="edge-json" spellcheck="false">${esc(JSON.stringify(edge.edge || {}, null, 2))}</textarea>
-                </label>
+                ${fieldsHtml}
               </div>
             </div>
           </div>
@@ -1437,6 +1440,34 @@ class WorldEditor {
       }
     }
     return rows.join('') || '<div class="empty">No outgoing edges.</div>';
+  }
+
+  _renderEdgeFields(type, fields) {
+    const schema = this._edgeSchema(type);
+    const properties = schema?.properties || null;
+    if (!properties) {
+      return `
+        <label class="field full">Edge Fields
+          <textarea class="edge-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
+        </label>
+      `;
+    }
+    const rows = Object.entries(properties).map(([name, rawSchema]) => {
+      const field = this._fieldSchema(rawSchema, schema);
+      const value = Object.prototype.hasOwnProperty.call(fields, name)
+        ? fields[name]
+        : this._defaultForSchema(field, schema);
+      return this._renderComponentField(name, field, value, schema).replaceAll('component-field', 'edge-field');
+    }).join('');
+    return `
+      <div class="field full">
+        <div class="form-grid typed-edge-fields">${rows}</div>
+        <details class="raw-json">
+          <summary>Raw JSON</summary>
+          <textarea class="edge-json" spellcheck="false">${esc(JSON.stringify(fields || {}, null, 2))}</textarea>
+        </details>
+      </div>
+    `;
   }
 
   _bindEditor(root, entity) {
@@ -1503,12 +1534,13 @@ class WorldEditor {
       const target = card.querySelector('.edge-target');
       const json = card.querySelector('.edge-json');
       let lastTarget = entity.relationships[type]?.[index]?.target || '';
-      const update = () => {
+      const update = (event = null) => {
         json.classList.remove('bad-json');
         try {
           const nextTarget = target.value.trim();
-          const edge = parseObject(json.value);
+          const edge = event?.target === json ? parseObject(json.value) : this._readEdgeFields(card);
           entity.relationships[type][index] = { target: nextTarget, edge };
+          if (json) json.value = JSON.stringify(edge, null, 2);
           this._renderJson();
           if (nextTarget) {
             const operations = [];
@@ -1538,7 +1570,27 @@ class WorldEditor {
         }
       };
       target.addEventListener('input', update);
-      json.addEventListener('input', update);
+      json?.addEventListener('input', update);
+      for (const input of card.querySelectorAll('.edge-field')) {
+        input.addEventListener('input', update);
+        input.addEventListener('change', update);
+      }
+      for (const editor of card.querySelectorAll('.tag-editor:not(.enum-list-editor)')) {
+        this._bindTagEditor(editor, card, entity, type);
+      }
+      for (const editor of card.querySelectorAll('.enum-list-editor')) {
+        this._bindEnumListEditor(editor, card, entity, type);
+      }
+      for (const editor of card.querySelectorAll('.meter-editor')) {
+        this._bindMeterEditor(editor, card, entity, type);
+      }
+      for (const toggle of card.querySelectorAll('.nullable-toggle')) {
+        this._syncNullableControl(toggle);
+        toggle.addEventListener('change', () => {
+          this._syncNullableControl(toggle);
+          update();
+        });
+      }
     }
   }
 
@@ -1549,7 +1601,11 @@ class WorldEditor {
     const update = (tags) => {
       hidden.value = JSON.stringify(tags);
       this._renderTagEditor(editor, tags);
-      this._updateTypedComponent(card, entity, type);
+      if (card.classList.contains('edge-card')) {
+        card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        this._updateTypedComponent(card, entity, type);
+      }
     };
     const readTags = () => {
       try {
@@ -1610,7 +1666,11 @@ class WorldEditor {
     const writeSelected = (selected) => {
       hidden.value = JSON.stringify(selected);
       this._renderEnumListEditor(editor, options, selected);
-      this._updateTypedComponent(card, entity, type);
+      if (card.classList.contains('edge-card')) {
+        card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        this._updateTypedComponent(card, entity, type);
+      }
     };
     add?.addEventListener('click', () => {
       const value = select.value;
@@ -1667,7 +1727,11 @@ class WorldEditor {
       }
       hidden.value = JSON.stringify(meter);
       this._syncMeterEditor(editor, meter);
-      this._updateTypedComponent(card, entity, type);
+      if (card.classList.contains('edge-card')) {
+        card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        this._updateTypedComponent(card, entity, type);
+      }
     };
     editor.addEventListener('input', (event) => {
       const control = event.target.closest('[data-meter-key]');
@@ -1731,6 +1795,21 @@ class WorldEditor {
   }
 
   _readComponentField(input) {
+    return this._readTypedField(input);
+  }
+
+  _readEdgeFields(card) {
+    const fields = {};
+    const typed = card.querySelectorAll('.edge-field');
+    if (!typed.length) return parseObject(card.querySelector('.edge-json')?.value || '{}');
+    for (const input of typed) {
+      input.classList.remove('bad-json');
+      fields[input.dataset.field] = this._readTypedField(input);
+    }
+    return fields;
+  }
+
+  _readTypedField(input) {
     const kind = input.dataset.kind;
     const nullable = input.dataset.nullable === 'true';
     const nullToggle = input.closest('.field')?.querySelector('.nullable-toggle');
