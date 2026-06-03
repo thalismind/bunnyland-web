@@ -70,6 +70,18 @@ def main() -> None:
             """
         )
         page.wait_for_function("window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
+        selected = page.evaluate(
+            """
+            () => {
+              const id = window.app.lgraph._nodes[0].entityId;
+              window.app.selectEntity(id);
+              return id;
+            }
+            """
+        )
+        editor_href = page.locator("#inspector-links a").get_attribute("href")
+        if not editor_href or "world-editor.html" not in editor_href or f"#{selected}" not in editor_href:
+            raise AssertionError(f"unexpected world editor link for {selected}: {editor_href!r}")
         page.locator("#graph-wrapper").screenshot(path=str(SCREENSHOT))
         scale = page.evaluate("window.app.lgcanvas.ds.scale")
         nodes = page.evaluate("window.app.lgraph._nodes.length")

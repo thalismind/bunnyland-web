@@ -203,6 +203,7 @@
     <div class="pane-header">
       <div class="pane-title">Entity Editor</div>
       <span class="pane-count" id="selected-label">No selection</span>
+      <a class="nav-link push" id="inspector-link" href="index.html" hidden>Open Inspector</a>
     </div>
     <div class="editor-scroll" id="entity-editor"></div>
   </section>
@@ -953,6 +954,19 @@ class WorldEditor {
     history.replaceState(null, '', url.toString());
   }
 
+  _serverUrlForLinks() {
+    return this.liveBase || document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  }
+
+  _inspectorHref(entityId) {
+    const url = new URL('index.html', location.href);
+    const server = this._serverUrlForLinks();
+    if (server) url.searchParams.set('server', server);
+    else url.searchParams.delete('server');
+    url.hash = entityId ? `map/${encodeURIComponent(entityId)}` : '';
+    return url.toString();
+  }
+
   _applyDeepLink({ entity } = {}) {
     this._pendingEntityId = entity || null;
     if (!entity || !this.world.entities[entity]) {
@@ -972,6 +986,9 @@ class WorldEditor {
     const root = document.getElementById('entity-editor');
     const entity = this._selected();
     document.getElementById('selected-label').textContent = entity ? entity.id : 'No selection';
+    const inspectorLink = document.getElementById('inspector-link');
+    inspectorLink.hidden = !entity;
+    if (entity) inspectorLink.href = this._inspectorHref(entity.id);
     document.getElementById('btn-delete-entity').disabled = !entity;
     if (!entity) {
       root.innerHTML = '<div class="empty">Select or add an entity.</div>';

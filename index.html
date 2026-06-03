@@ -240,6 +240,12 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    #inspector-links {
+      margin-top: 5px;
+    }
+    #inspector-links:empty {
+      display: none;
+    }
     #inspector-kind {
       font-size: 11px;
       margin-top: 3px;
@@ -406,6 +412,7 @@
       <div id="inspector-header">
         <div id="inspector-name">No entity selected</div>
         <div id="inspector-id"></div>
+        <div id="inspector-links"></div>
         <div id="inspector-kind"></div>
       </div>
       <div id="inspector-body">
@@ -858,6 +865,14 @@ function renderRelationships(entity, world) {
   return `<div class="rel-section"><div class="rel-title">🔗 Relationships</div>${rows}</div>`;
 }
 
+function worldEditorHref(entityId) {
+  const url = new URL('world-editor.html', location.href);
+  if (window.app?._apiBase) url.searchParams.set('server', window.app._apiBase);
+  else url.searchParams.delete('server');
+  url.hash = entityId ? encodeURIComponent(entityId) : '';
+  return url.toString();
+}
+
 function showInspector(entityId, world) {
   const entity = world.entities[entityId];
   if (!entity) return;
@@ -869,6 +884,8 @@ function showInspector(entityId, world) {
 
   document.getElementById('inspector-name').textContent = entityIcon(entity) + ' ' + name;
   document.getElementById('inspector-id').textContent = entityId;
+  document.getElementById('inspector-links').innerHTML =
+    `<a class="nav-link" href="${esc(worldEditorHref(entityId))}">Open in World Editor</a>`;
 
   const ctrl = controlInfo(entity, world);
   const ctrlHtml = ctrl

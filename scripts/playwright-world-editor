@@ -68,6 +68,14 @@ def main() -> None:
         assert page.locator("#selected-label").text_content() == "linked_entity"
         assert page.evaluate("location.search") == "?server=http%3A%2F%2Fbunnyland.test"
         assert page.evaluate("decodeURIComponent(location.hash)") == "#linked_entity"
+        inspector_href = page.locator("#inspector-link").get_attribute("href")
+        if (
+            not inspector_href
+            or "index.html" not in inspector_href
+            or "server=http%3A%2F%2Fbunnyland.test" not in inspector_href
+            or "#map/linked_entity" not in inspector_href
+        ):
+            raise AssertionError(f"unexpected inspector link: {inspector_href!r}")
 
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
         page.evaluate(
