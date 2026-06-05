@@ -164,7 +164,7 @@
         <div class="field-stack">
           <label for="seed-input">Prompt / seed</label>
           <textarea id="seed-input" spellcheck="true">a quiet marsh</textarea>
-          <div class="hint">With LLM world generation, this steers the setting. Offline generators still record it as provenance.</div>
+          <div class="hint" id="seed-hint">With LLM world generation, this steers the setting. Offline generators still record it as provenance.</div>
         </div>
 
         <div class="field-row">
@@ -228,6 +228,12 @@ function entityKind(entity) {
   return entity.kind || Object.keys(entity.components || {})[0] || 'entity';
 }
 
+function generatorUsesSeed(generator) {
+  if (!generator) return true;
+  if (typeof generator.uses_seed === 'boolean') return generator.uses_seed;
+  return generator.name !== 'empty' && !String(generator.name || '').endsWith('-demo');
+}
+
 class WorldGeneratorApp {
   constructor() {
     this.base = '';
@@ -250,7 +256,7 @@ class WorldGeneratorApp {
     });
     document.getElementById('btn-refresh').addEventListener('click', () => this.refresh());
     document.getElementById('btn-generate').addEventListener('click', () => this.generate());
-    document.getElementById('generator-select').addEventListener('change', () => this._renderGeneratorDescription());
+    document.getElementById('generator-select').addEventListener('change', () => this._renderGeneratorControls());
   }
 
   async _loadConfig() {
@@ -400,7 +406,10 @@ class WorldGeneratorApp {
   async generate() {
     if (this.busy) return;
     const generator = document.getElementById('generator-select').value;
-    const seed = document.getElementById('seed-input').value.trim();
+    const selectedGenerator = this._selectedGenerator();
+    const seed = generatorUsesSeed(selectedGenerator)
+      ? document.getElementById('seed-input').value.trim()
+      : '';
     const maxRooms = Number(document.getElementById('max-rooms').value || 0);
     const confirmReset = document.getElementById('confirm-reset').checked;
     const save = document.getElementById('save-world').checked;
@@ -482,20 +491,36 @@ class WorldGeneratorApp {
 
   _renderGenerators() {
     const select = document.getElementById('generator-select');
+    const current = select.value;
     select.disabled = !this.generators.length;
     select.innerHTML = this.generators.length
       ? this.generators.map(generator => `<option value="${esc(generator.name)}">${esc(generator.name)}</option>`).join('')
       : '<option value="">No generators available</option>';
+    if (this.generators.some(generator => generator.name === current)) {
+      select.value = current;
+    } else if (this.generators.some(generator => generator.name === 'recursive')) {
+      select.value = 'recursive';
+    }
     document.getElementById('generator-count').textContent =
       `${this.generators.length} generator${this.generators.length === 1 ? '' : 's'}`;
-    this._renderGeneratorDescription();
+    this._renderGeneratorControls();
   }
 
-  _renderGeneratorDescription() {
+  _selectedGenerator() {
     const selected = document.getElementById('generator-select').value;
-    const generator = this.generators.find(item => item.name === selected);
+    return this.generators.find(item => item.name === selected);
+  }
+
+  _renderGeneratorControls() {
+    const generator = this._selectedGenerator();
+    const usesSeed = generatorUsesSeed(generator);
+    const seedInput = document.getElementById('seed-input');
+    seedInput.disabled = !usesSeed;
     document.getElementById('generator-description').textContent =
       generator?.description || 'Available generators come from the enabled server plugins.';
+    document.getElementById('seed-hint').textContent = usesSeed
+      ? 'With LLM world generation, this steers the setting. Offline generators still record it as provenance.'
+      : 'This generator is a fixed demo or reset; it ignores prompt and seed input.';
   }
 
   _renderMetrics(snapshot) {
