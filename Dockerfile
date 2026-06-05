@@ -8,6 +8,6 @@ RUN mkdir -p /usr/share/nginx/config
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY docker/config.json /usr/share/nginx/config/config.json
 
-COPY index.html script-editor.html world-editor.html favicon.png LICENSE README.md /usr/share/nginx/html/
+COPY *.html favicon.png LICENSE README.md /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
 COPY examples /usr/share/nginx/html/examples
