@@ -109,6 +109,11 @@ world, a saved JSON file, or a live server snapshot, then add/update/delete enti
 components, and outgoing edges. It exports the same save-file JSON shape that Bunnyland
 uses for persistence.
 
+**World generator** — `world-generator.html` is an admin page for replacing the live world.
+It loads enabled generators from the server, accepts a seed/prompt and room budget, calls
+the reset generation endpoint, keeps a websocket open, polls snapshots during generation,
+and highlights entity ids that appear in the latest snapshot.
+
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
 connected by edges. Each room shows a 🐰 count for the characters currently inside it.
 Click any room to inspect it in the right panel.
