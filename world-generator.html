@@ -328,7 +328,20 @@ class WorldGeneratorApp {
         this._log('Snapshot received from live stream', 'ok');
       } else if (message.type === 'event') {
         const eventType = message.data?.event_type || 'event';
-        this._log(`Event: ${eventType}`);
+        const eventData = message.data?.event || {};
+        if (eventType === 'WorldGenerationStartedEvent') {
+          this._log(`Generation job ${eventData.job_id} started`, 'ok');
+        } else if (eventType === 'WorldGenerationCompletedEvent') {
+          this._log(
+            `Generation complete: ${eventData.room_count} room(s), ${eventData.character_count} character(s)`,
+            'ok'
+          );
+          this._fetchSnapshot().catch(() => {});
+        } else if (eventType === 'WorldGenerationFailedEvent') {
+          this._log(`Generation failed: ${eventData.error}`, 'error');
+        } else {
+          this._log(`Event: ${eventType}`);
+        }
       } else if (message.type === 'patch') {
         this._log('World patch applied');
         this._fetchSnapshot();
@@ -403,7 +416,6 @@ class WorldGeneratorApp {
     this.busy = true;
     document.getElementById('btn-generate').disabled = true;
     this._log(`Starting ${generator} generation`, 'ok');
-    this.pollTimer = setInterval(() => this._fetchSnapshot().catch(() => {}), 1000);
     try {
       const response = await this._send('/admin/world/generate', {
         method: 'POST',
@@ -416,10 +428,9 @@ class WorldGeneratorApp {
           save
         })
       });
-      this._log(
-        `Generated ${response.rooms} room(s), ${response.characters} character(s) at epoch ${response.world_epoch}`,
-        'ok'
-      );
+      this._log(`Generation job ${response.job_id} is ${response.status}`, 'ok');
+      await this._fetchSnapshot();
+      await this._watchGeneration(response.job_id);
       await this._fetchSnapshot();
     } catch (err) {
       this._log(`Generation error: ${err.message}`, 'error');
@@ -429,6 +440,31 @@ class WorldGeneratorApp {
       this.busy = false;
       document.getElementById('btn-generate').disabled = !this.base;
     }
+  }
+
+  async _watchGeneration(jobId) {
+    while (this.busy) {
+      await this._delay(1000);
+      const [status] = await Promise.all([
+        this._send('/admin/world/generation', { admin: true, prompt: false }),
+        this._fetchSnapshot()
+      ]);
+      if (status.job_id !== jobId) continue;
+      if (status.status === 'succeeded') {
+        this._log(
+          `Generated ${status.rooms} room(s), ${status.characters} character(s) at epoch ${status.world_epoch}`,
+          'ok'
+        );
+        return;
+      }
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'world generation failed');
+      }
+    }
+  }
+
+  _delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   _applySnapshot(snapshot) {
