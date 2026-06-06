@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Live Playwright smoke test for Bunnyland Toon.
+
+This intentionally exercises the deployed browser client against a running server:
+connect, claim a character with the web controller, move its in-room sprite, then move
+through a room exit. Screenshots are written after each visible step.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from playwright.sync_api import expect, sync_playwright
+
+
+PAGE_URL = os.environ.get(
+    "BUNNYLAND_TOON_PAGE_URL", "https://sandbox.bunnyland.dev/toon-client.html"
+)
+API_URL = os.environ.get(
+    "BUNNYLAND_TOON_API_URL", "https://sandbox.bunnyland.dev/api"
+).rstrip("/")
+OUT_DIR = Path(os.environ.get("BUNNYLAND_TOON_SCREENSHOT_DIR", "/tmp"))
+
+
+def screenshot(page, name: str) -> str:
+    path = OUT_DIR / f"bunnyland-toon-{name}.png"
+    page.screenshot(path=str(path), full_page=True)
+    return str(path)
+
+
+def api_snapshot(page) -> dict[str, Any]:
+    return page.evaluate(
+        """async (api) => {
+            const res = await fetch(`${api}/world/snapshot`);
+            if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
+            return await res.json();
+        }""",
+        API_URL,
+    )
+
+
+def entities_by_id(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {entity["id"]: entity for entity in data.get("entities", [])}
+
+
+def relationship_targets(entity: dict[str, Any], edge_type: str) -> list[tuple[str, dict]]:
+    rels = entity.get("relationships", {}).get(edge_type, [])
+    return [(rel["target_id"], rel.get("edge") or {}) for rel in rels]
+
+
+def room_of(data: dict[str, Any], entity_id: str) -> str | None:
+    for entity in data.get("entities", []):
+        if "RoomComponent" not in entity.get("components", {}):
+            continue
+        for target_id, _edge in relationship_targets(entity, "Contains"):
+            if target_id == entity_id:
+                return entity["id"]
+    return None
+
+
+def sprite_pos(data: dict[str, Any], entity_id: str) -> tuple[float, float] | None:
+    entity = entities_by_id(data).get(entity_id)
+    if not entity:
+        return None
+    pos = entity.get("components", {}).get("SpritePosition")
+    if not pos:
+        return None
+    return (float(pos.get("x") or 0), float(pos.get("y") or 0))
+
+
+def choose_character_with_exit(data: dict[str, Any]) -> tuple[str, str, str]:
+    entities = entities_by_id(data)
+    for room in data.get("entities", []):
+        if "RoomComponent" not in room.get("components", {}):
+            continue
+        exits = relationship_targets(room, "ExitTo")
+        if not exits:
+            continue
+        for character_id, _edge in relationship_targets(room, "Contains"):
+            character = entities.get(character_id)
+            if character and "CharacterComponent" in character.get("components", {}):
+                return character_id, room["id"], exits[0][0]
+    raise RuntimeError("could not find a character in a room with an exit")
+
+
+def wait_for_snapshot(page, label: str, predicate, timeout: float = 90.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        last = api_snapshot(page)
+        if predicate(last):
+            return last
+        time.sleep(1.0)
+    raise RuntimeError(f"timed out waiting for {label}; last={json.dumps(last)[:1000]}")
+
+
+def main() -> None:
+    shots: list[str] = []
+    with sync_playwright() as pw:
+        launch_kwargs: dict[str, Any] = {"headless": True}
+        if os.environ.get("CI"):
+            launch_kwargs["args"] = ["--no-sandbox"]
+        browser = pw.chromium.launch(**launch_kwargs)
+        page = browser.new_page(viewport={"width": 1440, "height": 950})
+
+        page.goto(PAGE_URL, wait_until="domcontentloaded")
+        shots.append(screenshot(page, "01-loaded"))
+
+        page.locator("#api-url").fill(API_URL)
+        page.locator("#btn-connect").click()
+        expect(page.locator("#api-status")).to_contain_text("Connected", timeout=15000)
+        page.wait_for_function(
+            "() => window.app?.world && Object.keys(window.app.world.entities).length > 0"
+        )
+        shots.append(screenshot(page, "02-connected"))
+
+        initial = api_snapshot(page)
+        character_id, start_room, expected_exit_room = choose_character_with_exit(initial)
+        page.locator("#player-select").select_option(character_id)
+        page.wait_for_function(
+            """(characterId) => window.app?.control?.characterId === characterId""",
+            arg=character_id,
+            timeout=15000,
+        )
+        control = page.evaluate("() => window.app.control")
+        if not control or not control.get("controllerId"):
+            raise RuntimeError(f"web controller claim failed: {control!r}")
+        shots.append(screenshot(page, "03-claimed"))
+
+        before_pos = sprite_pos(api_snapshot(page), character_id) or (0.0, 0.0)
+        stage = page.locator("#stage")
+        box = stage.bounding_box()
+        if not box:
+            raise RuntimeError("stage is not visible")
+        page.mouse.click(box["x"] + box["width"] / 2 + 80, box["y"] + box["height"] / 2 + 45)
+        target_pos = (80.0, 45.0)
+        wait_for_snapshot(
+            page,
+            "sprite position update",
+            lambda data: (
+                (pos := sprite_pos(data, character_id)) is not None
+                and abs(pos[0] - target_pos[0]) < 0.01
+                and abs(pos[1] - target_pos[1]) < 0.01
+            ),
+        )
+        page.wait_for_timeout(500)
+        shots.append(screenshot(page, "04-in-room-moved"))
+
+        page.locator('.verb.ready[data-tool="move"]').click()
+        page.locator("#target-overlay .target-item").first.click()
+        moved_room = wait_for_snapshot(
+            page,
+            "room movement through exit",
+            lambda data: room_of(data, character_id) != start_room,
+        )
+        new_room = room_of(moved_room, character_id)
+        page.locator("#btn-follow").click()
+        page.wait_for_timeout(1000)
+        shots.append(screenshot(page, "05-room-moved"))
+
+        browser.close()
+
+    print(
+        json.dumps(
+            {
+                "page": PAGE_URL,
+                "api": API_URL,
+                "character_id": character_id,
+                "controller_id": control["controllerId"],
+                "start_room": start_room,
+                "expected_exit_room": expected_exit_room,
+                "new_room": new_room,
+                "before_pos": before_pos,
+                "target_pos": target_pos,
+                "screenshots": shots,
+            },
+            indent=2,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()
