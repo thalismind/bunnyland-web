@@ -184,7 +184,6 @@
     }
     .verb.ready { cursor: pointer; }
     .verb.ready:hover { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
-    .verb.needs-target { background: var(--bl-bg-row); color: var(--bl-text-soft); cursor: default; }
     .verb.unafford { opacity: 0.45; cursor: not-allowed; }
     .verb-name { white-space: nowrap; }
     .verb-cost { display: flex; align-items: center; gap: 4px; }
@@ -198,6 +197,50 @@
     .verb-cost .cost.fp { color: var(--bl-info); }
     .verb-cost .cost.free { color: var(--bl-text-dim); }
     .verb-cost .verb-note { font-size: var(--bl-text-xs); color: var(--bl-text-dim); }
+
+    /* ── Target picker (overlays the visual world) ── */
+    #target-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 9000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(17, 17, 27, 0.6);
+    }
+    .target-card {
+      width: 300px;
+      max-height: 75%;
+      display: flex;
+      flex-direction: column;
+      background: var(--bl-bg);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      box-shadow: var(--bl-shadow-popover);
+      overflow: hidden;
+    }
+    .target-card-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--bl-border);
+      font-size: var(--bl-text-md);
+      color: var(--bl-text);
+    }
+    .target-list { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .target-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      color: var(--bl-text);
+      font-size: var(--bl-text-sm);
+      cursor: pointer;
+    }
+    .target-item:hover { background: var(--bl-surface-hover); }
+    .target-item .ti-icon { font-size: 18px; line-height: 1; }
+    .target-empty { padding: 12px; color: var(--bl-text-muted); font-size: var(--bl-text-sm); }
+    .target-card-footer { padding: 8px 12px; border-top: 1px solid var(--bl-border); display: flex; justify-content: flex-end; }
   </style>
 </head>
 <body>
@@ -300,18 +343,18 @@ const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the 
 const MOVE_STEP = 18;           // pixels per arrow/WASD keypress
 
 // The common room/focus verbs a player can attempt, mirroring the canonical costs in
-// the server's llm_agents/tools.py. `ap`/`fp` are the action/focus cost; `needsTarget`
-// marks verbs that require an entity target (no in-room target picker yet, so they are
-// shown for reference but not submittable); `prompt` names a free-text arg to collect.
-// Domain/situational verbs (farming, ships, economy, ...) are intentionally omitted.
+// the server's llm_agents/tools.py. `ap`/`fp` are the action/focus cost; `target` names
+// the payload key plus which nearby entities are candidates (resolved by the picker);
+// `prompt` names a free-text arg to collect. Domain/situational verbs (farming, ships,
+// economy, ...) are intentionally omitted for now.
 const ACTION_VERBS = [
-  { tool: 'move',      label: 'Move',      cmd: 'move',  ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'take',      label: 'Take',      cmd: 'take',  ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'drop',      label: 'Drop',      cmd: 'put',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'use',       label: 'Use',       cmd: 'use',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'eat',       label: 'Eat',       cmd: 'eat',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'drink',     label: 'Drink',     cmd: 'drink', ap: 1, fp: 0, lane: 'world', needsTarget: true },
-  { tool: 'tell',      label: 'Tell',      cmd: 'tell',  ap: 1, fp: 1, lane: 'world', needsTarget: true },
+  { tool: 'move',      label: 'Move',      cmd: 'move',  ap: 1, fp: 0, lane: 'world', target: { key: 'exit_id', kind: 'exits' } },
+  { tool: 'take',      label: 'Take',      cmd: 'take',  ap: 1, fp: 0, lane: 'world', target: { key: 'item_id', kind: 'roomItems' } },
+  { tool: 'drop',      label: 'Drop',      cmd: 'put',   ap: 1, fp: 0, lane: 'world', target: { key: 'item_id', kind: 'inventory' } },
+  { tool: 'use',       label: 'Use',       cmd: 'use',   ap: 1, fp: 0, lane: 'world', target: { key: 'target_id', kind: 'reachableItems' } },
+  { tool: 'eat',       label: 'Eat',       cmd: 'eat',   ap: 1, fp: 0, lane: 'world', target: { key: 'item_id', kind: 'reachableItems' } },
+  { tool: 'drink',     label: 'Drink',     cmd: 'drink', ap: 1, fp: 0, lane: 'world', target: { key: 'source_id', kind: 'reachableItems' } },
+  { tool: 'tell',      label: 'Tell',      cmd: 'tell',  ap: 1, fp: 1, lane: 'world', target: { key: 'target_id', kind: 'characters' }, prompt: 'text' },
   { tool: 'say',       label: 'Say',       cmd: 'say',   ap: 1, fp: 1, lane: 'world', prompt: 'text' },
   { tool: 'wait',      label: 'Wait',      cmd: 'wait',  ap: 0, fp: 0, lane: 'world' },
   { tool: 'take_note', label: 'Take note', cmd: 'take-note', ap: 0, fp: 1, lane: 'focus', prompt: 'text' },
@@ -613,6 +656,11 @@ class RoomClient {
 
   async _doVerb(verb) {
     const payload = {};
+    if (verb.target) {
+      const choice = await this._pickTarget(verb);
+      if (!choice) return;                  // cancelled
+      payload[verb.target.key] = choice.value;
+    }
     if (verb.prompt) {
       const value = window.prompt(`${verb.label} — ${verb.prompt}:`);
       if (value == null || value === '') return;
@@ -620,6 +668,79 @@ class RoomClient {
     }
     await this._postCommand(verb.cmd, payload, verb.ap, verb.fp, verb.lane);
     // The websocket event will refresh the snapshot (and the AP/FP-gated panel).
+  }
+
+  // Entities the player is carrying (inventory, held, or worn).
+  _carried(playerId) {
+    const player = this.world?.entities[playerId];
+    if (!player) return [];
+    const out = [];
+    for (const rtype of ['Contains', 'Holding', 'Wearing']) {
+      for (const { target } of (player.relationships[rtype] || [])) {
+        const entity = this.world.entities[target];
+        if (entity) out.push(entity);
+      }
+    }
+    return out;
+  }
+
+  // Candidate targets for a verb, drawn from what's reachable in the player's room.
+  // The server still validates reachability/edibility/etc., so this can be permissive.
+  _targetCandidates(kind) {
+    const roomId = this._playerRoomId();
+    const room = this.world?.entities[roomId];
+    const asTarget = (e) => ({ value: e.id, label: entityName(e), icon: entityIcon(e) });
+    const members = this._roomMembers(roomId)
+      .filter(e => e.id !== this.playerId && !e.components.RoomComponent);
+    const roomItems = members.filter(e => !e.components.CharacterComponent);
+    const carried = this._carried(this.playerId);
+
+    if (kind === 'exits') {
+      return (room?.relationships.ExitTo || []).map(({ target, edge }) => {
+        const dest = this.world.entities[target];
+        const dir = edge?.direction || 'exit';
+        return { value: target, label: `${dir} → ${dest ? entityName(dest) : target}`, icon: '🚪' };
+      });
+    }
+    if (kind === 'roomItems') return roomItems.filter(e => e.components.PortableComponent).map(asTarget);
+    if (kind === 'inventory') return carried.map(asTarget);
+    if (kind === 'characters') return members.filter(e => e.components.CharacterComponent).map(asTarget);
+    if (kind === 'reachableItems') return [...roomItems, ...carried].map(asTarget);
+    return [];
+  }
+
+  // Show a modal list of candidate targets; resolves to a choice or null if cancelled.
+  _pickTarget(verb) {
+    return new Promise((resolve) => {
+      const esc = BunnylandUI.escapeHtml;
+      const candidates = this._targetCandidates(verb.target.kind);
+      const overlay = document.createElement('div');
+      overlay.id = 'target-overlay';
+      const rows = candidates.length
+        ? candidates.map((c, i) =>
+            `<div class="target-item" data-i="${i}">` +
+            `<span class="ti-icon">${esc(c.icon)}</span><span>${esc(c.label)}</span></div>`).join('')
+        : '<div class="target-empty">No valid targets nearby.</div>';
+      overlay.innerHTML =
+        `<div class="target-card">` +
+        `<div class="target-card-header">${esc(verb.label)} — choose a target</div>` +
+        `<div class="target-list">${rows}</div>` +
+        `<div class="target-card-footer"><button class="target-cancel">Cancel</button></div></div>`;
+
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        resolve(value);
+      };
+      const onKey = (e) => { if (e.key === 'Escape') close(null); };
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+      overlay.querySelector('.target-cancel').addEventListener('click', () => close(null));
+      for (const el of overlay.querySelectorAll('.target-item')) {
+        el.addEventListener('click', () => close(candidates[+el.dataset.i]));
+      }
+      document.addEventListener('keydown', onKey);
+      document.getElementById('stage-wrapper').appendChild(overlay);
+    });
   }
 
   // The action menu: each verb shows its cost and is disabled when the player cannot
@@ -653,20 +774,19 @@ class RoomClient {
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {
     const affordable = pts.ap >= verb.ap && pts.fp >= verb.fp;
-    const ready = hasPlayer && affordable && !verb.needsTarget;
-    const state = !hasPlayer || !affordable ? 'unafford' : (verb.needsTarget ? 'needs-target' : 'ready');
+    const ready = hasPlayer && affordable;
     const title = !hasPlayer ? 'Select a player'
       : !affordable ? 'Not enough points'
-      : verb.needsTarget ? 'Needs a target (coming soon)'
+      : verb.target ? `${verb.label}: choose a target`
       : `Perform: ${verb.label}`;
 
     const cost = verb.ap || verb.fp
       ? (verb.ap ? `<span class="cost ap">${verb.ap} AP</span>` : '') +
         (verb.fp ? `<span class="cost fp">${verb.fp} FP</span>` : '')
       : '<span class="cost free">free</span>';
-    const note = verb.needsTarget ? '<span class="verb-note">⌖ target</span>' : '';
+    const note = verb.target ? '<span class="verb-note">⌖ target</span>' : '';
 
-    return `<div class="verb ${state}"${ready ? ` data-tool="${verb.tool}"` : ''} title="${esc(title)}">` +
+    return `<div class="verb ${ready ? 'ready' : 'unafford'}"${ready ? ` data-tool="${verb.tool}"` : ''} title="${esc(title)}">` +
       `<span class="verb-name">${esc(verb.label)}</span>` +
       `<span class="verb-cost">${note}${cost}</span></div>`;
   }
