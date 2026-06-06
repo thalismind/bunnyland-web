@@ -1,0 +1,107 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "epoch": 0
+  },
+  "bunnyland": {
+    "schema_version": 1,
+    "seed": "regional hierarchy demo",
+    "prompt": "",
+    "generator": "handcrafted",
+    "plugins": [
+      "bunnyland.core_verbs"
+    ],
+    "saved_at_epoch": 0,
+    "saved_at": null
+  },
+  "prefabs": {
+    "entity": {
+      "components": {}
+    }
+  },
+  "entities": {
+    "lapin_prime": { "prefab": "entity", "created_epoch": 0 },
+    "mossreach_continent": { "prefab": "entity", "created_epoch": 0 },
+    "burrowmark_country": { "prefab": "entity", "created_epoch": 0 },
+    "north_warren_region": { "prefab": "entity", "created_epoch": 0 },
+    "clover_city": { "prefab": "entity", "created_epoch": 0 },
+    "old_market_area": { "prefab": "entity", "created_epoch": 0 },
+    "greenhill_neighborhood": { "prefab": "entity", "created_epoch": 0 },
+    "sunstem_zone": { "prefab": "entity", "created_epoch": 0 },
+    "carrot_street": { "prefab": "entity", "created_epoch": 0 },
+    "moonroot_tower": { "prefab": "entity", "created_epoch": 0 },
+    "story_three": { "prefab": "entity", "created_epoch": 0 },
+    "observatory_room": { "prefab": "entity", "created_epoch": 0 },
+    "map_keeper": { "prefab": "entity", "created_epoch": 0 }
+  },
+  "components": {
+    "RegionComponent": {
+      "lapin_prime": { "name": "Lapin Prime", "kind": "planet" },
+      "mossreach_continent": { "name": "Mossreach", "kind": "continent" },
+      "burrowmark_country": { "name": "Burrowmark", "kind": "country" },
+      "north_warren_region": { "name": "North Warren", "kind": "region" },
+      "clover_city": { "name": "Clover City", "kind": "city" },
+      "old_market_area": { "name": "Old Market", "kind": "area" },
+      "greenhill_neighborhood": { "name": "Greenhill", "kind": "neighborhood" },
+      "sunstem_zone": { "name": "Sunstem Zone", "kind": "zone" },
+      "carrot_street": { "name": "Carrot Street", "kind": "street" },
+      "moonroot_tower": { "name": "Moonroot Tower", "kind": "building" },
+      "story_three": { "name": "Story Three", "kind": "story" }
+    },
+    "RoomComponent": {
+      "observatory_room": {
+        "title": "Observatory Room",
+        "biome": "tower",
+        "indoor": true,
+        "private": false,
+        "safe": true
+      }
+    },
+    "IdentityComponent": {
+      "map_keeper": { "name": "Mira Mapkeeper", "kind": "character", "tags": ["demo"] }
+    },
+    "CharacterComponent": {
+      "map_keeper": { "species": "bunny", "biography": "Maintains the regional gazetteer.", "public": true }
+    }
+  },
+  "relationships": {
+    "Contains": {
+      "lapin_prime": [
+        { "target": "mossreach_continent", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "mossreach_continent": [
+        { "target": "burrowmark_country", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "burrowmark_country": [
+        { "target": "north_warren_region", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "north_warren_region": [
+        { "target": "clover_city", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "clover_city": [
+        { "target": "old_market_area", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "old_market_area": [
+        { "target": "greenhill_neighborhood", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "greenhill_neighborhood": [
+        { "target": "sunstem_zone", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "sunstem_zone": [
+        { "target": "carrot_street", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "carrot_street": [
+        { "target": "moonroot_tower", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "moonroot_tower": [
+        { "target": "story_three", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "story_three": [
+        { "target": "observatory_room", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "observatory_room": [
+        { "target": "map_keeper", "edge": { "mode": "room_content", "visible": true, "discovered": true, "order": 0 } }
+      ]
+    }
+  }
+}

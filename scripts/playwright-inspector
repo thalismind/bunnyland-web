@@ -139,6 +139,53 @@ def main() -> None:
         editor_href = page.locator("#inspector-links a").get_attribute("href")
         if not editor_href or "world-editor.html" not in editor_href or f"#{selected}" not in editor_href:
             raise AssertionError(f"unexpected world editor link for {selected}: {editor_href!r}")
+
+        regional = page.evaluate(
+            """
+            async () => {
+              const snapshot = await fetch('/examples/regional-hierarchy.json').then((res) => res.json());
+              window.app.loadSnapshot(snapshot);
+              window.app.setRootView('region');
+              const positions = {};
+              for (const node of window.app.lgraph._nodes) {
+                positions[node.entityId] = { x: node.pos[0], y: node.pos[1], w: node.size[0], h: node.size[1] };
+              }
+              return {
+                active: document.querySelector('#btn-view-region').classList.contains('active'),
+                nodes: positions,
+                links: window.app.lgraph.links ? Object.keys(window.app.lgraph.links).length : 0,
+              };
+            }
+            """
+        )
+        expected_order = [
+            "lapin_prime",
+            "mossreach_continent",
+            "burrowmark_country",
+            "north_warren_region",
+            "clover_city",
+            "old_market_area",
+            "greenhill_neighborhood",
+            "sunstem_zone",
+            "carrot_street",
+            "moonroot_tower",
+            "story_three",
+            "observatory_room",
+        ]
+        if not regional["active"]:
+            raise AssertionError("region view button was not active after selecting regional view")
+        missing = [node_id for node_id in expected_order if node_id not in regional["nodes"]]
+        if missing:
+            raise AssertionError(f"regional view missed expected node(s): {missing!r}")
+        assert_no_rect_overlaps([
+            {"id": node_id, **regional["nodes"][node_id]} for node_id in expected_order
+        ])
+        ys = [regional["nodes"][node_id]["y"] for node_id in expected_order]
+        if any(lower <= upper for upper, lower in zip(ys, ys[1:], strict=False)):
+            raise AssertionError(f"regional tree was not ordered planet-to-room by y position: {ys!r}")
+        if regional["links"] < len(expected_order) - 1:
+            raise AssertionError(f"regional tree rendered too few links: {regional['links']}")
+
         page.locator("#graph-wrapper").screenshot(path=str(SCREENSHOT))
         scale = page.evaluate("window.app.lgcanvas.ds.scale")
         nodes = page.evaluate("window.app.lgraph._nodes.length")

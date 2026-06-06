@@ -384,7 +384,7 @@
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <span id="view-switch">
-      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-social">👥 Social</button><button id="btn-view-quest">📜 Quests</button>
+      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-region">🌐 Regions</button><button id="btn-view-social">👥 Social</button><button id="btn-view-quest">📜 Quests</button>
     </span>
     <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
       <input type="checkbox" id="toggle-parents" checked> parent nodes
@@ -485,6 +485,7 @@ function parseApiSnapshot(data) {
 
 function entityType(entity) {
   const c = entity.components;
+  if (c.RegionComponent) return 'region';
   if (c.RoomComponent) return 'room';
   if (c.CharacterComponent) return 'character';
   if (c.DoorComponent) return 'door';
@@ -498,6 +499,7 @@ function entityType(entity) {
 
 function entityDisplayName(entity) {
   const c = entity.components;
+  if (c.RegionComponent) return c.RegionComponent.name || entity.id;
   if (c.RoomComponent) return c.RoomComponent.title || entity.id;
   if (c.QuestComponent) return c.QuestComponent.title || c.QuestComponent.quest_id || entity.id;
   if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.description || entity.id;
@@ -508,6 +510,7 @@ function entityDisplayName(entity) {
 
 function entitySubtitle(entity) {
   const c = entity.components;
+  if (c.RegionComponent) return c.RegionComponent.kind || 'region';
   if (c.RoomComponent) {
     const r = c.RoomComponent;
     return [r.biome, r.indoor ? 'indoor' : 'outdoor'].filter(Boolean).join(' · ');
@@ -777,9 +780,135 @@ function layoutRooms(world, roomIds) {
   return positions;
 }
 
+// ── Regional layout ─────────────────────────────────────────────────────────
+
+const REGION_KIND_LEVELS = {
+  planet: 0,
+  continent: 1,
+  country: 2,
+  region: 3,
+  province: 3,
+  state: 3,
+  city: 4,
+  area: 5,
+  zone: 5,
+  neighborhood: 5,
+  neighbourhood: 5,
+  district: 5,
+  street: 6,
+  building: 7,
+  level: 8,
+  story: 8,
+  storey: 8,
+  floor: 8,
+};
+
+function regionalEdges(world) {
+  const out = [];
+  for (const entity of Object.values(world.entities)) {
+    for (const rel of (entity.relationships?.Contains || [])) {
+      if (!world.entities[rel.target]) continue;
+      if (rel.edge?.mode !== 'region') continue;
+      out.push({ source: entity.id, target: rel.target, edge: rel.edge || {} });
+    }
+  }
+  return out;
+}
+
+function regionalNodeIds(world) {
+  const ids = new Set();
+  for (const entity of Object.values(world.entities)) {
+    if (entity.components.RegionComponent) ids.add(entity.id);
+  }
+  for (const { source, target } of regionalEdges(world)) {
+    if (world.entities[source]) ids.add(source);
+    if (world.entities[target]) ids.add(target);
+  }
+  return [...ids];
+}
+
+function regionalLevel(entity, fallback) {
+  if (entity.components.RoomComponent) return 9;
+  const kind = String(entity.components.RegionComponent?.kind || '').toLowerCase();
+  return REGION_KIND_LEVELS[kind] ?? fallback;
+}
+
+function layoutRegions(world, nodeIds) {
+  const incoming = {};
+  const children = {};
+  for (const id of nodeIds) {
+    incoming[id] = 0;
+    children[id] = [];
+  }
+  for (const { source, target } of regionalEdges(world)) {
+    if (!(source in incoming) || !(target in incoming)) continue;
+    incoming[target]++;
+    children[source].push(target);
+  }
+
+  const sortByRegionOrder = (a, b) => {
+    const ae = regionalEdges(world).find(edge => edge.target === a)?.edge || {};
+    const be = regionalEdges(world).find(edge => edge.target === b)?.edge || {};
+    if ((ae.order ?? 0) !== (be.order ?? 0)) return (ae.order ?? 0) - (be.order ?? 0);
+    return entityDisplayName(world.entities[a]).localeCompare(entityDisplayName(world.entities[b]));
+  };
+  for (const id of Object.keys(children)) children[id].sort(sortByRegionOrder);
+
+  const roots = nodeIds
+    .filter(id => incoming[id] === 0)
+    .sort((a, b) => {
+      const la = regionalLevel(world.entities[a], 0);
+      const lb = regionalLevel(world.entities[b], 0);
+      if (la !== lb) return la - lb;
+      return entityDisplayName(world.entities[a]).localeCompare(entityDisplayName(world.entities[b]));
+    });
+
+  const positions = {};
+  const visited = new Set();
+  let nextLeaf = 0;
+  const COL_W = GRAPH_NODE_WIDTH + 46;
+  const ROW_H = 145;
+
+  const place = (id, depth, stack = new Set()) => {
+    if (stack.has(id)) {
+      const cycleX = nextLeaf++ * COL_W;
+      positions[id] = [cycleX, depth * ROW_H];
+      return cycleX;
+    }
+    if (visited.has(id)) return positions[id][0];
+
+    stack.add(id);
+    const childIds = children[id] || [];
+    let x;
+    if (!childIds.length) {
+      x = nextLeaf++ * COL_W;
+    } else {
+      const childXs = childIds.map(child => place(child, depth + 1, stack));
+      x = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+    }
+    stack.delete(id);
+    visited.add(id);
+    positions[id] = [x, depth * ROW_H];
+    return x;
+  };
+
+  for (const root of roots) place(root, 0);
+  for (const id of nodeIds) {
+    if (!visited.has(id)) place(id, Math.max(0, regionalLevel(world.entities[id], 0)));
+  }
+
+  const xs = Object.values(positions).map(p => p[0]);
+  const minX = Math.min(...xs, 0);
+  for (const id of Object.keys(positions)) {
+    positions[id] = [positions[id][0] - minX + 80, positions[id][1] + 60];
+  }
+  return positions;
+}
+
 // ── LiteGraph node types ─────────────────────────────────────────────────────
 
 const ENTITY_STYLE = {
+  region:    { color: '#4d5f1a', bgcolor: '#2d3910', titleColor: '#a6e3a1', icon: '🌐' },
   room:      { color: '#1a5f7a', bgcolor: '#0e3f52', titleColor: '#74c7ec', icon: '🏠' },
   character: { color: '#2a6a3a', bgcolor: '#1a4228', titleColor: '#a6e3a1', icon: '🐰' },
   container: { color: '#6a4a1a', bgcolor: '#402e0a', titleColor: '#fab387', icon: '📦' },
@@ -1041,6 +1170,7 @@ class BunnylandInspector {
     });
     document.getElementById('event-clear').addEventListener('click', () => this._clearEvents());
     document.getElementById('btn-view-map').addEventListener('click', () => this.setRootView('map'));
+    document.getElementById('btn-view-region').addEventListener('click', () => this.setRootView('region'));
     document.getElementById('btn-view-social').addEventListener('click', () => this.setRootView('social'));
     document.getElementById('btn-view-quest').addEventListener('click', () => this.setRootView('quest'));
 
@@ -1441,14 +1571,16 @@ class BunnylandInspector {
   // ── Views ──────────────────────────────────────────────────────────────────
 
   _rootLabel() {
-    return this._rootView === 'social' ? 'Social'
+    return this._rootView === 'region' ? 'Regions'
+      : this._rootView === 'social' ? 'Social'
       : this._rootView === 'quest' ? 'Quests'
       : 'Room Map';
   }
 
   // Render whichever top-level view is active.
   showRoot() {
-    if (this._rootView === 'social') this.showSocial();
+    if (this._rootView === 'region') this.showRegions();
+    else if (this._rootView === 'social') this.showSocial();
     else if (this._rootView === 'quest') this.showQuests();
     else this.showRoomMap();
   }
@@ -1464,7 +1596,7 @@ class BunnylandInspector {
   }
 
   _syncViewButtons() {
-    for (const v of ['map', 'social', 'quest']) {
+    for (const v of ['map', 'region', 'social', 'quest']) {
       document.getElementById('btn-view-' + v).classList.toggle('active', v === this._rootView);
     }
   }
@@ -1501,6 +1633,31 @@ class BunnylandInspector {
     }
 
     this._hideSocialLegend();
+    this._fitView();
+  }
+
+  // Top-level regional view: map-scale Contains(mode="region") links, with rooms on the bottom row.
+  showRegions() {
+    this._clearGraph();
+    this._updateBreadcrumb('Regions');
+    this._hideSocialLegend();
+
+    const ids = regionalNodeIds(this.world);
+    const positions = layoutRegions(this.world, ids);
+    const nodes = {};
+
+    for (const id of ids) {
+      const entity = this.world.entities[id];
+      const [x, y] = positions[id] || [100, 100];
+      const enter = entityType(entity) === 'room' ? () => this._pushEntity(id) : null;
+      nodes[id] = this._makeNode(entity, x, y, enter);
+    }
+
+    for (const { source, target } of regionalEdges(this.world)) {
+      const sn = nodes[source], tn = nodes[target];
+      if (sn && tn) sn.connect(0, tn, 0);
+    }
+
     this._fitView();
   }
 
@@ -1767,7 +1924,10 @@ class BunnylandInspector {
   // parent chain, with a button to zoom all the way back out.
   _makeRootNode(x, y) {
     const root = this._rootLabel();
-    const rootIcon = this._rootView === 'social' ? '👥 ' : this._rootView === 'quest' ? '📜 ' : '🗺 ';
+    const rootIcon = this._rootView === 'region' ? '🌐 '
+      : this._rootView === 'social' ? '👥 '
+      : this._rootView === 'quest' ? '📜 '
+      : '🗺 ';
     const node = LiteGraph.createNode('bunnyland/other');
     node.title   = rootIcon + root;
     node.color   = ENTITY_STYLE.other.color;
@@ -1988,7 +2148,7 @@ class BunnylandInspector {
   _applyDeepLink(nav) {
     this._applyingDeepLink = true;
     try {
-      if (nav.view && ['map', 'social', 'quest'].includes(nav.view)) this.setRootView(nav.view);
+      if (nav.view && ['map', 'region', 'social', 'quest'].includes(nav.view)) this.setRootView(nav.view);
       else this.showRoot();
       if (nav.entity && this.world?.entities[nav.entity]) {
         // Visible in the current view → just select it; otherwise drill to where it lives.
@@ -2023,6 +2183,11 @@ class BunnylandInspector {
 
     if (type === 'quest' || type === 'objective' || type === 'reward') {
       this.setRootView('quest');
+      this.selectEntity(id);
+      return;
+    }
+    if (type === 'region') {
+      this.setRootView('region');
       this.selectEntity(id);
       return;
     }

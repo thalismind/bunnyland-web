@@ -29,6 +29,10 @@ Drop any of these into the inspector (file picker or drag-and-drop) to explore o
   colonist, nested cargo (crate → sealed case → data core), and two quests ("Restore Main
   Power", "Wake the Colonists").
 
+- **`regional-hierarchy.json`** — a compact map-scale demo that uses `Contains` edges with
+  `mode: "region"` for every regional level: planet → continent → country → region → city
+  → area → neighborhood → zone → street → building → story → room.
+
 - **`seed-world.json`** — a real snapshot saved from the server (`--seed test`). Two
   connected rooms with characters and ground items; useful as a realistic baseline.
 
