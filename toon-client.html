@@ -8,7 +8,8 @@
   <style>
     #api-url { width: 190px; }
     #api-status { font-size: var(--bl-text-sm); white-space: nowrap; }
-    #player-select, #room-title { font-size: var(--bl-text-sm); }
+    #player-select, #claim-fallback, #claim-timeout, #room-title { font-size: var(--bl-text-sm); }
+    #claim-timeout { width: 56px; }
     #room-title { color: var(--bl-text-soft); }
 
     /* ── Split layout: visual world on the left, actions on the right ── */
@@ -256,6 +257,13 @@
     <span class="toolbar-sep">|</span>
     <label for="player-select">Player:</label>
     <select id="player-select"><option value="">— none —</option></select>
+    <label for="claim-fallback">Fallback:</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspend</option>
+      <option value="llm">LLM</option>
+    </select>
+    <label for="claim-timeout">Timeout:</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
     <a class="toolbar-link push" href="index.html">Inspector</a>
     <a class="toolbar-link" href="world-editor.html">World Editor</a>
   </div>
@@ -460,6 +468,12 @@ class RoomClient {
     document.getElementById('player-select').addEventListener('change', (e) => {
       this._selectPlayer(e.target.value);
     });
+    document.getElementById('claim-fallback').addEventListener('change', () => {
+      this._updateClaimFallback();
+    });
+    document.getElementById('claim-timeout').addEventListener('change', () => {
+      this._updateClaimFallback();
+    });
     document.getElementById('btn-follow').addEventListener('click', () => {
       this.followPlayer = true;
       this._recenterOnPlayer();
@@ -660,7 +674,12 @@ class RoomClient {
       const res = await fetch(`${this.apiBase}/world/controllers/web/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character_id: playerId, client_id: clientId, label: 'toon' }),
+        body: JSON.stringify({
+          ...this._claimSettings(),
+          character_id: playerId,
+          client_id: clientId,
+          label: 'toon',
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -674,6 +693,38 @@ class RoomClient {
     } catch (err) {
       console.warn('Could not claim Bunnyland web controller', err);
       return null;
+    }
+  }
+
+  _claimSettings() {
+    const fallback = document.getElementById('claim-fallback').value;
+    const rawMinutes = Number(document.getElementById('claim-timeout').value);
+    const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : 30;
+    return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
+  }
+
+  async _updateClaimFallback() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const clientId = await this._clientIdValue();
+      const res = await fetch(`${this.apiBase}/world/controllers/web/fallback`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...this._claimSettings(),
+          character_id: this.playerId,
+          client_id: clientId,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      this.control = {
+        characterId: data.character_id,
+        controllerId: data.controller_id,
+        generation: data.controller_generation,
+      };
+    } catch (err) {
+      console.warn('Could not update Bunnyland claim fallback', err);
     }
   }
 
