@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Toon</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    #api-url { width: 190px; }
+    #api-status { font-size: var(--bl-text-sm); white-space: nowrap; }
+    #player-select, #room-title { font-size: var(--bl-text-sm); }
+    #room-title { color: var(--bl-text-soft); }
+
+    /* ── Split layout: visual world on the left, actions on the right ── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    #stage-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--bl-bg-deep);
+    }
+
+    /* The room view: a fixed coordinate plane whose origin (0,0) is its centre. */
+    #stage {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      cursor: crosshair;
+      outline: none;
+    }
+    #stage.spectating { cursor: default; }
+
+    #room-bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-md);
+      z-index: 0;
+    }
+
+    .sprite {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      user-select: none;
+      pointer-events: none;
+      text-align: center;
+    }
+    .sprite .glyph {
+      font-size: 30px;
+      line-height: 1;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+    }
+    .sprite img.glyph {
+      width: 48px;
+      height: 48px;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .sprite .label {
+      font-size: var(--bl-text-xs);
+      color: var(--bl-text-soft);
+      background: rgba(17, 17, 27, 0.7);
+      border-radius: var(--bl-radius-sm);
+      padding: 0 3px;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sprite.player .glyph { filter: drop-shadow(0 0 6px var(--bl-accent)); }
+    .sprite.player .label { color: var(--bl-accent); }
+
+    /* Doors are pinned to the edge matching their compass direction. */
+    .door {
+      position: absolute;
+      z-index: 5000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      padding: 3px 7px;
+      background: var(--bl-surface);
+      border: 1px solid var(--bl-border-strong);
+      border-radius: var(--bl-radius-md);
+      color: var(--bl-text);
+      font-size: var(--bl-text-xs);
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: var(--bl-shadow-popover);
+    }
+    .door:hover { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
+    .door .door-dir { color: var(--bl-text-dim); }
+
+    #stage-hint {
+      position: absolute;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      z-index: 6000;
+      font-size: var(--bl-text-xs);
+      color: var(--bl-text-muted);
+      background: rgba(17, 17, 27, 0.8);
+      padding: 3px 8px;
+      border-radius: var(--bl-radius-sm);
+      pointer-events: none;
+    }
+
+    #stage-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      color: var(--bl-text-muted);
+      z-index: 7000;
+    }
+    #stage-empty .title { font-size: 18px; color: var(--bl-text); }
+    #stage-empty.hidden { display: none; }
+
+    /* ── Right sidebar: room action verbs (reserved, mostly empty for now) ── */
+    #actions {
+      width: 300px;
+      min-width: 220px;
+      border-left: 1px solid var(--bl-border);
+      background: var(--bl-bg-strong);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #actions-header {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--bl-border);
+      font-size: var(--bl-text-md);
+      color: var(--bl-text);
+    }
+    #actions-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+    .action-section-title {
+      font-size: var(--bl-text-xs);
+      color: var(--bl-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    #verb-list { display: flex; flex-direction: column; gap: 5px; }
+    .actions-empty {
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text-muted);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="toolbar-row" id="toolbar-row1">
+    <span style="color: var(--bl-text);">🐰 Bunnyland Toon</span>
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+    <button id="btn-connect">Connect Live</button>
+    <span id="api-status">○ Offline</span>
+    <span class="toolbar-sep">|</span>
+    <label for="player-select">Player:</label>
+    <select id="player-select"><option value="">— none —</option></select>
+    <a class="toolbar-link push" href="index.html">Inspector</a>
+    <a class="toolbar-link" href="world-editor.html">World Editor</a>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
+    <button id="btn-follow" title="Re-centre the view on your player's room">⌖ Follow player</button>
+    <span class="toolbar-sep">|</span>
+    <span id="room-title">Not connected</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="stage-wrapper">
+    <div id="stage" tabindex="0">
+      <div id="room-bg"></div>
+    </div>
+    <div id="stage-hint"></div>
+    <div id="stage-empty">
+      <div class="title">No room to show</div>
+      <div>Connect to a running server, then pick a player.</div>
+    </div>
+  </div>
+  <div id="actions">
+    <div id="actions-header">⚔ Actions</div>
+    <div id="actions-body">
+      <div class="action-section-title">Room verbs</div>
+      <div id="verb-list">
+        <div class="actions-empty">No actions available yet.<br>Room verbs will appear here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="assets/bunnyland-ui.js"></script>
+<script>
+'use strict';
+
+// ── Entity-model helpers (shared shapes with the Inspector) ────────────────────
+
+// Live server format: entities are an array, relationship edges use target_id.
+function parseApiSnapshot(data) {
+  const entities = {};
+  for (const e of data.entities || []) {
+    const rels = {};
+    for (const [rtype, edges] of Object.entries(e.relationships || {})) {
+      rels[rtype] = edges.map(({ target_id, edge }) => ({ target: target_id, edge: edge || {} }));
+    }
+    entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
+  }
+  return { entities, epoch: data.world_epoch || 0 };
+}
+
+const KIND_ICON = {
+  room: '🏠', character: '🐰', container: '📦', item: '✦',
+  door: '🚪', food: '🍎', water: '💧', chair: '🪑', table: '🪵',
+  bed: '🛏', art: '🖼', window: '🪟', other: '⬡',
+};
+
+function entityType(entity) {
+  const c = entity.components;
+  if (c.RoomComponent) return 'room';
+  if (c.CharacterComponent) return 'character';
+  if (c.DoorComponent) return 'door';
+  if (c.ContainerComponent) return 'container';
+  if (c.PortableComponent) return 'item';
+  return 'other';
+}
+
+// A custom EditorDisplayComponent.emoji wins; else fall back to kind iconography.
+function entityIcon(entity) {
+  const emoji = entity?.components?.EditorDisplayComponent?.emoji;
+  if (emoji) return emoji;
+  const kind = entity?.components?.IdentityComponent?.kind;
+  return KIND_ICON[kind] || KIND_ICON[entityType(entity)] || KIND_ICON.other;
+}
+
+function entityName(entity) {
+  const c = entity.components;
+  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
+  return c.IdentityComponent?.name || entity.id.slice(0, 16);
+}
+
+// Compass direction → unit edge offset, mirroring the Inspector's room layout.
+const DIR_EDGE = {
+  north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0],
+  northeast: [1, -1], northwest: [-1, -1], southeast: [1, 1], southwest: [-1, 1],
+  up: [0, -1], down: [0, 1], fore: [0, -1], aft: [0, 1], port: [-1, 0], starboard: [1, 0],
+};
+
+const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
+const MOVE_STEP = 18;           // pixels per arrow/WASD keypress
+
+// ── The room client ────────────────────────────────────────────────────────────
+
+class RoomClient {
+  constructor() {
+    this.apiBase = null;
+    this.ws = null;
+    this.world = null;
+    this.playerId = '';
+    this.viewRoomId = null;
+    this.followPlayer = true;
+    this.localPos = null;        // optimistic {x, y} for the player, room-centred
+    this.localDirty = false;
+    this._refreshTimer = null;
+
+    this._bindUi();
+    this._restoreServerParam();
+    setInterval(() => this._syncTick(), SYNC_INTERVAL_MS);
+  }
+
+  _bindUi() {
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this.ws) this.disconnect();
+      else this.connect(document.getElementById('api-url').value.trim());
+    });
+    document.getElementById('player-select').addEventListener('change', (e) => {
+      this._selectPlayer(e.target.value);
+    });
+    document.getElementById('btn-follow').addEventListener('click', () => {
+      this.followPlayer = true;
+      this._recenterOnPlayer();
+      this.render();
+    });
+
+    const stage = document.getElementById('stage');
+    stage.addEventListener('click', (e) => this._onStageClick(e));
+    stage.addEventListener('keydown', (e) => this._onKey(e));
+  }
+
+  _restoreServerParam() {
+    const server = new URLSearchParams(location.search).get('server');
+    if (server) {
+      document.getElementById('api-url').value = server;
+      this.connect(server);
+    }
+  }
+
+  // ── Connection ───────────────────────────────────────────────────────────────
+
+  connect(url) {
+    if (!url) return;
+    this.disconnect();
+    this.apiBase = url.replace(/\/$/, '');
+    const wsUrl = this.apiBase.replace(/^http/, 'ws') + '/world/updates';
+    const ws = new WebSocket(wsUrl);
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this._setStatus('live', '● Connected');
+      document.getElementById('btn-connect').textContent = 'Disconnect';
+      this._syncUrl();
+    };
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'snapshot') {
+        this._applyWorld(parseApiSnapshot(msg.data));
+      } else if (msg.type === 'event' || msg.type === 'patch') {
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refresh(), 250);
+      }
+    };
+    ws.onclose = () => {
+      if (this.ws === ws) {
+        this.ws = null;
+        this._setStatus('', '○ Offline');
+        document.getElementById('btn-connect').textContent = 'Connect Live';
+      }
+    };
+    ws.onerror = () => this._setStatus('error', '⚠ Connection failed');
+  }
+
+  disconnect() {
+    clearTimeout(this._refreshTimer);
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this._setStatus('', '○ Offline');
+    document.getElementById('btn-connect').textContent = 'Connect Live';
+    this._syncUrl();
+  }
+
+  async _refresh() {
+    try {
+      const res = await fetch(`${this.apiBase}/world/snapshot`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this._applyWorld(parseApiSnapshot(await res.json()));
+      this._setStatus('live', `● Live · epoch ${this.world.epoch}s`);
+    } catch (err) {
+      this._setStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _applyWorld(world) {
+    this.world = world;
+    this._refreshPlayerOptions();
+    if (this.followPlayer) this._recenterOnPlayer();
+    if (!this.viewRoomId || !this.world.entities[this.viewRoomId]) {
+      this.viewRoomId = this._playerRoomId() || this._firstRoomId();
+    }
+    this.render();
+  }
+
+  _setStatus(cls, text) {
+    const el = document.getElementById('api-status');
+    el.className = cls;
+    el.textContent = text;
+  }
+
+  _syncUrl() {
+    const url = new URL(location.href);
+    if (this.apiBase) url.searchParams.set('server', this.apiBase);
+    else url.searchParams.delete('server');
+    history.replaceState(null, '', url);
+  }
+
+  // ── World queries ──────────────────────────────────────────────────────────
+
+  _rooms() {
+    return Object.values(this.world?.entities || {}).filter(e => e.components.RoomComponent);
+  }
+
+  _firstRoomId() {
+    const room = this._rooms()[0];
+    return room ? room.id : null;
+  }
+
+  // The room directly containing an entity (rooms own members via Contains edges).
+  _roomOf(entityId) {
+    if (!entityId) return null;
+    for (const room of this._rooms()) {
+      for (const { target } of (room.relationships.Contains || [])) {
+        if (target === entityId) return room.id;
+      }
+    }
+    return null;
+  }
+
+  _playerRoomId() {
+    return this._roomOf(this.playerId);
+  }
+
+  // Members (characters + objects) sitting directly in a room.
+  _roomMembers(roomId) {
+    const room = this.world.entities[roomId];
+    if (!room) return [];
+    return (room.relationships.Contains || [])
+      .map(({ target }) => this.world.entities[target])
+      .filter(Boolean);
+  }
+
+  _spritePos(entity) {
+    const p = entity.components.SpritePosition;
+    return p ? { x: p.x || 0, y: p.y || 0 } : { x: 0, y: 0 };
+  }
+
+  _spriteLayer(entity) {
+    return entity.components.SpriteLayer?.layer ?? 20;
+  }
+
+  // ── Player control ───────────────────────────────────────────────────────────
+
+  _refreshPlayerOptions() {
+    const select = document.getElementById('player-select');
+    const chars = Object.values(this.world.entities)
+      .filter(e => e.components.CharacterComponent)
+      .sort((a, b) => entityName(a).localeCompare(entityName(b)));
+    const current = this.playerId;
+    select.innerHTML = '<option value="">— none —</option>' +
+      chars.map(c => `<option value="${c.id}">${BunnylandUI.escapeHtml(entityName(c))}</option>`).join('');
+    if (current && this.world.entities[current]) select.value = current;
+    else this.playerId = '';
+  }
+
+  _selectPlayer(id) {
+    this.playerId = id;
+    document.getElementById('player-select').value = id;
+    this.followPlayer = true;
+    this.localPos = null;          // adopt the server position for the new player
+    this._recenterOnPlayer();
+    this.render();
+  }
+
+  _recenterOnPlayer() {
+    const roomId = this._playerRoomId();
+    if (roomId) this.viewRoomId = roomId;
+  }
+
+  // Controller (id + generation) currently driving the player, read from the snapshot.
+  _playerControl() {
+    const player = this.world?.entities[this.playerId];
+    const edge = player?.relationships?.ControlledBy?.[0];
+    if (!edge) return null;
+    return { controllerId: edge.target, generation: edge.edge?.generation ?? 0 };
+  }
+
+  _playerInView() {
+    return this.playerId && this.viewRoomId && this._playerRoomId() === this.viewRoomId;
+  }
+
+  // ── Optimistic movement + periodic sync ──────────────────────────────────────
+
+  _moveTo(x, y) {
+    if (!this._playerInView()) return;
+    this.localPos = { x, y };
+    this.localDirty = true;
+    this.render();
+  }
+
+  _onStageClick(e) {
+    if (e.target.closest('.door')) return;       // door clicks navigate, not move
+    if (!this._playerInView()) return;
+    const stage = document.getElementById('stage');
+    const rect = stage.getBoundingClientRect();
+    this._moveTo(e.clientX - rect.left - rect.width / 2, e.clientY - rect.top - rect.height / 2);
+  }
+
+  _onKey(e) {
+    if (!this._playerInView()) return;
+    const deltas = {
+      ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1],
+      ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0],
+    };
+    const delta = deltas[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const base = this.localPos || this._spritePos(this.world.entities[this.playerId]);
+    this._moveTo(base.x + delta[0] * MOVE_STEP, base.y + delta[1] * MOVE_STEP);
+  }
+
+  async _syncTick() {
+    if (!this.localDirty || !this.ws || !this.apiBase || !this.localPos) return;
+    const control = this._playerControl();
+    if (!control) return;
+    const pos = this.localPos;
+    this.localDirty = false;
+    try {
+      const res = await fetch(`${this.apiBase}/world/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          character_id: this.playerId,
+          controller_id: control.controllerId,
+          controller_generation: control.generation,
+          command_type: 'move-sprite',
+          payload: { x: pos.x, y: pos.y },
+          cost: { action: 0, focus: 0 },
+          lane: 'world',
+          on_insufficient_points: 'queue',
+        }),
+      });
+      if (!res.ok) this.localDirty = true;   // retry on the next tick
+    } catch (_err) {
+      this.localDirty = true;
+    }
+  }
+
+  // ── Rendering ────────────────────────────────────────────────────────────────
+
+  render() {
+    const stage = document.getElementById('stage');
+    const empty = document.getElementById('stage-empty');
+    const room = this.viewRoomId && this.world?.entities[this.viewRoomId];
+
+    for (const el of stage.querySelectorAll('.sprite, .door')) el.remove();
+
+    if (!room) {
+      empty.classList.remove('hidden');
+      document.getElementById('room-bg').style.backgroundImage = '';
+      document.getElementById('room-bg').textContent = '';
+      document.getElementById('room-title').textContent = this.ws ? 'No room' : 'Not connected';
+      return;
+    }
+    empty.classList.add('hidden');
+
+    const rect = stage.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+
+    // Background = the room's own sprite (layer 0), or a labelled placeholder.
+    const bg = document.getElementById('room-bg');
+    const roomImg = room.components.SpriteImage?.url;
+    bg.style.backgroundImage = roomImg ? `url("${roomImg}")` : '';
+    bg.textContent = roomImg ? '' : `“${entityName(room)}”`;
+
+    document.getElementById('room-title').textContent =
+      `${entityName(room)}${this._playerInView() ? '' : '  ·  spectating'}`;
+    stage.classList.toggle('spectating', !this._playerInView());
+
+    // Sprites: every member, ordered by layer, placed by SpritePosition (player uses
+    // its optimistic local position so movement feels instant).
+    const members = this._roomMembers(this.viewRoomId)
+      .filter(e => !e.components.DoorComponent)
+      .sort((a, b) => this._spriteLayer(a) - this._spriteLayer(b));
+    for (const member of members) {
+      const isPlayer = member.id === this.playerId;
+      const pos = (isPlayer && this.localPos) ? this.localPos : this._spritePos(member);
+      stage.appendChild(this._spriteEl(member, cx + pos.x, cy + pos.y, isPlayer));
+    }
+
+    this._renderDoors(stage, room, rect);
+
+    const hint = document.getElementById('stage-hint');
+    hint.textContent = this._playerInView()
+      ? 'Click or use arrow keys / WASD to move · doors lead to other rooms'
+      : (this.playerId ? 'Spectating another room — “Follow player” to return' : 'Pick a player to move');
+  }
+
+  _spriteEl(entity, left, top, isPlayer) {
+    const el = document.createElement('div');
+    el.className = 'sprite' + (isPlayer ? ' player' : '');
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.zIndex = String(1000 + this._spriteLayer(entity));
+    const img = entity.components.SpriteImage?.url;
+    const glyph = img
+      ? `<img class="glyph" src="${img}" alt="">`
+      : `<div class="glyph">${entityIcon(entity)}</div>`;
+    el.innerHTML = `${glyph}<div class="label">${BunnylandUI.escapeHtml(entityName(entity))}</div>`;
+    return el;
+  }
+
+  _renderDoors(stage, room, rect) {
+    const margin = 14;
+    for (const { target, edge } of (room.relationships.ExitTo || [])) {
+      const dest = this.world.entities[target];
+      if (!dest) continue;
+      const dir = (edge?.direction || '').toLowerCase();
+      const [ox, oy] = DIR_EDGE[dir] || [1, 0];
+      const door = document.createElement('div');
+      door.className = 'door';
+      door.innerHTML =
+        `🚪 ${BunnylandUI.escapeHtml(entityName(dest))}` +
+        (dir ? `<span class="door-dir">${BunnylandUI.escapeHtml(dir)}</span>` : '');
+      // Pin to the edge the exit points toward.
+      door.style.left = ox === 0 ? '50%' : (ox < 0 ? `${margin}px` : 'auto');
+      door.style.right = ox > 0 ? `${margin}px` : 'auto';
+      door.style.top = oy === 0 ? '50%' : (oy < 0 ? `${margin}px` : 'auto');
+      door.style.bottom = oy > 0 ? `${margin}px` : 'auto';
+      if (ox === 0) door.style.transform = 'translateX(-50%)';
+      if (oy === 0) door.style.transform = 'translateY(-50%)';
+      door.title = `Go to ${entityName(dest)}`;
+      door.addEventListener('click', () => {
+        this.viewRoomId = target;
+        this.followPlayer = false;
+        this.render();
+      });
+      stage.appendChild(door);
+    }
+  }
+}
+
+window.addEventListener('resize', () => window.app?.render());
+window.app = new RoomClient();
+</script>
+</body>
+</html>
