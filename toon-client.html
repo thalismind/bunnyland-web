@@ -341,6 +341,9 @@ const DIR_EDGE = {
 
 const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
 const MOVE_STEP = 18;           // pixels per arrow/WASD keypress
+const CLIENT_DB_NAME = 'bunnyland-toon';
+const CLIENT_DB_STORE = 'settings';
+const CLIENT_ID_KEY = 'client-id';
 
 // The common room/focus verbs a player can attempt, mirroring the canonical costs in
 // the server's llm_agents/tools.py. `ap`/`fp` are the action/focus cost; `target` names
@@ -364,6 +367,68 @@ const ACTION_VERBS = [
 
 const fmtPoints = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
+function randomClientId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0'));
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+}
+
+async function persistentClientId() {
+  if (!window.indexedDB) return persistentClientIdFallback();
+
+  return new Promise((resolve) => {
+    const open = indexedDB.open(CLIENT_DB_NAME, 1);
+    open.onupgradeneeded = () => {
+      open.result.createObjectStore(CLIENT_DB_STORE);
+    };
+    open.onerror = () => {
+      console.warn('Could not open IndexedDB for Bunnyland client id', open.error);
+      resolve(persistentClientIdFallback());
+    };
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction(CLIENT_DB_STORE, 'readwrite');
+      const store = tx.objectStore(CLIENT_DB_STORE);
+      const get = store.get(CLIENT_ID_KEY);
+      get.onerror = () => {
+        console.warn('Could not read Bunnyland client id from IndexedDB', get.error);
+        resolve(persistentClientIdFallback());
+      };
+      get.onsuccess = () => {
+        const existing = typeof get.result === 'string' ? get.result : '';
+        const clientId = existing || randomClientId();
+        if (!existing) store.put(clientId, CLIENT_ID_KEY);
+        resolve(clientId);
+      };
+    };
+  });
+}
+
+function persistentClientIdFallback() {
+  const key = 'bunnyland.toon.clientId';
+  try {
+    let clientId = localStorage.getItem(key);
+    if (!clientId) {
+      clientId = randomClientId();
+      localStorage.setItem(key, clientId);
+    }
+    return clientId;
+  } catch (err) {
+    console.warn('Could not persist Bunnyland client id in localStorage', err);
+    return randomClientId();
+  }
+}
+
 // ── The room client ────────────────────────────────────────────────────────────
 
 class RoomClient {
@@ -372,11 +437,14 @@ class RoomClient {
     this.ws = null;
     this.world = null;
     this.playerId = '';
+    this.control = null;
     this.viewRoomId = null;
     this.followPlayer = true;
     this.localPos = null;        // optimistic {x, y} for the player, room-centred
     this.localDirty = false;
     this._refreshTimer = null;
+    this._clientId = null;
+    this._clientIdPromise = persistentClientId();
 
     this._bindUi();
     this.render();                 // show the initial (disconnected) action panel
@@ -550,16 +618,21 @@ class RoomClient {
     select.innerHTML = '<option value="">— none —</option>' +
       chars.map(c => `<option value="${c.id}">${BunnylandUI.escapeHtml(entityName(c))}</option>`).join('');
     if (current && this.world.entities[current]) select.value = current;
-    else this.playerId = '';
+    else {
+      this.playerId = '';
+      this.control = null;
+    }
   }
 
   _selectPlayer(id) {
     this.playerId = id;
+    this.control = null;
     document.getElementById('player-select').value = id;
     this.followPlayer = true;
     this.localPos = null;          // adopt the server position for the new player
     this._recenterOnPlayer();
     this.render();
+    if (id) this._claimPlayer(id);
   }
 
   _recenterOnPlayer() {
@@ -567,12 +640,41 @@ class RoomClient {
     if (roomId) this.viewRoomId = roomId;
   }
 
-  // Controller (id + generation) currently driving the player, read from the snapshot.
+  // Controller (id + generation) claimed by this browser client.
   _playerControl() {
-    const player = this.world?.entities[this.playerId];
-    const edge = player?.relationships?.ControlledBy?.[0];
-    if (!edge) return null;
-    return { controllerId: edge.target, generation: edge.edge?.generation ?? 0 };
+    if (this.control?.characterId === this.playerId) {
+      return { controllerId: this.control.controllerId, generation: this.control.generation };
+    }
+    return null;
+  }
+
+  async _clientIdValue() {
+    if (!this._clientId) this._clientId = await this._clientIdPromise;
+    return this._clientId;
+  }
+
+  async _claimPlayer(playerId = this.playerId) {
+    if (!this.apiBase || !playerId) return null;
+    try {
+      const clientId = await this._clientIdValue();
+      const res = await fetch(`${this.apiBase}/world/controllers/web/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character_id: playerId, client_id: clientId, label: 'toon' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const control = {
+        characterId: data.character_id,
+        controllerId: data.controller_id,
+        generation: data.controller_generation,
+      };
+      if (this.playerId === playerId) this.control = control;
+      return control;
+    } catch (err) {
+      console.warn('Could not claim Bunnyland web controller', err);
+      return null;
+    }
   }
 
   _playerInView() {
@@ -591,10 +693,10 @@ class RoomClient {
     };
   }
 
-  // Submit a command as the player's current controller (read from the snapshot).
+  // Submit a command as this browser client's claimed controller.
   // Returns true on a 2xx response.
   async _postCommand(commandType, payload, ap, fp, lane = 'world') {
-    const control = this._playerControl();
+    const control = this._playerControl() || await this._claimPlayer();
     if (!this.apiBase || !control) return false;
     try {
       const res = await fetch(`${this.apiBase}/world/commands`, {
@@ -612,7 +714,8 @@ class RoomClient {
         }),
       });
       return res.ok;
-    } catch (_err) {
+    } catch (err) {
+      console.warn('Could not submit Bunnyland command', err);
       return false;
     }
   }
