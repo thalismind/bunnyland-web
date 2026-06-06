@@ -535,6 +535,10 @@ class RoomClient {
     return entity.components.SpriteLayer?.layer ?? 20;
   }
 
+  _spriteScale(entity) {
+    return entity.components.SpriteScale?.scale ?? 1;
+  }
+
   // ── Player control ───────────────────────────────────────────────────────────
 
   _refreshPlayerOptions() {
@@ -849,10 +853,14 @@ class RoomClient {
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
     el.style.zIndex = String(1000 + this._spriteLayer(entity));
+    // Sprites arrive at different sizes, so normalize each by its SpriteScale before
+    // compositing. Only the glyph scales; the name label stays legible.
+    const scale = this._spriteScale(entity);
+    const scaleStyle = scale !== 1 ? ` style="transform: scale(${scale})"` : '';
     const img = entity.components.SpriteImage?.url;
     const glyph = img
-      ? `<img class="glyph" src="${img}" alt="">`
-      : `<div class="glyph">${entityIcon(entity)}</div>`;
+      ? `<img class="glyph" src="${img}" alt=""${scaleStyle}>`
+      : `<div class="glyph"${scaleStyle}>${entityIcon(entity)}</div>`;
     el.innerHTML = `${glyph}<div class="label">${BunnylandUI.escapeHtml(entityName(entity))}</div>`;
     return el;
   }
