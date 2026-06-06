@@ -695,23 +695,66 @@ const DIR_OFFSET = {
 };
 const ROOM_SPACING = 280;
 
+function roomPositionKey(x, y) {
+  return `${x},${y}`;
+}
+
+function nearestFreeRoomPosition(x, y, occupied, maxRooms) {
+  if (!occupied.has(roomPositionKey(x, y))) return [x, y];
+
+  for (let ring = 1; ring <= maxRooms + 4; ring++) {
+    const candidates = [];
+    for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        candidates.push([dx, dy]);
+      }
+    }
+    candidates.sort((a, b) => {
+      const da = Math.abs(a[0]) + Math.abs(a[1]);
+      const db = Math.abs(b[0]) + Math.abs(b[1]);
+      if (da !== db) return da - db;
+      if (a[1] !== b[1]) return a[1] - b[1];
+      return a[0] - b[0];
+    });
+
+    for (const [dx, dy] of candidates) {
+      const cx = x + dx * ROOM_SPACING;
+      const cy = y + dy * ROOM_SPACING;
+      if (!occupied.has(roomPositionKey(cx, cy))) return [cx, cy];
+    }
+  }
+
+  return [x, y + (maxRooms + 5) * ROOM_SPACING];
+}
+
 function layoutRooms(world, roomIds) {
   const positions = {};
-  const visited = new Set();
+  const discovered = new Set();
+  const occupied = new Set();
   if (!roomIds.length) return positions;
+  const roomIdSet = new Set(roomIds);
 
-  const queue = [{ id: roomIds[0], x: 0, y: 0 }];
+  const reserve = (id, x, y) => {
+    const [rx, ry] = nearestFreeRoomPosition(x, y, occupied, roomIds.length);
+    positions[id] = [rx, ry];
+    occupied.add(roomPositionKey(rx, ry));
+    discovered.add(id);
+    return [rx, ry];
+  };
+
+  const queue = [{ id: roomIds[0] }];
+  reserve(roomIds[0], 0, 0);
   while (queue.length) {
-    const { id, x, y } = queue.shift();
-    if (visited.has(id)) continue;
-    visited.add(id);
-    positions[id] = [x, y];
+    const { id } = queue.shift();
+    const [x, y] = positions[id];
 
     for (const { target, edge } of (world.entities[id]?.relationships.ExitTo || [])) {
-      if (visited.has(target)) continue;
-      const dir = (edge.direction || '').toLowerCase();
+      if (!roomIdSet.has(target) || discovered.has(target)) continue;
+      const dir = (edge?.direction || '').toLowerCase();
       const [dx, dy] = DIR_OFFSET[dir] || [1, 0];
-      queue.push({ id: target, x: x + dx * ROOM_SPACING, y: y + dy * ROOM_SPACING });
+      reserve(target, x + dx * ROOM_SPACING, y + dy * ROOM_SPACING);
+      queue.push({ id: target });
     }
   }
 
@@ -719,7 +762,7 @@ function layoutRooms(world, roomIds) {
   let col = 0;
   for (const id of roomIds) {
     if (!positions[id]) {
-      positions[id] = [col * ROOM_SPACING, ROOM_SPACING * 2];
+      reserve(id, col * ROOM_SPACING, ROOM_SPACING * 2);
       col++;
     }
   }

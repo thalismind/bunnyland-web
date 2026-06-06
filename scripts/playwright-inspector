@@ -13,6 +13,19 @@ SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tm
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-web-node-readability.png"
 
 
+def assert_no_rect_overlaps(rects):
+    for index, left in enumerate(rects):
+        for right in rects[index + 1 :]:
+            overlaps = (
+                left["x"] < right["x"] + right["w"]
+                and left["x"] + left["w"] > right["x"]
+                and left["y"] < right["y"] + right["h"]
+                and left["y"] + left["h"] > right["y"]
+            )
+            if overlaps:
+                raise AssertionError(f"room nodes overlap: {left['id']} {left!r} and {right['id']} {right!r}")
+
+
 def launch_browser(playwright):
     chrome = (
         os.environ.get("BUNNYLAND_CHROME")
@@ -61,6 +74,40 @@ def main() -> None:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
 
         page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
+        collision_rects = page.evaluate(
+            """
+            () => {
+              window.app.loadSnapshot({
+                entities: { root: {}, east_a: {}, east_b: {}, east_c: {} },
+                components: {
+                  RoomComponent: {
+                    root: { title: 'Root', indoor: true },
+                    east_a: { title: 'East A', indoor: true },
+                    east_b: { title: 'East B', indoor: true },
+                    east_c: { title: 'East C', indoor: true },
+                  },
+                },
+                relationships: {
+                  ExitTo: {
+                    root: [
+                      { target: 'east_a', edge: { direction: 'east' } },
+                      { target: 'east_b', edge: { direction: 'east' } },
+                      { target: 'east_c', edge: {} },
+                    ],
+                  },
+                },
+              });
+              return window.app.lgraph._nodes.map((node) => ({
+                id: node.entityId,
+                x: node.pos[0],
+                y: node.pos[1],
+                w: node.size[0],
+                h: node.size[1],
+              }));
+            }
+            """
+        )
+        assert_no_rect_overlaps(collision_rects)
         page.evaluate(
             """
             async () => {
