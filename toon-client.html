@@ -151,14 +151,53 @@
       color: var(--bl-text-dim);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 6px;
+      margin: 12px 0 6px;
     }
-    #verb-list { display: flex; flex-direction: column; gap: 5px; }
-    .actions-empty {
+    .action-section-title:first-child { margin-top: 0; }
+
+    #pt-summary {
+      display: flex;
+      gap: 12px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      background: var(--bl-bg-subtle);
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-md);
       font-size: var(--bl-text-sm);
-      color: var(--bl-text-muted);
-      line-height: 1.5;
     }
+    #pt-summary .pt.ap { color: var(--bl-warn); }
+    #pt-summary .pt.fp { color: var(--bl-info); }
+    #pt-summary .pt-empty { color: var(--bl-text-muted); }
+
+    .verb-list { display: flex; flex-direction: column; gap: 4px; }
+    .verb {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 9px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text);
+    }
+    .verb.ready { cursor: pointer; }
+    .verb.ready:hover { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
+    .verb.needs-target { background: var(--bl-bg-row); color: var(--bl-text-soft); cursor: default; }
+    .verb.unafford { opacity: 0.45; cursor: not-allowed; }
+    .verb-name { white-space: nowrap; }
+    .verb-cost { display: flex; align-items: center; gap: 4px; }
+    .verb-cost .cost {
+      font-size: var(--bl-text-xs);
+      padding: 0 4px;
+      border-radius: var(--bl-radius-sm);
+      border: 1px solid var(--bl-border-control);
+    }
+    .verb-cost .cost.ap { color: var(--bl-warn); }
+    .verb-cost .cost.fp { color: var(--bl-info); }
+    .verb-cost .cost.free { color: var(--bl-text-dim); }
+    .verb-cost .verb-note { font-size: var(--bl-text-xs); color: var(--bl-text-dim); }
   </style>
 </head>
 <body>
@@ -197,12 +236,7 @@
   </div>
   <div id="actions">
     <div id="actions-header">⚔ Actions</div>
-    <div id="actions-body">
-      <div class="action-section-title">Room verbs</div>
-      <div id="verb-list">
-        <div class="actions-empty">No actions available yet.<br>Room verbs will appear here.</div>
-      </div>
-    </div>
+    <div id="actions-body"></div>
   </div>
 </div>
 
@@ -265,6 +299,28 @@ const DIR_EDGE = {
 const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
 const MOVE_STEP = 18;           // pixels per arrow/WASD keypress
 
+// The common room/focus verbs a player can attempt, mirroring the canonical costs in
+// the server's llm_agents/tools.py. `ap`/`fp` are the action/focus cost; `needsTarget`
+// marks verbs that require an entity target (no in-room target picker yet, so they are
+// shown for reference but not submittable); `prompt` names a free-text arg to collect.
+// Domain/situational verbs (farming, ships, economy, ...) are intentionally omitted.
+const ACTION_VERBS = [
+  { tool: 'move',      label: 'Move',      cmd: 'move',  ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'take',      label: 'Take',      cmd: 'take',  ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'drop',      label: 'Drop',      cmd: 'put',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'use',       label: 'Use',       cmd: 'use',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'eat',       label: 'Eat',       cmd: 'eat',   ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'drink',     label: 'Drink',     cmd: 'drink', ap: 1, fp: 0, lane: 'world', needsTarget: true },
+  { tool: 'tell',      label: 'Tell',      cmd: 'tell',  ap: 1, fp: 1, lane: 'world', needsTarget: true },
+  { tool: 'say',       label: 'Say',       cmd: 'say',   ap: 1, fp: 1, lane: 'world', prompt: 'text' },
+  { tool: 'wait',      label: 'Wait',      cmd: 'wait',  ap: 0, fp: 0, lane: 'world' },
+  { tool: 'take_note', label: 'Take note', cmd: 'take-note', ap: 0, fp: 1, lane: 'focus', prompt: 'text' },
+  { tool: 'remember',  label: 'Remember',  cmd: 'remember',  ap: 0, fp: 1, lane: 'focus', prompt: 'query' },
+  { tool: 'reflect',   label: 'Reflect',   cmd: 'reflect',   ap: 0, fp: 1, lane: 'focus', prompt: 'text' },
+];
+
+const fmtPoints = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
 // ── The room client ────────────────────────────────────────────────────────────
 
 class RoomClient {
@@ -280,6 +336,7 @@ class RoomClient {
     this._refreshTimer = null;
 
     this._bindUi();
+    this.render();                 // show the initial (disconnected) action panel
     this._restoreServerParam();
     setInterval(() => this._syncTick(), SYNC_INTERVAL_MS);
   }
@@ -475,6 +532,44 @@ class RoomClient {
     return this.playerId && this.viewRoomId && this._playerRoomId() === this.viewRoomId;
   }
 
+  // The player's live action/focus points, read from the snapshot.
+  _playerPoints() {
+    const p = this.world?.entities[this.playerId];
+    const ap = p?.components?.ActionPointsComponent;
+    const fp = p?.components?.FocusPointsComponent;
+    return {
+      has: !!p,
+      ap: ap?.current ?? 0, apMax: ap?.maximum ?? 0,
+      fp: fp?.current ?? 0, fpMax: fp?.maximum ?? 0,
+    };
+  }
+
+  // Submit a command as the player's current controller (read from the snapshot).
+  // Returns true on a 2xx response.
+  async _postCommand(commandType, payload, ap, fp, lane = 'world') {
+    const control = this._playerControl();
+    if (!this.apiBase || !control) return false;
+    try {
+      const res = await fetch(`${this.apiBase}/world/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          character_id: this.playerId,
+          controller_id: control.controllerId,
+          controller_generation: control.generation,
+          command_type: commandType,
+          payload,
+          cost: { action: ap, focus: fp },
+          lane,
+          on_insufficient_points: 'queue',
+        }),
+      });
+      return res.ok;
+    } catch (_err) {
+      return false;
+    }
+  }
+
   // ── Optimistic movement + periodic sync ──────────────────────────────────────
 
   _moveTo(x, y) {
@@ -506,35 +601,81 @@ class RoomClient {
   }
 
   async _syncTick() {
-    if (!this.localDirty || !this.ws || !this.apiBase || !this.localPos) return;
-    const control = this._playerControl();
-    if (!control) return;
+    if (!this.localDirty || !this.ws || !this.localPos) return;
     const pos = this.localPos;
     this.localDirty = false;
-    try {
-      const res = await fetch(`${this.apiBase}/world/commands`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          character_id: this.playerId,
-          controller_id: control.controllerId,
-          controller_generation: control.generation,
-          command_type: 'move-sprite',
-          payload: { x: pos.x, y: pos.y },
-          cost: { action: 0, focus: 0 },
-          lane: 'world',
-          on_insufficient_points: 'queue',
-        }),
-      });
-      if (!res.ok) this.localDirty = true;   // retry on the next tick
-    } catch (_err) {
-      this.localDirty = true;
+    // move-sprite is free (0 AP / 0 FP); retry on the next tick if it fails.
+    const ok = await this._postCommand('move-sprite', { x: pos.x, y: pos.y }, 0, 0);
+    if (!ok) this.localDirty = true;
+  }
+
+  // ── Room action verbs ────────────────────────────────────────────────────────
+
+  async _doVerb(verb) {
+    const payload = {};
+    if (verb.prompt) {
+      const value = window.prompt(`${verb.label} — ${verb.prompt}:`);
+      if (value == null || value === '') return;
+      payload[verb.prompt] = value;
     }
+    await this._postCommand(verb.cmd, payload, verb.ap, verb.fp, verb.lane);
+    // The websocket event will refresh the snapshot (and the AP/FP-gated panel).
+  }
+
+  // The action menu: each verb shows its cost and is disabled when the player cannot
+  // afford it (or when no player is selected). Verbs needing an entity target are shown
+  // for reference but not yet submittable (no in-room target picker).
+  _renderActions() {
+    const body = document.getElementById('actions-body');
+    const pts = this._playerPoints();
+    const hasPlayer = !!this.playerId && pts.has;
+    const esc = BunnylandUI.escapeHtml;
+
+    const summary = hasPlayer
+      ? `<span class="pt ap">⚡ ${fmtPoints(pts.ap)} / ${fmtPoints(pts.apMax)} AP</span>` +
+        `<span class="pt fp">🔹 ${fmtPoints(pts.fp)} / ${fmtPoints(pts.fpMax)} FP</span>`
+      : '<span class="pt-empty">Select a player to see their actions.</span>';
+
+    let html = `<div id="pt-summary">${summary}</div>`;
+    for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
+      html += `<div class="action-section-title">${title}</div><div class="verb-list">`;
+      html += ACTION_VERBS.filter(v => v.lane === lane)
+        .map(v => this._verbRowHtml(v, pts, hasPlayer, esc)).join('');
+      html += '</div>';
+    }
+    body.innerHTML = html;
+
+    for (const el of body.querySelectorAll('.verb.ready[data-tool]')) {
+      const verb = ACTION_VERBS.find(v => v.tool === el.dataset.tool);
+      el.addEventListener('click', () => this._doVerb(verb));
+    }
+  }
+
+  _verbRowHtml(verb, pts, hasPlayer, esc) {
+    const affordable = pts.ap >= verb.ap && pts.fp >= verb.fp;
+    const ready = hasPlayer && affordable && !verb.needsTarget;
+    const state = !hasPlayer || !affordable ? 'unafford' : (verb.needsTarget ? 'needs-target' : 'ready');
+    const title = !hasPlayer ? 'Select a player'
+      : !affordable ? 'Not enough points'
+      : verb.needsTarget ? 'Needs a target (coming soon)'
+      : `Perform: ${verb.label}`;
+
+    const cost = verb.ap || verb.fp
+      ? (verb.ap ? `<span class="cost ap">${verb.ap} AP</span>` : '') +
+        (verb.fp ? `<span class="cost fp">${verb.fp} FP</span>` : '')
+      : '<span class="cost free">free</span>';
+    const note = verb.needsTarget ? '<span class="verb-note">⌖ target</span>' : '';
+
+    return `<div class="verb ${state}"${ready ? ` data-tool="${verb.tool}"` : ''} title="${esc(title)}">` +
+      `<span class="verb-name">${esc(verb.label)}</span>` +
+      `<span class="verb-cost">${note}${cost}</span></div>`;
   }
 
   // ── Rendering ────────────────────────────────────────────────────────────────
 
   render() {
+    this._renderActions();
+
     const stage = document.getElementById('stage');
     const empty = document.getElementById('stage-empty');
     const room = this.viewRoomId && this.world?.entities[this.viewRoomId];
