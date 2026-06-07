@@ -264,8 +264,7 @@
     </select>
     <label for="claim-timeout">Timeout:</label>
     <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
-    <a class="toolbar-link push" href="index.html">Inspector</a>
-    <a class="toolbar-link" href="world-editor.html">World Editor</a>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <button id="btn-follow" title="Re-centre the view on your player's room">⌖ Follow player</button>
@@ -294,6 +293,8 @@
 <script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
+
+BunnylandUI.initClientMenu();
 
 // ── Entity-model helpers (shared shapes with the Inspector) ────────────────────
 

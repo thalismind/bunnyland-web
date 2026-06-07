@@ -2,6 +2,44 @@
   'use strict';
 
   const THEME_KEY = 'bunnyland.theme';
+  const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
+  const CLIENT_MENU_ITEMS = [
+    {
+      href: 'index.html',
+      title: 'Inspector',
+      label: 'Graph client',
+      description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
+      supportsServer: true,
+    },
+    {
+      href: 'toon-client.html',
+      title: 'Toon Client',
+      label: 'Player room view',
+      description: 'Claim a character and play from the room-focused visual client.',
+      supportsServer: true,
+    },
+    {
+      href: 'world-editor.html',
+      title: 'World Editor',
+      label: 'Admin editor',
+      description: 'Edit entities, components, relationships, fragments, and live snapshots.',
+      supportsServer: true,
+    },
+    {
+      href: 'world-generator.html',
+      title: 'World Generator',
+      label: 'Admin generator',
+      description: 'Generate or replace a live world using enabled server generators.',
+      supportsServer: true,
+    },
+    {
+      href: 'script-editor.html',
+      title: 'Script Editor',
+      label: 'Automation scripts',
+      description: 'Create and validate script JSON blocks against a snapshot.',
+      supportsServer: false,
+    },
+  ];
 
   function escapeHtml(value) {
     return String(value)
@@ -33,6 +71,125 @@
       // Keep the default theme when storage is unavailable.
     }
     document.documentElement.dataset.theme = theme;
+  }
+
+  function storageGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (_err) {
+      // Storage is optional; the menu remains available from the toolbar.
+    }
+  }
+
+  function currentPageName() {
+    const path = location.pathname.split('/').pop();
+    return path || 'index.html';
+  }
+
+  function currentServerValue() {
+    const queryServer = new URLSearchParams(location.search).get('server') || '';
+    const input = document.getElementById('api-url');
+    if (input && queryServer && input.value.trim() === input.defaultValue.trim()) return queryServer;
+    if (input && input.value.trim()) return input.value.trim();
+    return queryServer;
+  }
+
+  function clientHref(item) {
+    const url = new URL(item.href, location.href);
+    url.hash = '';
+    if (item.supportsServer) {
+      const server = currentServerValue();
+      if (server) url.searchParams.set('server', server);
+    }
+    return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
+  }
+
+  function ensureClientMenu() {
+    let dialog = document.getElementById('client-menu-dialog');
+    if (dialog) return dialog;
+
+    dialog = document.createElement('div');
+    dialog.id = 'client-menu-dialog';
+    dialog.className = 'client-menu-backdrop hidden';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'client-menu-title');
+    document.body.appendChild(dialog);
+    return dialog;
+  }
+
+  function renderClientMenu(dialog) {
+    const current = currentPageName();
+    dialog.innerHTML = `
+      <div class="client-menu-card">
+        <div class="client-menu-header">
+          <div>
+            <div class="client-menu-kicker">Bunnyland Clients</div>
+            <div id="client-menu-title" class="client-menu-title">Open a client or editor</div>
+          </div>
+          <button class="client-menu-close" type="button" aria-label="Close client menu">x</button>
+        </div>
+        <div class="client-menu-list">
+          ${CLIENT_MENU_ITEMS.map((item) => {
+            const active = item.href === current || (current === '' && item.href === 'index.html');
+            return `
+              <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}">
+                <span class="client-menu-item-main">
+                  <span class="client-menu-item-title">${escapeHtml(item.title)}</span>
+                  <span class="client-menu-item-desc">${escapeHtml(item.description)}</span>
+                </span>
+                <span class="client-menu-item-label">${escapeHtml(active ? 'Current' : item.label)}</span>
+              </a>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function openClientMenu() {
+    const dialog = ensureClientMenu();
+    renderClientMenu(dialog);
+    dialog.classList.remove('hidden');
+    const close = dialog.querySelector('.client-menu-close');
+    close?.focus();
+  }
+
+  function closeClientMenu() {
+    document.getElementById('client-menu-dialog')?.classList.add('hidden');
+  }
+
+  function initClientMenu({ buttonId = 'btn-client-menu', showOnFirstLoad = false } = {}) {
+    const button = document.getElementById(buttonId);
+    if (button) {
+      button.addEventListener('click', () => openClientMenu());
+    }
+
+    document.addEventListener('click', (event) => {
+      const dialog = document.getElementById('client-menu-dialog');
+      if (!dialog || dialog.classList.contains('hidden')) return;
+      if (event.target === dialog || event.target.closest('.client-menu-close')) {
+        closeClientMenu();
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeClientMenu();
+    });
+
+    if (showOnFirstLoad && storageGet(CLIENT_MENU_SEEN_KEY) !== '1') {
+      storageSet(CLIENT_MENU_SEEN_KEY, '1');
+      requestAnimationFrame(() => openClientMenu());
+    }
+
+    return { open: openClientMenu, close: closeClientMenu };
   }
 
   function bindSearchDropdown(root, { options, value = '', onChange = null, emptyLabel = 'No matches' }) {
@@ -128,6 +285,7 @@
     bindSearchDropdown,
     cloneJson,
     escapeHtml,
+    initClientMenu,
     initTheme,
     setTheme,
   };

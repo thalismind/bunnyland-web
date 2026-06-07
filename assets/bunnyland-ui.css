@@ -126,6 +126,118 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .push { margin-left: auto; }
 
+.client-menu-button {
+  margin-left: auto;
+}
+
+.client-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 72px 16px 16px;
+  background: rgba(17, 17, 27, 0.74);
+}
+
+.client-menu-backdrop.hidden {
+  display: none;
+}
+
+.client-menu-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 96px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-md);
+  background: var(--bl-bg-strong);
+  box-shadow: var(--bl-shadow-popover);
+}
+
+.client-menu-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--bl-border);
+  background: var(--bl-bg);
+}
+
+.client-menu-kicker {
+  color: var(--bl-accent-strong);
+  font-size: var(--bl-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.client-menu-title {
+  margin-top: 3px;
+  color: var(--bl-text);
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.client-menu-close {
+  padding: 2px 7px;
+  line-height: 1.2;
+}
+
+.client-menu-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.client-menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--bl-radius-md);
+  color: var(--bl-text);
+  text-decoration: none;
+}
+
+.client-menu-item:hover {
+  background: var(--bl-surface);
+  border-color: var(--bl-border-control);
+}
+
+.client-menu-item.active {
+  background: var(--bl-bg-subtle);
+  border-color: var(--bl-accent);
+}
+
+.client-menu-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.client-menu-item-title {
+  color: var(--bl-text);
+  font-size: var(--bl-text-md);
+  font-weight: bold;
+}
+
+.client-menu-item-desc {
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+  line-height: 1.45;
+}
+
+.client-menu-item-label {
+  color: var(--bl-text-muted);
+  font-size: var(--bl-text-xs);
+  white-space: nowrap;
+}
+
 #world-info,
 #status,
 #save-status,

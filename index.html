@@ -378,9 +378,7 @@
       <input type="text" id="search-input" placeholder="🔍 find, type:, component:" spellcheck="false" autocomplete="off">
       <div id="search-results" class="hidden"></div>
     </span>
-    <a class="toolbar-link" href="script-editor.html">Script Editor</a>
-    <a class="toolbar-link" href="world-editor.html">World Editor</a>
-    <a class="toolbar-link" href="world-generator.html">World Generator</a>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <span id="view-switch">
@@ -439,6 +437,8 @@
 <script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
+
+BunnylandUI.initClientMenu({ showOnFirstLoad: true });
 
 // ── Snapshot parsing ─────────────────────────────────────────────────────────
 

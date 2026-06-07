@@ -38,10 +38,16 @@ def main() -> None:
         if fragment_parent != "toolbar-row3":
             raise AssertionError(f"expected fragments controls in toolbar-row3, found {fragment_parent!r}")
 
-        script_editor = page.locator('a.nav-link[href="script-editor.html"]')
+        menu_button = page.locator("#btn-client-menu")
+        menu_button.wait_for()
+        if not menu_button.is_visible():
+            raise AssertionError("client menu button is not visible")
+        menu_button.click()
+        script_editor = page.locator('.client-menu-item[href="script-editor.html"]')
         script_editor.wait_for()
         if not script_editor.is_visible():
-            raise AssertionError("Script Editor link is not visible")
+            raise AssertionError("Script Editor menu item is not visible")
+        page.keyboard.press("Escape")
 
         boxes = page.evaluate(
             """

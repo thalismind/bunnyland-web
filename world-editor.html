@@ -166,9 +166,7 @@
     <button id="btn-toggle-live" disabled>⏯</button>
     <span id="runtime-status">runtime: offline</span>
     <span id="status">Ready</span>
-    <a class="nav-link push" href="index.html">Inspector</a>
-    <a class="nav-link" href="world-generator.html">World Generator</a>
-    <a class="nav-link" href="script-editor.html">Script Editor</a>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <label for="meta-seed">Seed:</label>
@@ -234,6 +232,8 @@
 <script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
+
+BunnylandUI.initClientMenu();
 
 const COMMON_COMPONENTS = [
   'ActionPointsComponent', 'CharacterComponent', 'ContainerComponent',

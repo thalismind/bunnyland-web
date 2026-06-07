@@ -9,8 +9,6 @@
     #script-id { width: 230px; }
     #script-name { width: 220px; }
     #script-version { width: 78px; }
-    .nav-link:first-of-type { margin-left: auto; }
-
     #main {
       display: grid;
       grid-template-columns: minmax(250px, 320px) minmax(520px, 1fr) minmax(330px, 430px);
@@ -123,9 +121,7 @@
     <button id="btn-download">Download JSON</button>
     <button id="btn-copy">Copy JSON</button>
     <span id="save-status">Ready</span>
-    <a class="nav-link" href="index.html">Inspector</a>
-    <a class="nav-link" href="world-editor.html">World Editor</a>
-    <a class="nav-link" href="world-generator.html">World Generator</a>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <label for="script-id">ID:</label>
@@ -184,6 +180,8 @@
 <script src="assets/bunnyland-ui.js"></script>
 <script>
 'use strict';
+
+BunnylandUI.initClientMenu();
 
 const COMMON_COMPONENTS = [
   'CharacterComponent', 'RoomComponent', 'IdentityComponent', 'PortableComponent',

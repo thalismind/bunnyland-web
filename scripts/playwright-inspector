@@ -69,6 +69,12 @@ def main() -> None:
         page.goto(f"{BASE_URL}/index.html?server=http://127.0.0.1:18080", wait_until="domcontentloaded")
         page.wait_for_function("window.app && window.app._apiBase")
         page.wait_for_timeout(200)
+        if not page.locator("#client-menu-dialog:not(.hidden)").is_visible():
+            raise AssertionError("client menu did not open on first inspector load")
+        toon_href = page.locator('.client-menu-item[href^="toon-client.html"]').get_attribute("href")
+        if not toon_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in toon_href:
+            raise AssertionError(f"toon client menu link did not preserve server URL: {toon_href!r}")
+        page.keyboard.press("Escape")
         prompt_calls = page.evaluate("window.__promptCalls")
         if prompt_calls:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
