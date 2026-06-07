@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Welcome to Bunnyland</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    body {
+      min-height: 100vh;
+      height: auto;
+      overflow: auto;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(137, 180, 250, 0.16), transparent 28rem),
+        linear-gradient(180deg, var(--bl-bg-deep), var(--bl-bg) 360px, var(--bl-bg-strong));
+    }
+
+    .welcome-shell {
+      width: min(1160px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 26px 0 44px;
+    }
+
+    .welcome-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0 24px;
+    }
+
+    .welcome-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      color: var(--bl-text);
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .welcome-brand img {
+      width: 34px;
+      height: 34px;
+      image-rendering: pixelated;
+    }
+
+    .welcome-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+      gap: 22px;
+      align-items: stretch;
+      padding: 26px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      background: rgba(24, 24, 37, 0.86);
+      box-shadow: var(--bl-shadow-popover);
+    }
+
+    .eyebrow {
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    h1 {
+      margin-top: 8px;
+      color: var(--bl-text);
+      font-size: 34px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      margin-top: 14px;
+      color: var(--bl-text-soft);
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 760px;
+    }
+
+    .quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    .button-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 7px 11px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      color: var(--bl-text);
+      text-decoration: none;
+      font-size: var(--bl-text-sm);
+      white-space: nowrap;
+    }
+
+    .button-link:hover {
+      background: var(--bl-surface-hover);
+      border-color: var(--bl-accent);
+    }
+
+    .button-link.primary {
+      border-color: var(--bl-accent);
+      color: var(--bl-text-inverse);
+      background: rgba(137, 180, 250, 0.28);
+    }
+
+    .hero-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px;
+      border: 1px solid var(--bl-border);
+      border-radius: var(--bl-radius-md);
+      background: var(--bl-bg);
+    }
+
+    .hero-panel img {
+      width: 72px;
+      height: 72px;
+      align-self: flex-start;
+      image-rendering: pixelated;
+    }
+
+    .hero-panel p {
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.6;
+    }
+
+    .section {
+      margin-top: 32px;
+    }
+
+    .section-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      color: var(--bl-text);
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .section-heading p {
+      max-width: 560px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.55;
+    }
+
+    .info-grid,
+    .client-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .info-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .client-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .info-card,
+    .client-card {
+      border: 1px solid var(--bl-border);
+      border-radius: var(--bl-radius-md);
+      background: rgba(24, 24, 37, 0.92);
+    }
+
+    .info-card {
+      padding: 14px;
+    }
+
+    .info-card h3,
+    .client-card h3 {
+      color: var(--bl-accent-strong);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .info-card p,
+    .client-card p {
+      margin-top: 8px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.6;
+    }
+
+    .client-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 260px;
+      padding: 12px;
+    }
+
+    .client-role {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--bl-border-muted);
+      color: var(--bl-text);
+      font-size: var(--bl-text-xs);
+      line-height: 1.5;
+    }
+
+    .client-role span {
+      color: var(--bl-accent-strong);
+      font-weight: bold;
+    }
+
+    .client-card .button-link {
+      margin-top: auto;
+      width: 100%;
+    }
+
+    .resource-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .resource-row a {
+      display: block;
+      padding: 12px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      background: var(--bl-surface);
+      color: var(--bl-text-inverse);
+      text-decoration: none;
+      font-size: var(--bl-text-sm);
+      font-weight: bold;
+      line-height: 1.45;
+    }
+
+    .resource-row a:hover {
+      border-color: var(--bl-accent);
+      background: var(--bl-surface);
+    }
+
+    .resource-row span {
+      display: block;
+      margin-top: 4px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+      font-weight: normal;
+    }
+
+    @media (max-width: 980px) {
+      .welcome-hero,
+      .info-grid,
+      .resource-row {
+        grid-template-columns: 1fr;
+      }
+      .client-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .welcome-shell {
+        width: min(100% - 20px, 1160px);
+        padding-top: 12px;
+      }
+      .welcome-header {
+        flex-wrap: wrap;
+      }
+      .client-menu-button {
+        margin-left: 0;
+      }
+      .welcome-hero {
+        padding: 18px;
+      }
+      h1 {
+        font-size: 26px;
+      }
+      .client-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="welcome-shell">
+    <header class="welcome-header">
+      <div class="welcome-brand">
+        <img src="favicon.png" alt="">
+        <span>Bunnyland</span>
+      </div>
+      <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+    </header>
+
+    <main>
+      <section class="welcome-hero" aria-labelledby="welcome-title">
+        <div>
+          <p class="eyebrow">Persistent ECS social sandbox</p>
+          <h1 id="welcome-title">A shared world for players, admins, scripts, and AI agents.</h1>
+          <p class="lede">
+            Bunnyland is an open-source simulation server where rooms, characters, items,
+            memories, needs, relationships, quests, and controllers all live in one ECS graph.
+            Human players and LLM-driven characters use the same command system, while the web
+            tools let you inspect, play, generate, edit, and script the world from a browser.
+          </p>
+          <div class="quick-links" aria-label="Project links">
+            <a class="button-link primary" href="toon-client.html">Start as a player</a>
+            <a class="button-link" href="index.html">Open Inspector</a>
+            <a class="button-link" href="https://bunnyland.dev/">Homepage</a>
+            <a class="button-link" href="https://bunnyland.dev/guides/">Guides</a>
+            <a class="button-link" href="https://github.com/thalismind/bunnyland-server">Server GitHub</a>
+            <a class="button-link" href="https://github.com/thalismind/bunnyland-web">Web GitHub</a>
+          </div>
+        </div>
+        <aside class="hero-panel" aria-label="How to begin">
+          <img src="favicon.png" alt="">
+          <div>
+            <p><strong>Players:</strong> open the Toon Client, set the server URL, connect live, choose a character, then use room actions and doors to play. You can also play through Discord commands or the Textual TUI, a terminal ASCII interface with a classic MUD feel.</p>
+            <p><strong>Admins:</strong> world editing and generation call protected <code>/admin/*</code> endpoints. When prompted, enter the Basic auth username and password configured for the deployment, such as <code>BUNNYLAND_ADMIN_USER</code> and <code>BUNNYLAND_ADMIN_PASSWORD</code>. MCP admin tokens are separate and are only for MCP tools.</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="section" aria-labelledby="clients-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Clients and editors</p>
+            <h2 id="clients-title">Choose the surface that matches the job.</h2>
+          </div>
+          <p>Every web tool can connect to the same running server. Admin tools may prompt for credentials only when they touch protected admin routes.</p>
+        </div>
+        <div class="client-grid">
+          <article class="client-card">
+            <h3>Inspector</h3>
+            <p>Graph client for browsing snapshots or a live world. It shows rooms, regions, social links, quests, components, relationships, recent movement, and streamed events.</p>
+            <div class="client-role"><span>Audience</span> developers, admins, and curious players.</div>
+            <a class="button-link primary" href="index.html">Open Inspector</a>
+          </article>
+          <article class="client-card">
+            <h3>Toon Client</h3>
+            <p>Room-focused play client. Connect live, pick or claim a character, navigate through doors, inspect the room, and submit available actions.</p>
+            <div class="client-role"><span>Audience</span> players.</div>
+            <a class="button-link primary" href="toon-client.html">Open Toon Client</a>
+          </article>
+          <article class="client-card">
+            <h3>World Editor</h3>
+            <p>Snapshot and live-world editor for entities, components, edges, fragments, saves, runtime pause/resume, and LLM-assisted patch generation.</p>
+            <div class="client-role"><span>Audience</span> admins and world builders.</div>
+            <a class="button-link primary" href="world-editor.html">Open World Editor</a>
+          </article>
+          <article class="client-card">
+            <h3>World Generator</h3>
+            <p>Admin workflow for replacing or resetting the live world with an enabled generator, a seed or prompt, and a room budget.</p>
+            <div class="client-role"><span>Audience</span> admins.</div>
+            <a class="button-link primary" href="world-generator.html">Open Generator</a>
+          </article>
+          <article class="client-card">
+            <h3>Script Editor</h3>
+            <p>Standalone script JSON authoring tool. Load a snapshot for entity context, edit trigger/action blocks, validate, copy, and download script definitions.</p>
+            <div class="client-role"><span>Audience</span> script authors and developers.</div>
+            <a class="button-link primary" href="script-editor.html">Open Script Editor</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="start-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Getting started</p>
+            <h2 id="start-title">Player and admin paths.</h2>
+          </div>
+        </div>
+        <div class="info-grid">
+          <article class="info-card">
+            <h3>Start as a player</h3>
+            <p>Ask for the server URL, then choose your input surface. The web Toon Client is the browser option: click Connect Live, select a character, then claim it if needed. Discord lets you play through text commands in a server channel, and the Textual TUI gives you a terminal ASCII UI with a classic MUD feel. If no playable character is available, ask an admin to create or unsuspend one.</p>
+          </article>
+          <article class="info-card">
+            <h3>Authenticate as an admin</h3>
+            <p>Open the World Editor or World Generator and connect to the server. The first protected admin request returns 401, then the web tool asks for the admin username and password and sends them as a Basic Authorization header for later admin requests.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="resources-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Resources</p>
+            <h2 id="resources-title">Docs and project links.</h2>
+          </div>
+        </div>
+        <div class="resource-row">
+          <a href="https://bunnyland.dev/">Homepage<span>Project overview, sandbox entry, and feature summary.</span></a>
+          <a href="https://bunnyland.dev/guides/">Guides<span>Player and admin guides generated from the server docs.</span></a>
+          <a href="https://github.com/thalismind/bunnyland-server">Server GitHub<span>Simulation engine, API, plugins, docs, and deployment scripts.</span></a>
+          <a href="https://github.com/thalismind/bunnyland-web">Web GitHub<span>Static browser clients, editors, and container image.</span></a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="assets/bunnyland-ui.js"></script>
+  <script>
+  'use strict';
+
+  BunnylandUI.initClientMenu();
+  </script>
+</body>
+</html>

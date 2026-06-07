@@ -68,6 +68,20 @@ def main() -> None:
             raise AssertionError("toolbar row 3 is unexpectedly collapsed")
 
         page.locator("#toolbar").screenshot(path=str(SCREENSHOT))
+
+        page.goto(f"{BASE_URL}/welcome.html", wait_until="networkidle")
+        if not page.locator("h1").text_content() or "shared world" not in page.locator("h1").text_content():
+            raise AssertionError("welcome page headline did not render")
+        if page.locator('.client-card a[href="toon-client.html"]').count() != 1:
+            raise AssertionError("welcome page is missing Toon Client card link")
+        if page.locator('a[href="https://bunnyland.dev/guides/"]').count() < 1:
+            raise AssertionError("welcome page is missing guides link")
+        welcome_text = page.locator("body").text_content()
+        if "Discord commands" not in welcome_text or "Textual TUI" not in welcome_text:
+            raise AssertionError("welcome page is missing alternate player input options")
+        page.locator("#btn-client-menu").click()
+        if page.locator('.client-menu-item[href="welcome.html"].active').count() != 1:
+            raise AssertionError("shared client menu does not include active welcome page")
         browser.close()
 
     print("world_editor_toolbar=ok")

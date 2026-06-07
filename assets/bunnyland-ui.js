@@ -5,6 +5,13 @@
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   const CLIENT_MENU_ITEMS = [
     {
+      href: 'welcome.html',
+      title: 'Welcome',
+      label: 'Start here',
+      description: 'Project overview, docs, admin notes, and client chooser.',
+      supportsServer: false,
+    },
+    {
       href: 'index.html',
       title: 'Inspector',
       label: 'Graph client',
