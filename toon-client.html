@@ -199,6 +199,38 @@
     .verb-cost .cost.free { color: var(--bl-text-dim); }
     .verb-cost .verb-note { font-size: var(--bl-text-xs); color: var(--bl-text-dim); }
 
+    .queued-list { display: flex; flex-direction: column; gap: 6px; }
+    .queued-action {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 6px 8px;
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      font-size: var(--bl-text-sm);
+    }
+    .queued-action-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--bl-text);
+    }
+    .queued-action-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .queued-action-lane {
+      flex: 0 0 auto;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+    }
+    .queued-action-detail {
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     /* ── Target picker (overlays the visual world) ── */
     #target-overlay {
       position: absolute;
@@ -308,7 +340,7 @@ function parseApiSnapshot(data) {
     }
     entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
   }
-  return { entities, epoch: data.world_epoch || 0 };
+  return { entities, epoch: data.world_epoch || 0, queuedCommands: data.queued_commands || [] };
 }
 
 const KIND_ICON = {
@@ -745,6 +777,10 @@ class RoomClient {
     };
   }
 
+  _playerQueuedCommands() {
+    return (this.world?.queuedCommands || []).filter(command => command.character_id === this.playerId);
+  }
+
   // Submit a command as this browser client's claimed controller.
   // Returns true on a 2xx response.
   async _postCommand(commandType, payload, ap, fp, lane = 'world') {
@@ -825,8 +861,9 @@ class RoomClient {
       if (value == null || value === '') return;
       payload[verb.prompt] = value;
     }
-    await this._postCommand(verb.cmd, payload, verb.ap, verb.fp, verb.lane);
-    // The websocket event will refresh the snapshot (and the AP/FP-gated panel).
+    if (await this._postCommand(verb.cmd, payload, verb.ap, verb.fp, verb.lane)) {
+      await this._refresh();
+    }
   }
 
   // Entities the player is carrying (inventory, held, or worn).
@@ -923,12 +960,52 @@ class RoomClient {
         .map(v => this._verbRowHtml(v, pts, hasPlayer, esc)).join('');
       html += '</div>';
     }
+    html += this._queuedActionsHtml(this._playerQueuedCommands(), esc);
     body.innerHTML = html;
 
     for (const el of body.querySelectorAll('.verb.ready[data-tool]')) {
       const verb = ACTION_VERBS.find(v => v.tool === el.dataset.tool);
       el.addEventListener('click', () => this._doVerb(verb));
     }
+  }
+
+  _queuedActionsHtml(commands, esc) {
+    if (!commands.length) return '';
+    const rows = commands.map(command => {
+      const name = this._queuedCommandName(command);
+      const cost = this._queuedCommandCost(command);
+      const detail = this._queuedCommandDetail(command);
+      return `<div class="queued-action">` +
+        `<div class="queued-action-head">` +
+        `<span class="queued-action-name">${esc(name)}</span>` +
+        `<span class="queued-action-lane">${esc(command.lane || '')}</span>` +
+        `</div>` +
+        `<div class="queued-action-detail">${esc([cost, detail].filter(Boolean).join(' · '))}</div>` +
+        `</div>`;
+    }).join('');
+    return `<div class="action-section-title">Queued actions</div><div class="queued-list">${rows}</div>`;
+  }
+
+  _queuedCommandName(command) {
+    const verb = ACTION_VERBS.find(v => v.cmd === command.command_type);
+    if (verb) return verb.label;
+    return String(command.command_type || 'command').replaceAll('-', ' ');
+  }
+
+  _queuedCommandCost(command) {
+    const cost = command.cost || {};
+    const parts = [];
+    if (cost.action) parts.push(`${cost.action} AP`);
+    if (cost.focus) parts.push(`${cost.focus} FP`);
+    return parts.length ? parts.join(' + ') : 'free';
+  }
+
+  _queuedCommandDetail(command) {
+    const payload = command.payload || {};
+    return Object.entries(payload)
+      .filter(([, value]) => value !== '' && value != null)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(', ');
   }
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {
