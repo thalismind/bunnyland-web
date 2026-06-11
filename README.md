@@ -99,6 +99,10 @@ e.g.  ?server=http://localhost:8765#social/clover
 
 ## Interface
 
+Shared UI conventions are documented in
+[`docs/design-language.md`](docs/design-language.md). Use that guide when changing graph
+nodes, emoji/iconography, page layout, controls, and cross-client interaction patterns.
+
 **Script editor** — `script-editor.html` uses the same frame as the inspector for a
 standalone script authoring page. Load a world snapshot to populate the entity library,
 optionally load an existing script JSON, edit named blocks/actions, and download the
