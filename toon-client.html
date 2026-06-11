@@ -230,6 +230,13 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .queued-empty {
+      padding: 6px 8px;
+      border: 1px dashed var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
 
     /* ── Target picker (overlays the visual world) ── */
     #target-overlay {
@@ -970,7 +977,10 @@ class RoomClient {
   }
 
   _queuedActionsHtml(commands, esc) {
-    if (!commands.length) return '';
+    if (!commands.length) {
+      return '<div class="action-section-title">Queued actions</div>' +
+        '<div class="queued-empty">No queued actions.</div>';
+    }
     const rows = commands.map(command => {
       const name = this._queuedCommandName(command);
       const cost = this._queuedCommandCost(command);
