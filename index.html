@@ -920,13 +920,42 @@ const ENTITY_STYLE = {
   reward:    { color: '#5a3a6a', bgcolor: '#341f40', titleColor: '#cba6f7', icon: '🎁' },
 };
 
+const REGION_KIND_STYLE = {
+  planet:        { color: '#3456a4', bgcolor: '#17213d', titleColor: '#9cc7ff', icon: '🪐' },
+  continent:     { color: '#2f7d46', bgcolor: '#143320', titleColor: '#9ee6a8', icon: '🗺️' },
+  country:       { color: '#8b6a1f', bgcolor: '#38290d', titleColor: '#f5d77a', icon: '⚑' },
+  region:        { color: '#2f7f78', bgcolor: '#123533', titleColor: '#94e2d5', icon: '🌐' },
+  province:      { color: '#4d7a35', bgcolor: '#203516', titleColor: '#b7e87a', icon: '◇' },
+  state:         { color: '#4d7a35', bgcolor: '#203516', titleColor: '#b7e87a', icon: '◇' },
+  city:          { color: '#9a5332', bgcolor: '#3d2115', titleColor: '#fab387', icon: '🏙️' },
+  area:          { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  zone:          { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  neighborhood:  { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  neighbourhood: { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  district:      { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  street:        { color: '#59616d', bgcolor: '#242932', titleColor: '#bac2de', icon: '↔' },
+  building:      { color: '#536879', bgcolor: '#1f2b34', titleColor: '#89dceb', icon: '🏢' },
+  level:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  story:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  storey:        { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  floor:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+};
+
+function entityStyle(entity) {
+  const type = entityType(entity);
+  if (type === 'region') {
+    const kind = String(entity.components.RegionComponent?.kind || '').toLowerCase();
+    return REGION_KIND_STYLE[kind] || ENTITY_STYLE.region;
+  }
+  return ENTITY_STYLE[type] || ENTITY_STYLE.other;
+}
+
 // The icon shown for an entity: a custom EditorDisplayComponent.emoji wins; otherwise
 // fall back to the built-in per-kind iconography from ENTITY_STYLE.
 function entityIcon(entity) {
   const emoji = entity?.components?.EditorDisplayComponent?.emoji;
   if (emoji) return emoji;
-  const style = ENTITY_STYLE[entityType(entity)] || ENTITY_STYLE.other;
-  return style.icon;
+  return entityStyle(entity).icon;
 }
 
 // Register one generic node type used for all entity kinds.
@@ -1081,7 +1110,7 @@ function showInspector(entityId, world) {
   const type = entityType(entity);
   const name = entityDisplayName(entity);
   const sub  = entitySubtitle(entity);
-  const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
+  const style = entityStyle(entity);
 
   document.getElementById('inspector-name').textContent = entityIcon(entity) + ' ' + name;
   document.getElementById('inspector-id').textContent = entityId;
@@ -1954,7 +1983,7 @@ class BunnylandInspector {
 
   _makeNode(entity, x, y, enterFn, backFn, extraSub) {
     const type  = entityType(entity);
-    const style = ENTITY_STYLE[type] || ENTITY_STYLE.other;
+    const style = entityStyle(entity);
     const name  = entityIcon(entity) + ' ' + entityDisplayName(entity);
 
     // Tag controlled entities (characters) with who is driving them, after the subtitle.
