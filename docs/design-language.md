@@ -105,7 +105,8 @@ specific conventions.
 - Unknown region kinds use the green fallback.
 - Region links inherit source-tier color.
 - Static descriptive facts belong on `RegionComponent`: `population`, `climate`, and
-  `terrain`. Population is signpost/gazetteer data, not a live census.
+  `terrain`. Population is a numeric signpost/gazetteer value, not a live census; the
+  node renderer abbreviates it as values like `2.8M`.
 - Keep each descriptive row short enough for default node width. The current pattern is
   population/temperature on one row, climate on one row, and terrain on one row.
 
