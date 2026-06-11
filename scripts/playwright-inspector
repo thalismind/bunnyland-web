@@ -198,6 +198,60 @@ def main() -> None:
         if regional["links"] < len(expected_order) - 1:
             raise AssertionError(f"regional tree rendered too few links: {regional['links']}")
 
+        sibling_order = page.evaluate(
+            """
+            () => {
+              window.app.loadSnapshot({
+                entities: {
+                  root: {},
+                  ordered_city: {},
+                  alpha_region: {},
+                  beta_city: {},
+                  zeta_city: {},
+                  beta_city_duplicate: {},
+                },
+                components: {
+                  RegionComponent: {
+                    root: { name: 'World', kind: 'planet' },
+                    ordered_city: { name: 'Ordered City', kind: 'city' },
+                    alpha_region: { name: 'Alpha Region', kind: 'region' },
+                    beta_city: { name: 'Beta City', kind: 'city' },
+                    zeta_city: { name: 'Zeta City', kind: 'city' },
+                    beta_city_duplicate: { name: 'Beta City', kind: 'city' },
+                  },
+                },
+                relationships: {
+                  Contains: {
+                    root: [
+                      { target: 'zeta_city', edge: { mode: 'region', order: 0 } },
+                      { target: 'beta_city_duplicate', edge: { mode: 'region', order: 0 } },
+                      { target: 'ordered_city', edge: { mode: 'region', order: -1 } },
+                      { target: 'beta_city', edge: { mode: 'region', order: 0 } },
+                      { target: 'alpha_region', edge: { mode: 'region', order: 0 } },
+                    ],
+                  },
+                },
+              });
+              window.app.setRootView('region');
+              return window.app.lgraph._nodes
+                .filter((node) => node.entityId !== 'root')
+                .sort((left, right) => left.pos[0] - right.pos[0])
+                .map((node) => node.entityId);
+            }
+            """
+        )
+        expected_sibling_order = [
+            "ordered_city",
+            "alpha_region",
+            "beta_city",
+            "beta_city_duplicate",
+            "zeta_city",
+        ]
+        if sibling_order != expected_sibling_order:
+            raise AssertionError(
+                f"regional sibling order changed: expected {expected_sibling_order!r}, got {sibling_order!r}"
+            )
+
         page.locator("#graph-wrapper").screenshot(path=str(SCREENSHOT))
         scale = page.evaluate("window.app.lgcanvas.ds.scale")
         nodes = page.evaluate("window.app.lgraph._nodes.length")

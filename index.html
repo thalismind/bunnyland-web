@@ -884,35 +884,43 @@ function regionalLevel(entity, fallback) {
   return REGION_KIND_LEVELS[kind] ?? fallback;
 }
 
+function compareRegionalNodes(world, a, b, edgeA = {}, edgeB = {}) {
+  const orderA = edgeA.order ?? 0;
+  const orderB = edgeB.order ?? 0;
+  if (orderA !== orderB) return orderA - orderB;
+
+  const levelA = regionalLevel(world.entities[a], 0);
+  const levelB = regionalLevel(world.entities[b], 0);
+  if (levelA !== levelB) return levelA - levelB;
+
+  const nameOrder = entityDisplayName(world.entities[a])
+    .localeCompare(entityDisplayName(world.entities[b]));
+  if (nameOrder !== 0) return nameOrder;
+
+  return a.localeCompare(b);
+}
+
 function layoutRegions(world, nodeIds) {
   const incoming = {};
   const children = {};
+  const edges = regionalEdges(world);
   for (const id of nodeIds) {
     incoming[id] = 0;
     children[id] = [];
   }
-  for (const { source, target } of regionalEdges(world)) {
+  for (const { source, target, edge } of edges) {
     if (!(source in incoming) || !(target in incoming)) continue;
     incoming[target]++;
-    children[source].push(target);
+    children[source].push({ id: target, edge });
   }
 
-  const sortByRegionOrder = (a, b) => {
-    const ae = regionalEdges(world).find(edge => edge.target === a)?.edge || {};
-    const be = regionalEdges(world).find(edge => edge.target === b)?.edge || {};
-    if ((ae.order ?? 0) !== (be.order ?? 0)) return (ae.order ?? 0) - (be.order ?? 0);
-    return entityDisplayName(world.entities[a]).localeCompare(entityDisplayName(world.entities[b]));
-  };
-  for (const id of Object.keys(children)) children[id].sort(sortByRegionOrder);
+  for (const id of Object.keys(children)) {
+    children[id].sort((a, b) => compareRegionalNodes(world, a.id, b.id, a.edge, b.edge));
+  }
 
   const roots = nodeIds
     .filter(id => incoming[id] === 0)
-    .sort((a, b) => {
-      const la = regionalLevel(world.entities[a], 0);
-      const lb = regionalLevel(world.entities[b], 0);
-      if (la !== lb) return la - lb;
-      return entityDisplayName(world.entities[a]).localeCompare(entityDisplayName(world.entities[b]));
-    });
+    .sort((a, b) => compareRegionalNodes(world, a, b));
 
   const positions = {};
   const visited = new Set();
@@ -929,7 +937,7 @@ function layoutRegions(world, nodeIds) {
     if (visited.has(id)) return positions[id][0];
 
     stack.add(id);
-    const childIds = children[id] || [];
+    const childIds = (children[id] || []).map(child => child.id);
     let x;
     if (!childIds.length) {
       x = nextLeaf++ * COL_W;
@@ -944,7 +952,7 @@ function layoutRegions(world, nodeIds) {
   };
 
   for (const root of roots) place(root, 0);
-  for (const id of nodeIds) {
+  for (const id of [...nodeIds].sort((a, b) => compareRegionalNodes(world, a, b))) {
     if (!visited.has(id)) place(id, Math.max(0, regionalLevel(world.entities[id], 0)));
   }
 
