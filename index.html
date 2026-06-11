@@ -1684,10 +1684,24 @@ class BunnylandInspector {
 
     for (const { source, target } of regionalEdges(this.world)) {
       const sn = nodes[source], tn = nodes[target];
-      if (sn && tn) sn.connect(0, tn, 0);
+      if (sn && tn) {
+        const link = sn.connect(0, tn, 0);
+        this._tintLink(link, sn, entityStyle(this.world.entities[source]).color);
+      }
     }
 
     this._fitView();
+  }
+
+  _tintLink(link, sourceNode, color) {
+    if (link && typeof link === 'object') {
+      link.color = color;
+      return;
+    }
+    const links = sourceNode.outputs?.[0]?.links || [];
+    const linkId = links[links.length - 1];
+    const graphLink = this.lgraph.links?.[linkId];
+    if (graphLink) graphLink.color = color;
   }
 
   // Top-level social view: every character as a node, relationship edges as colour-coded
