@@ -595,7 +595,7 @@ class RoomClient {
     this._refreshPlayerOptions();
     if (this.followPlayer) this._recenterOnPlayer();
     if (!this.viewRoomId || !this.world.entities[this.viewRoomId]) {
-      this.viewRoomId = this._playerRoomId() || this._firstRoomId();
+      this.viewRoomId = this._playerRoomId() || this._defaultRoomId();
     }
     this.render();
   }
@@ -619,8 +619,9 @@ class RoomClient {
     return Object.values(this.world?.entities || {}).filter(e => e.components.RoomComponent);
   }
 
-  _firstRoomId() {
-    const room = this._rooms()[0];
+  _defaultRoomId() {
+    const rooms = this._rooms();
+    const room = rooms.find(e => e.components.ToonRoomComponent?.default_start) || rooms[0];
     return room ? room.id : null;
   }
 

@@ -79,6 +79,41 @@ def main() -> None:
         if prompt_calls:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
 
+        page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")
+        toon_default = page.evaluate(
+            """
+            () => {
+              window.app._applyWorld({
+                epoch: 0,
+                queuedCommands: [],
+                entities: {
+                  first_room: {
+                    id: 'first_room',
+                    components: { RoomComponent: { title: 'First Room' } },
+                    relationships: {},
+                  },
+                  landing_room: {
+                    id: 'landing_room',
+                    components: {
+                      RoomComponent: { title: 'Landing Room' },
+                      ToonRoomComponent: { default_start: true },
+                    },
+                    relationships: {},
+                  },
+                },
+              });
+              return {
+                viewRoomId: window.app.viewRoomId,
+                title: document.querySelector('#room-title').textContent,
+              };
+            }
+            """
+        )
+        if toon_default["viewRoomId"] != "landing_room":
+            raise AssertionError(f"toon client did not select default room: {toon_default!r}")
+        if "Landing Room" not in toon_default["title"]:
+            raise AssertionError(f"toon client title did not show default room: {toon_default!r}")
+
         page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
         collision_rects = page.evaluate(
             """
