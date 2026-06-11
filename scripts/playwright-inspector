@@ -153,12 +153,15 @@ def main() -> None:
               window.app.loadSnapshot(snapshot);
               window.app.setRootView('region');
               const positions = {};
+              const details = {};
               for (const node of window.app.lgraph._nodes) {
                 positions[node.entityId] = { x: node.pos[0], y: node.pos[1], w: node.size[0], h: node.size[1] };
+                details[node.entityId] = (node.widgets || []).map((widget) => widget.value || '');
               }
               return {
                 active: document.querySelector('#btn-view-region').classList.contains('active'),
                 nodes: positions,
+                details,
                 links: window.app.lgraph.links ? Object.keys(window.app.lgraph.links).length : 0,
               };
             }
@@ -189,6 +192,9 @@ def main() -> None:
         ys = [regional["nodes"][node_id]["y"] for node_id in expected_order]
         if any(lower <= upper for upper, lower in zip(ys, ys[1:], strict=False)):
             raise AssertionError(f"regional tree was not ordered planet-to-room by y position: {ys!r}")
+        lapin_details = " ".join(regional["details"]["lapin_prime"])
+        if "👥 8.4B" not in lapin_details or "🌡️ 14 C" not in lapin_details:
+            raise AssertionError(f"regional characteristics did not render on Lapin Prime: {lapin_details!r}")
         if regional["links"] < len(expected_order) - 1:
             raise AssertionError(f"regional tree rendered too few links: {regional['links']}")
 

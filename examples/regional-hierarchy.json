@@ -36,17 +36,24 @@
   },
   "components": {
     "RegionComponent": {
-      "lapin_prime": { "name": "Lapin Prime", "kind": "planet" },
-      "mossreach_continent": { "name": "Mossreach", "kind": "continent" },
-      "burrowmark_country": { "name": "Burrowmark", "kind": "country" },
-      "north_warren_region": { "name": "North Warren", "kind": "region" },
-      "clover_city": { "name": "Clover City", "kind": "city" },
-      "old_market_area": { "name": "Old Market", "kind": "area" },
-      "greenhill_neighborhood": { "name": "Greenhill", "kind": "neighborhood" },
-      "sunstem_zone": { "name": "Sunstem Zone", "kind": "zone" },
-      "carrot_street": { "name": "Carrot Street", "kind": "street" },
-      "moonroot_tower": { "name": "Moonroot Tower", "kind": "building" },
-      "story_three": { "name": "Story Three", "kind": "story" }
+      "lapin_prime": { "name": "Lapin Prime", "kind": "planet", "population": "8.4B", "climate": "temperate", "terrain": "mixed biomes" },
+      "mossreach_continent": { "name": "Mossreach", "kind": "continent", "population": "410M", "climate": "maritime", "terrain": "riverlands" },
+      "burrowmark_country": { "name": "Burrowmark", "kind": "country", "population": "42M", "climate": "mild", "terrain": "rolling burrows" },
+      "north_warren_region": { "name": "North Warren", "kind": "region", "population": "2.8M", "climate": "cool", "terrain": "green hills" },
+      "clover_city": { "name": "Clover City", "kind": "city", "population": "680k", "climate": "rainy", "terrain": "urban valley" },
+      "old_market_area": { "name": "Old Market", "kind": "area", "population": "54k", "climate": "sheltered", "terrain": "market lanes" },
+      "greenhill_neighborhood": { "name": "Greenhill", "kind": "neighborhood", "population": "12k", "climate": "breezy", "terrain": "garden slopes" },
+      "sunstem_zone": { "name": "Sunstem Zone", "kind": "zone", "population": "4k", "climate": "warm", "terrain": "glass roofs" },
+      "carrot_street": { "name": "Carrot Street", "kind": "street", "population": "900", "climate": "open air", "terrain": "cobblestones" },
+      "moonroot_tower": { "name": "Moonroot Tower", "kind": "building", "population": "120", "climate": "indoor", "terrain": "stone tower" },
+      "story_three": { "name": "Story Three", "kind": "story", "population": "18", "climate": "indoor", "terrain": "observatory level" }
+    },
+    "TemperatureComponent": {
+      "lapin_prime": { "celsius": 14 },
+      "mossreach_continent": { "celsius": 11 },
+      "burrowmark_country": { "celsius": 16 },
+      "north_warren_region": { "celsius": 9 },
+      "clover_city": { "celsius": 12 }
     },
     "RoomComponent": {
       "observatory_room": {

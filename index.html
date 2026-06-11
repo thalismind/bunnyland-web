@@ -527,6 +527,57 @@ function entitySubtitle(entity) {
   return '';
 }
 
+function compactText(value, maxLength = 28) {
+  if (value == null || value === '') return '';
+  const text = Array.isArray(value) ? value.filter(Boolean).join(', ') : String(value);
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 1).trimEnd() + '…';
+}
+
+function formatPopulation(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+    if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (abs >= 1_000) return `${Math.round(value).toLocaleString('en-US')}`;
+  }
+  return compactText(value, 16);
+}
+
+function temperatureIcon(celsius) {
+  if (celsius <= -10) return '🧊';
+  if (celsius <= 5) return '❄️';
+  if (celsius >= 30) return '🔥';
+  return '🌡️';
+}
+
+function terrainIcon(terrain) {
+  const text = String(terrain || '').toLowerCase();
+  if (/(mountain|hill|slope|highland|cliff|ridge)/.test(text)) return '⛰️';
+  if (/(river|lake|sea|coast|maritime|canal|water)/.test(text)) return '🌊';
+  if (/(forest|garden|green|wood|jungle)/.test(text)) return '🌳';
+  if (/(desert|dune|sand|waste)/.test(text)) return '🏜️';
+  if (/(city|urban|market|street|lane|road|cobble)/.test(text)) return '🏙️';
+  if (/(tower|building|indoor|level|story|floor|stone)/.test(text)) return '🏢';
+  return '🌐';
+}
+
+function regionCharacteristics(entity) {
+  const region = entity.components.RegionComponent;
+  if (!region) return '';
+  const temp = entity.components.TemperatureComponent?.celsius;
+  const population = formatPopulation(region.population);
+  const terrain = compactText(region.terrain);
+  const parts = [
+    population && `👥 ${population}`,
+    Number.isFinite(temp) && `${temperatureIcon(temp)} ${Math.round(temp)} C`,
+    compactText(region.climate) && `🌦️ ${compactText(region.climate)}`,
+    terrain && `${terrainIcon(terrain)} ${terrain}`,
+  ];
+  return parts.filter(Boolean).join(' · ');
+}
+
 // A character's controller is a separate entity reached by the ControlledBy edge; its
 // component type says who is driving it: an LLM, a Discord player, or nobody (suspended).
 const CONTROL_STYLE = {
@@ -1679,7 +1730,7 @@ class BunnylandInspector {
       const entity = this.world.entities[id];
       const [x, y] = positions[id] || [100, 100];
       const enter = entityType(entity) === 'room' ? () => this._pushEntity(id) : null;
-      nodes[id] = this._makeNode(entity, x, y, enter);
+      nodes[id] = this._makeNode(entity, x, y, enter, null, regionCharacteristics(entity));
     }
 
     for (const { source, target } of regionalEdges(this.world)) {
