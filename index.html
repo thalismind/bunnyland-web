@@ -565,17 +565,20 @@ function terrainIcon(terrain) {
 
 function regionCharacteristics(entity) {
   const region = entity.components.RegionComponent;
-  if (!region) return '';
+  if (!region) return [];
   const temp = entity.components.TemperatureComponent?.celsius;
   const population = formatPopulation(region.population);
-  const terrain = compactText(region.terrain);
-  const parts = [
+  const climate = compactText(region.climate, 14);
+  const terrain = compactText(region.terrain, 16);
+  const scale = [
     population && `👥 ${population}`,
     Number.isFinite(temp) && `${temperatureIcon(temp)} ${Math.round(temp)} C`,
-    compactText(region.climate) && `🌦️ ${compactText(region.climate)}`,
+  ];
+  const environment = [
+    climate && `🌦️ ${climate}`,
     terrain && `${terrainIcon(terrain)} ${terrain}`,
   ];
-  return parts.filter(Boolean).join(' · ');
+  return [scale.filter(Boolean).join(' · '), ...environment].filter(Boolean);
 }
 
 // A character's controller is a separate entity reached by the ControlledBy edge; its
@@ -2060,14 +2063,20 @@ class BunnylandInspector {
     const name  = entityIcon(entity) + ' ' + entityDisplayName(entity);
 
     // Tag controlled entities (characters) with who is driving them, after the subtitle.
-    let sub = entitySubtitle(entity);
-    if (extraSub) sub = [sub, extraSub].filter(Boolean).join('  ·  ');
+    const subRows = [entitySubtitle(entity)].filter(Boolean);
+    if (extraSub) {
+      if (Array.isArray(extraSub)) {
+        subRows.push(...extraSub.filter(Boolean));
+      } else {
+        subRows[0] = [subRows[0], extraSub].filter(Boolean).join('  ·  ');
+      }
+    }
     const ctrl = this.world ? controlInfo(entity, this.world) : null;
-    if (ctrl) sub = [sub, `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
+    if (ctrl) subRows[0] = [subRows[0], `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
 
     // Flag a character that moved within the recent window (from the live event stream).
     const moved = this._movedRecently(entity.id);
-    if (moved) sub = [sub, '🏃 moved'].filter(Boolean).join('  ·  ');
+    if (moved) subRows[0] = [subRows[0], '🏃 moved'].filter(Boolean).join('  ·  ');
 
     const node = LiteGraph.createNode(`bunnyland/${type}`);
     node.title   = name;
@@ -2078,8 +2087,8 @@ class BunnylandInspector {
 
     // Non-interactive subtitle label (custom widget type 'label' avoids LiteGraph's
     // text-edit prompt while still reserving vertical space in the node body).
-    if (sub) {
-      const w = node.addWidget('text', '', sub, () => {});
+    for (const row of subRows) {
+      const w = node.addWidget('text', '', row, () => {});
       w.type = 'label'; // unknown type → LiteGraph skips mouse handling
       w.draw = function(ctx, _node, widget_width, y, H) {
         ctx.fillStyle = '#cdd6f4';
@@ -2121,7 +2130,7 @@ class BunnylandInspector {
 
     node.size = [
       GRAPH_NODE_WIDTH,
-      24 + (sub ? 26 : 0) + (badges.length ? 24 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
+      24 + subRows.length * 24 + (badges.length ? 24 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
     ];
     node.pos = [x, y];
 

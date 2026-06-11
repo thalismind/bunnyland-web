@@ -154,14 +154,24 @@ def main() -> None:
               window.app.setRootView('region');
               const positions = {};
               const details = {};
+              const overflowLabels = [];
+              const measureCanvas = document.createElement('canvas');
+              const measureCtx = measureCanvas.getContext('2d');
+              measureCtx.font = '12px "Courier New", monospace';
               for (const node of window.app.lgraph._nodes) {
                 positions[node.entityId] = { x: node.pos[0], y: node.pos[1], w: node.size[0], h: node.size[1] };
                 details[node.entityId] = (node.widgets || []).map((widget) => widget.value || '');
+                for (const label of details[node.entityId]) {
+                  if (measureCtx.measureText(label).width > node.size[0] - 18) {
+                    overflowLabels.push({ id: node.entityId, label });
+                  }
+                }
               }
               return {
                 active: document.querySelector('#btn-view-region').classList.contains('active'),
                 nodes: positions,
                 details,
+                overflowLabels,
                 links: window.app.lgraph.links ? Object.keys(window.app.lgraph.links).length : 0,
               };
             }
@@ -195,6 +205,8 @@ def main() -> None:
         lapin_details = " ".join(regional["details"]["lapin_prime"])
         if "👥 8.4B" not in lapin_details or "🌡️ 14 C" not in lapin_details:
             raise AssertionError(f"regional characteristics did not render on Lapin Prime: {lapin_details!r}")
+        if regional["overflowLabels"]:
+            raise AssertionError(f"regional labels exceed default node width: {regional['overflowLabels']!r}")
         if regional["links"] < len(expected_order) - 1:
             raise AssertionError(f"regional tree rendered too few links: {regional['links']}")
 
