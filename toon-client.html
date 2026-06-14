@@ -81,6 +81,27 @@
     .sprite.player .glyph { filter: drop-shadow(0 0 6px var(--bl-accent)); }
     .sprite.player .label { color: var(--bl-accent); }
 
+    .debug-box {
+      position: absolute;
+      z-index: 4500;
+      pointer-events: none;
+      box-sizing: border-box;
+      border: 1px solid;
+      background: transparent;
+    }
+    .debug-box.room {
+      border-color: rgba(137, 180, 250, 0.95);
+      background: rgba(137, 180, 250, 0.04);
+    }
+    .debug-box.collision {
+      border-color: rgba(249, 226, 175, 0.95);
+      background: rgba(249, 226, 175, 0.08);
+    }
+    .debug-box.nocollision {
+      border-color: rgba(166, 227, 161, 0.95);
+      background: rgba(166, 227, 161, 0.08);
+    }
+
     /* Doors are pinned to the edge matching their compass direction. */
     .door {
       position: absolute;
@@ -308,6 +329,8 @@
   <div class="toolbar-row" id="toolbar-row2">
     <button id="btn-follow" title="Re-centre the view on your player's room">⌖ Follow player</button>
     <span class="toolbar-sep">|</span>
+    <label><input type="checkbox" id="debug-bounds"> Bounds</label>
+    <span class="toolbar-sep">|</span>
     <span id="room-title">Not connected</span>
   </div>
 </div>
@@ -388,10 +411,17 @@ const DIR_EDGE = {
 };
 
 const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
-const MOVE_STEP = 18;           // pixels per arrow/WASD keypress
+const ROOM_WIDTH = 100;
+const ROOM_HEIGHT = 100;
+const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
 const CLIENT_DB_NAME = 'bunnyland-toon';
 const CLIENT_DB_STORE = 'settings';
 const CLIENT_ID_KEY = 'client-id';
+const FURNITURE_KINDS = new Set([
+  'chair', 'table', 'bed', 'art', 'window', 'workstation', 'sofa', 'couch',
+  'shelf', 'desk', 'lamp', 'rug', 'cabinet', 'dresser', 'stool', 'bench',
+]);
+const SURFACE_KINDS = new Set(['table', 'desk', 'shelf', 'counter', 'workbench', 'workstation']);
 
 // The common room/focus verbs a player can attempt, mirroring the canonical costs in
 // the server's llm_agents/tools.py. `ap`/`fp` are the action/focus cost; `target` names
@@ -488,7 +518,8 @@ class RoomClient {
     this.control = null;
     this.viewRoomId = null;
     this.followPlayer = true;
-    this.localPos = null;        // optimistic {x, y} for the player, room-centred
+    this.debugBounds = false;
+    this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
     this._clientId = null;
@@ -517,6 +548,10 @@ class RoomClient {
     document.getElementById('btn-follow').addEventListener('click', () => {
       this.followPlayer = true;
       this._recenterOnPlayer();
+      this.render();
+    });
+    document.getElementById('debug-bounds').addEventListener('change', (e) => {
+      this.debugBounds = e.target.checked;
       this.render();
     });
 
@@ -651,7 +686,12 @@ class RoomClient {
 
   _spritePos(entity) {
     const p = entity.components.SpritePosition;
-    return p ? { x: p.x || 0, y: p.y || 0 } : { x: 0, y: 0 };
+    return p
+      ? {
+          x: Number.isFinite(Number(p.x)) ? Number(p.x) : ROOM_WIDTH / 2,
+          y: Number.isFinite(Number(p.y)) ? Number(p.y) : ROOM_HEIGHT / 2,
+        }
+      : { x: ROOM_WIDTH / 2, y: ROOM_HEIGHT / 2 };
   }
 
   _spriteLayer(entity) {
@@ -660,6 +700,103 @@ class RoomClient {
 
   _spriteScale(entity) {
     return entity.components.SpriteScale?.scale ?? 1;
+  }
+
+  _spriteBounds(entity) {
+    const b = entity.components.SpriteBounds;
+    if (b) {
+      return {
+        width: Number.isFinite(Number(b.width)) ? Number(b.width) : 4,
+        height: Number.isFinite(Number(b.height)) ? Number(b.height) : 4,
+        solid: Boolean(b.solid),
+      };
+    }
+    if (entity.components.RoomComponent) return { width: ROOM_WIDTH, height: ROOM_HEIGHT, solid: false };
+    if (entity.components.CharacterComponent) return { width: 5, height: 8, solid: true };
+    const kind = entity.components.IdentityComponent?.kind || '';
+    if (SURFACE_KINDS.has(kind)) return { width: 22, height: 12, solid: true };
+    if (FURNITURE_KINDS.has(kind) || entity.components.ContainerComponent) {
+      return { width: 14, height: 10, solid: true };
+    }
+    if (entity.components.DoorComponent) return { width: 10, height: 8, solid: false };
+    if (entity.components.PortableComponent) return { width: 4, height: 4, solid: false };
+    return { width: 4, height: 4, solid: false };
+  }
+
+  _roomBounds(room) {
+    const b = room?.components?.SpriteBounds;
+    return {
+      width: Number.isFinite(Number(b?.width)) ? Number(b.width) : ROOM_WIDTH,
+      height: Number.isFinite(Number(b?.height)) ? Number(b.height) : ROOM_HEIGHT,
+      solid: false,
+    };
+  }
+
+  _roomToStagePoint(pos, rect, room) {
+    const bounds = this._roomBounds(room);
+    return {
+      x: (pos.x / bounds.width) * rect.width,
+      y: (pos.y / bounds.height) * rect.height,
+    };
+  }
+
+  _stageToRoomPoint(clientX, clientY, rect, room) {
+    const bounds = this._roomBounds(room);
+    return {
+      x: ((clientX - rect.left) / rect.width) * bounds.width,
+      y: ((clientY - rect.top) / rect.height) * bounds.height,
+    };
+  }
+
+  _aabb(pos, bounds) {
+    const halfW = bounds.width / 2;
+    const halfH = bounds.height / 2;
+    return {
+      left: pos.x - halfW,
+      top: pos.y - halfH,
+      right: pos.x + halfW,
+      bottom: pos.y + halfH,
+    };
+  }
+
+  _aabbOverlaps(a, b) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  _aabbInsideRoom(aabb, roomBounds) {
+    return (
+      aabb.left >= 0 &&
+      aabb.top >= 0 &&
+      aabb.right <= roomBounds.width &&
+      aabb.bottom <= roomBounds.height
+    );
+  }
+
+  _roomAabbToStageRect(aabb, rect, room) {
+    const bounds = this._roomBounds(room);
+    return {
+      left: (aabb.left / bounds.width) * rect.width,
+      top: (aabb.top / bounds.height) * rect.height,
+      width: ((aabb.right - aabb.left) / bounds.width) * rect.width,
+      height: ((aabb.bottom - aabb.top) / bounds.height) * rect.height,
+    };
+  }
+
+  _moveBlocked(pos) {
+    if (!this._playerInView()) return true;
+    const player = this.world.entities[this.playerId];
+    const room = this.world.entities[this.viewRoomId];
+    const playerAabb = this._aabb(pos, this._spriteBounds(player));
+    if (!this._aabbInsideRoom(playerAabb, this._roomBounds(room))) return true;
+    for (const member of this._roomMembers(this.viewRoomId)) {
+      if (member.id === this.playerId || member.components.DoorComponent) continue;
+      const bounds = this._spriteBounds(member);
+      if (!bounds.solid) continue;
+      if (this._aabbOverlaps(playerAabb, this._aabb(this._spritePos(member), bounds))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ── Player control ───────────────────────────────────────────────────────────
@@ -820,7 +957,9 @@ class RoomClient {
 
   _moveTo(x, y) {
     if (!this._playerInView()) return;
-    this.localPos = { x, y };
+    const pos = { x, y };
+    if (this._moveBlocked(pos)) return;
+    this.localPos = pos;
     this.localDirty = true;
     this.render();
   }
@@ -830,7 +969,9 @@ class RoomClient {
     if (!this._playerInView()) return;
     const stage = document.getElementById('stage');
     const rect = stage.getBoundingClientRect();
-    this._moveTo(e.clientX - rect.left - rect.width / 2, e.clientY - rect.top - rect.height / 2);
+    const room = this.world.entities[this.viewRoomId];
+    const pos = this._stageToRoomPoint(e.clientX, e.clientY, rect, room);
+    this._moveTo(pos.x, pos.y);
   }
 
   _onKey(e) {
@@ -1047,7 +1188,7 @@ class RoomClient {
     const empty = document.getElementById('stage-empty');
     const room = this.viewRoomId && this.world?.entities[this.viewRoomId];
 
-    for (const el of stage.querySelectorAll('.sprite, .door')) el.remove();
+    for (const el of stage.querySelectorAll('.sprite, .door, .debug-box')) el.remove();
 
     if (!room) {
       empty.classList.remove('hidden');
@@ -1059,7 +1200,6 @@ class RoomClient {
     empty.classList.add('hidden');
 
     const rect = stage.getBoundingClientRect();
-    const cx = rect.width / 2, cy = rect.height / 2;
 
     // Background = the room's own sprite (layer 0), or a labelled placeholder.
     const bg = document.getElementById('room-bg');
@@ -1079,10 +1219,12 @@ class RoomClient {
     for (const member of members) {
       const isPlayer = member.id === this.playerId;
       const pos = (isPlayer && this.localPos) ? this.localPos : this._spritePos(member);
-      stage.appendChild(this._spriteEl(member, cx + pos.x, cy + pos.y, isPlayer));
+      const point = this._roomToStagePoint(pos, rect, room);
+      stage.appendChild(this._spriteEl(member, point.x, point.y, isPlayer));
     }
 
     this._renderDoors(stage, room, rect);
+    this._renderDebugBounds(stage, room, rect);
 
     const hint = document.getElementById('stage-hint');
     hint.textContent = this._playerInView()
@@ -1135,6 +1277,47 @@ class RoomClient {
       });
       stage.appendChild(door);
     }
+  }
+
+  _renderDebugBounds(stage, room, rect) {
+    if (!this.debugBounds) return;
+    const roomBounds = this._roomBounds(room);
+    this._appendDebugBox(
+      stage,
+      { left: 0, top: 0, right: roomBounds.width, bottom: roomBounds.height },
+      rect,
+      room,
+      'room',
+      entityName(room),
+    );
+
+    for (const member of this._roomMembers(this.viewRoomId)) {
+      if (member.components.DoorComponent) continue;
+      const bounds = this._spriteBounds(member);
+      const pos = (member.id === this.playerId && this.localPos)
+        ? this.localPos
+        : this._spritePos(member);
+      this._appendDebugBox(
+        stage,
+        this._aabb(pos, bounds),
+        rect,
+        room,
+        bounds.solid ? 'collision' : 'nocollision',
+        entityName(member),
+      );
+    }
+  }
+
+  _appendDebugBox(stage, aabb, rect, room, type, label) {
+    const box = document.createElement('div');
+    const stageRect = this._roomAabbToStageRect(aabb, rect, room);
+    box.className = `debug-box ${type}`;
+    box.style.left = `${stageRect.left}px`;
+    box.style.top = `${stageRect.top}px`;
+    box.style.width = `${stageRect.width}px`;
+    box.style.height = `${stageRect.height}px`;
+    box.title = label;
+    stage.appendChild(box);
   }
 }
 
