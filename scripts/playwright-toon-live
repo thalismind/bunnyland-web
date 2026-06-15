@@ -126,6 +126,16 @@ def main() -> None:
             arg=character_id,
             timeout=15000,
         )
+        page.wait_for_function(
+            """(characterId) => (
+                window.app?.characterProjection?.characterId === characterId
+                && window.app.characterProjection.actions?.length > 0
+            )""",
+            arg=character_id,
+            timeout=15000,
+        )
+        expect(page.locator("#actions-body")).to_contain_text("Queued actions")
+        expect(page.locator('.verb.ready[data-tool="move"]')).to_be_visible(timeout=15000)
         control = page.evaluate("() => window.app.control")
         if not control or not control.get("controllerId"):
             raise RuntimeError(f"web controller claim failed: {control!r}")
@@ -137,7 +147,10 @@ def main() -> None:
         if not box:
             raise RuntimeError("stage is not visible")
         page.mouse.click(box["x"] + box["width"] / 2 + 80, box["y"] + box["height"] / 2 + 45)
-        target_pos = (80.0, 45.0)
+        target_pos_raw = page.evaluate("() => [window.app.localPos?.x, window.app.localPos?.y]")
+        if not target_pos_raw or target_pos_raw[0] is None or target_pos_raw[1] is None:
+            raise RuntimeError(f"sprite click did not set an optimistic local position: {target_pos_raw!r}")
+        target_pos = (float(target_pos_raw[0]), float(target_pos_raw[1]))
         wait_for_snapshot(
             page,
             "sprite position update",
@@ -157,6 +170,11 @@ def main() -> None:
             "room movement through exit",
             lambda data: room_of(data, character_id) != start_room,
         )
+        page.wait_for_function(
+            "() => window.app?.activityLines?.length > 0",
+            timeout=15000,
+        )
+        activity = page.evaluate("() => window.app.activityLines.map(line => line.text)")
         new_room = room_of(moved_room, character_id)
         page.locator("#btn-follow").click()
         page.wait_for_timeout(1000)
@@ -176,6 +194,7 @@ def main() -> None:
                 "new_room": new_room,
                 "before_pos": before_pos,
                 "target_pos": target_pos,
+                "activity": activity,
                 "screenshots": shots,
             },
             indent=2,

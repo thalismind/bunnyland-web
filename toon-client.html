@@ -258,6 +258,24 @@
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
     }
+    .activity-list { display: flex; flex-direction: column; gap: 6px; }
+    .activity-row {
+      padding: 6px 8px;
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-sm);
+      line-height: 1.3;
+    }
+    .activity-row.kind-rejection { color: var(--bl-warn); }
+    .activity-empty {
+      padding: 6px 8px;
+      border: 1px dashed var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
 
     /* ── Target picker (overlays the visual world) ── */
     #target-overlay {
@@ -512,7 +530,77 @@ const ACTION_VERBS = [
   { tool: 'reflect',   label: 'Reflect',   cmd: 'reflect',   ap: 0, fp: 1, lane: 'focus', prompt: 'text' },
 ];
 
+const ACTIVITY_LIMIT = 8;
+const UNNARRATED_EVENT_TYPES = new Set([
+  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
+  'CommandExecutedEvent', 'CommandExpiredEvent',
+  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
+  'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
+  'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
+  'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
+]);
+const EVENT_BASE_KEYS = new Set([
+  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
+  'target_ids', 'causation_id', 'correlation_id',
+]);
+
 const fmtPoints = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+function humanizeEventType(eventType) {
+  const name = String(eventType || 'Event').replace(/Event$/, '');
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+}
+
+function legacyActionView(verb) {
+  const args = [];
+  if (verb.target) {
+    args.push({
+      key: verb.target.key,
+      title: verb.target.key.replace(/_id$/, '').replaceAll('_', ' '),
+      kind: 'entity',
+      required: true,
+      target_group: verb.target.kind,
+    });
+  }
+  if (verb.prompt) {
+    args.push({
+      key: verb.prompt,
+      title: verb.prompt.replaceAll('_', ' '),
+      kind: 'string',
+      required: true,
+      target_group: null,
+    });
+  }
+  return {
+    command_type: verb.cmd,
+    tool_name: verb.tool,
+    title: verb.label,
+    lane: verb.lane,
+    cost: { action: verb.ap, focus: verb.fp },
+    arguments: args,
+  };
+}
+
+function actionTitle(action) {
+  return String(action?.title || action?.tool_name || action?.command_type || 'Action');
+}
+
+function actionTool(action) {
+  return String(action?.tool_name || action?.command_type || 'action');
+}
+
+function actionCost(action) {
+  const cost = action?.cost || {};
+  return { action: Number(cost.action || 0), focus: Number(cost.focus || 0) };
+}
+
+function actionLane(action) {
+  return String(action?.lane || 'world');
+}
+
+function actionArguments(action) {
+  return Array.isArray(action?.arguments) ? action.arguments : [];
+}
 
 function randomClientId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -587,6 +675,9 @@ class RoomClient {
     this.characterProjection = null;
     this.roomProjection = null;
     this.queuedCommands = null;
+    this.activityLines = [];
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
     this.control = null;
     this.viewRoomId = null;
     this.followPlayer = true;
@@ -659,7 +750,11 @@ class RoomClient {
       const msg = JSON.parse(evt.data);
       if (msg.type === 'snapshot') {
         this._applyWorld(parseApiSnapshot(msg.data));
-      } else if (msg.type === 'event' || msg.type === 'patch') {
+      } else if (msg.type === 'event') {
+        this._drainEvents([msg]);
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refresh(), 250);
+      } else if (msg.type === 'patch') {
         clearTimeout(this._refreshTimer);
         this._refreshTimer = setTimeout(() => this._refresh(), 250);
       }
@@ -686,6 +781,9 @@ class RoomClient {
     this.characterProjection = null;
     this.roomProjection = null;
     this.queuedCommands = null;
+    this.activityLines = [];
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
     this._syncUrl();
   }
 
@@ -699,6 +797,7 @@ class RoomClient {
         await this._refreshQueuedCommands();
       }
       if (this.viewRoomId) await this._refreshRoomProjection(this.viewRoomId);
+      await this._refreshRecentEvents();
       this.render();
       this._setStatus('live', `● Live · epoch ${this.world.epoch}s`);
     } catch (err) {
@@ -769,6 +868,19 @@ class RoomClient {
       this.queuedCommands = null;
       if (render) this.render();
       return null;
+    }
+  }
+
+  async _refreshRecentEvents() {
+    if (!this.apiBase) return;
+    try {
+      const res = await fetch(`${this.apiBase}/world/events/recent`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
+      this.eventsPrimed = true;
+    } catch (err) {
+      console.warn('Could not refresh Bunnyland recent events', err);
     }
   }
 
@@ -996,6 +1108,9 @@ class RoomClient {
     this.characterProjection = null;
     this.queuedCommands = null;
     this.roomProjection = null;
+    this.activityLines = [];
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
     document.getElementById('player-select').value = id;
     this.followPlayer = true;
     this.localPos = null;          // adopt the server position for the new player
@@ -1008,6 +1123,7 @@ class RoomClient {
         return Promise.all([
           this._refreshQueuedCommands(),
           roomId ? this._refreshRoomProjection(roomId) : null,
+          this._refreshRecentEvents(),
         ]);
       }).finally(() => this.render());
     }
@@ -1130,6 +1246,75 @@ class RoomClient {
     return (this.world?.queuedCommands || []).filter(command => command.character_id === this.playerId);
   }
 
+  _nameFor(entityId) {
+    const entity = this._entityById(entityId) || this.world?.entities?.[entityId];
+    return entity ? entityName(entity) : null;
+  }
+
+  _perceivesEvent(event) {
+    const visibility = event.visibility;
+    if (visibility === 'public') return true;
+    if (visibility === 'room') return Boolean(this.playerId) && event.room_id === this._playerRoomId();
+    if (visibility === 'directed') {
+      return Boolean(this.playerId) && (
+        event.actor_id === this.playerId || (event.target_ids || []).includes(this.playerId)
+      );
+    }
+    if (visibility === 'private') return Boolean(this.playerId) && event.actor_id === this.playerId;
+    return false;
+  }
+
+  _drainEvents(messages, { prime = false } = {}) {
+    const current = new Set(this.seenEventIds);
+    const lines = [];
+    for (const message of messages || []) {
+      const data = message.data || message;
+      const event = data.event || {};
+      const eventId = event.event_id;
+      if (!eventId) continue;
+      current.add(eventId);
+      if (this.seenEventIds.has(eventId)) continue;
+      const eventType = data.event_type || 'Event';
+      if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
+      const own = this.playerId && event.actor_id === this.playerId;
+      if (own || this._perceivesEvent(event)) lines.push(this._renderEventLine(data));
+    }
+    this.seenEventIds = current;
+    if (prime) return;
+    for (const line of lines) this._appendActivity(line);
+  }
+
+  _renderEventLine(data) {
+    const event = data.event || {};
+    const eventType = String(data.event_type || 'Event');
+    const actor = event.actor_id ? this._nameFor(event.actor_id) : null;
+    const details = [];
+    for (const [key, value] of Object.entries(event)) {
+      if (EVENT_BASE_KEYS.has(key) || value == null || value === '' ||
+          (Array.isArray(value) && !value.length)) {
+        continue;
+      }
+      if (key.endsWith('_ids') && Array.isArray(value)) {
+        const names = value.map(item => this._nameFor(String(item))).filter(Boolean);
+        if (names.length) details.push(names.join(', '));
+      } else if (key.endsWith('_id')) {
+        const name = this._nameFor(String(value));
+        if (name) details.push(name);
+      } else {
+        details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
+      }
+    }
+    const label = humanizeEventType(eventType);
+    const text = `${actor ? `${actor}: ` : ''}${label}${details.length ? ` — ${details.join('; ')}` : ''}`;
+    return { text, kind: eventType === 'CommandRejectedEvent' ? 'rejection' : '' };
+  }
+
+  _appendActivity(line) {
+    this.activityLines.push(line);
+    this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+    this.render();
+  }
+
   // Submit a command as this browser client's claimed controller.
   // Returns true on a 2xx response.
   async _postCommand(commandType, payload, ap, fp, lane = 'world') {
@@ -1206,18 +1391,33 @@ class RoomClient {
   // ── Room action verbs ────────────────────────────────────────────────────────
 
   async _doVerb(verb) {
+    await this._doAction(legacyActionView(verb));
+  }
+
+  async _doAction(action) {
+    if (!action) return;
     const payload = {};
-    if (verb.target) {
-      const choice = await this._pickTarget(verb);
-      if (!choice) return;                  // cancelled
-      payload[verb.target.key] = choice.value;
+    for (const argument of actionArguments(action)) {
+      if (!argument.key) continue;
+      if (argument.target_group) {
+        const choice = await this._pickTarget(action, argument);
+        if (!choice) return;                  // cancelled
+        payload[argument.key] = choice.value;
+      } else if (argument.required) {
+        const label = argument.title || argument.key;
+        const value = window.prompt(`${actionTitle(action)} — ${label}:`);
+        if (value == null || value === '') return;
+        payload[argument.key] = value;
+      }
     }
-    if (verb.prompt) {
-      const value = window.prompt(`${verb.label} — ${verb.prompt}:`);
-      if (value == null || value === '') return;
-      payload[verb.prompt] = value;
-    }
-    if (await this._postCommand(verb.cmd, payload, verb.ap, verb.fp, verb.lane)) {
+    const cost = actionCost(action);
+    if (await this._postCommand(
+      action.command_type || actionTool(action),
+      payload,
+      cost.action,
+      cost.focus,
+      actionLane(action),
+    )) {
       await this._refresh();
     }
   }
@@ -1266,11 +1466,20 @@ class RoomClient {
     return [];
   }
 
+  _availableActions() {
+    if (this.characterProjection?.characterId === this.playerId &&
+        this.characterProjection.actions?.length) {
+      return this.characterProjection.actions;
+    }
+    return ACTION_VERBS.map(legacyActionView);
+  }
+
   // Show a modal list of candidate targets; resolves to a choice or null if cancelled.
-  _pickTarget(verb) {
+  _pickTarget(action, argument = null) {
     return new Promise((resolve) => {
       const esc = BunnylandUI.escapeHtml;
-      const candidates = this._targetCandidates(verb.target.kind);
+      const targetGroup = argument?.target_group || action.target?.kind;
+      const candidates = this._targetCandidates(targetGroup);
       const overlay = document.createElement('div');
       overlay.id = 'target-overlay';
       const rows = candidates.length
@@ -1280,7 +1489,7 @@ class RoomClient {
         : '<div class="target-empty">No valid targets nearby.</div>';
       overlay.innerHTML =
         `<div class="target-card">` +
-        `<div class="target-card-header">${esc(verb.label)} — choose a target</div>` +
+        `<div class="target-card-header">${esc(actionTitle(action))} — choose a target</div>` +
         `<div class="target-list">${rows}</div>` +
         `<div class="target-card-footer"><button class="target-cancel">Cancel</button></div></div>`;
 
@@ -1300,9 +1509,9 @@ class RoomClient {
     });
   }
 
-  // The action menu: each verb shows its cost and is disabled when the player cannot
-  // afford it (or when no player is selected). Verbs needing an entity target are shown
-  // for reference but not yet submittable (no in-room target picker).
+  // The action menu: each action shows its cost and is disabled when the player cannot
+  // afford it (or when no player is selected). Server-provided projection actions are used
+  // when available; ACTION_VERBS remains the snapshot/offline fallback.
   _renderActions() {
     const body = document.getElementById('actions-body');
     const pts = this._playerPoints();
@@ -1317,16 +1526,17 @@ class RoomClient {
     let html = `<div id="pt-summary">${summary}</div>`;
     for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
       html += `<div class="action-section-title">${title}</div><div class="verb-list">`;
-      html += ACTION_VERBS.filter(v => v.lane === lane)
-        .map(v => this._verbRowHtml(v, pts, hasPlayer, esc)).join('');
+      html += this._availableActions().filter(action => actionLane(action) === lane)
+        .map(action => this._verbRowHtml(action, pts, hasPlayer, esc)).join('');
       html += '</div>';
     }
     html += this._queuedActionsHtml(this._playerQueuedCommands(), esc);
+    html += this._activityHtml(esc);
     body.innerHTML = html;
 
     for (const el of body.querySelectorAll('.verb.ready[data-tool]')) {
-      const verb = ACTION_VERBS.find(v => v.tool === el.dataset.tool);
-      el.addEventListener('click', () => this._doVerb(verb));
+      const action = this._availableActions().find(item => actionTool(item) === el.dataset.tool);
+      el.addEventListener('click', () => this._doAction(action));
     }
   }
 
@@ -1351,8 +1561,8 @@ class RoomClient {
   }
 
   _queuedCommandName(command) {
-    const verb = ACTION_VERBS.find(v => v.cmd === command.command_type);
-    if (verb) return verb.label;
+    const action = this._availableActions().find(item => item.command_type === command.command_type);
+    if (action) return actionTitle(action);
     return String(command.command_type || 'command').replaceAll('-', ' ');
   }
 
@@ -1373,22 +1583,36 @@ class RoomClient {
   }
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {
-    const affordable = pts.ap >= verb.ap && pts.fp >= verb.fp;
+    const costView = actionCost(verb);
+    const affordable = pts.ap >= costView.action && pts.fp >= costView.focus;
     const ready = hasPlayer && affordable;
     const title = !hasPlayer ? 'Select a player'
       : !affordable ? 'Not enough points'
-      : verb.target ? `${verb.label}: choose a target`
-      : `Perform: ${verb.label}`;
+      : actionArguments(verb).some(arg => arg.target_group) ? `${actionTitle(verb)}: choose a target`
+      : `Perform: ${actionTitle(verb)}`;
 
-    const cost = verb.ap || verb.fp
-      ? (verb.ap ? `<span class="cost ap">${verb.ap} AP</span>` : '') +
-        (verb.fp ? `<span class="cost fp">${verb.fp} FP</span>` : '')
+    const cost = costView.action || costView.focus
+      ? (costView.action ? `<span class="cost ap">${costView.action} AP</span>` : '') +
+        (costView.focus ? `<span class="cost fp">${costView.focus} FP</span>` : '')
       : '<span class="cost free">free</span>';
-    const note = verb.target ? '<span class="verb-note">⌖ target</span>' : '';
+    const note = actionArguments(verb).some(arg => arg.target_group)
+      ? '<span class="verb-note">⌖ target</span>'
+      : '';
 
-    return `<div class="verb ${ready ? 'ready' : 'unafford'}"${ready ? ` data-tool="${verb.tool}"` : ''} title="${esc(title)}">` +
-      `<span class="verb-name">${esc(verb.label)}</span>` +
+    return `<div class="verb ${ready ? 'ready' : 'unafford'}"${ready ? ` data-tool="${esc(actionTool(verb))}"` : ''} title="${esc(title)}">` +
+      `<span class="verb-name">${esc(actionTitle(verb))}</span>` +
       `<span class="verb-cost">${note}${cost}</span></div>`;
+  }
+
+  _activityHtml(esc) {
+    if (!this.activityLines.length) {
+      return '<div class="action-section-title">Activity</div>' +
+        '<div class="activity-empty">No recent activity.</div>';
+    }
+    const rows = this.activityLines.map(line =>
+      `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">` +
+      `${esc(line.text)}</div>`).join('');
+    return `<div class="action-section-title">Activity</div><div class="activity-list">${rows}</div>`;
   }
 
   // ── Rendering ────────────────────────────────────────────────────────────────
