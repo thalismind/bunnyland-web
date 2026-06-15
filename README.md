@@ -41,6 +41,18 @@ scripts/playwright-all
 The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_URL` and
 `BUNNYLAND_WEB_NO_SERVER=1` to point the checks at an already-running server.
 
+## API contracts
+
+The room-focused play client (`toon-client.html`) uses the viewer-scoped
+`/world/character/{id}` projection for player controls, points, controller state, and
+action targets. It still reads `/world/snapshot` for room rendering until those visual
+world details have their own play-facing projection.
+
+The inspector, world editor, and world generator are developer/admin surfaces and remain
+snapshot-based because they intentionally need broad world state. Keep new play-facing
+server interactions behind named typed request/response contracts and normalize responses
+at the client boundary before rendering or submitting commands.
+
 ## Container
 
 The published image serves the static client with nginx and proxies same-origin `/api/`

@@ -113,6 +113,42 @@ def main() -> None:
             raise AssertionError(f"toon client did not select default room: {toon_default!r}")
         if "Landing Room" not in toon_default["title"]:
             raise AssertionError(f"toon client title did not show default room: {toon_default!r}")
+        projection_contract = page.evaluate(
+            """
+            () => window.parseCharacterProjection({
+              character_id: 'char_1',
+              world_epoch: 12,
+              points: {
+                action: 2,
+                action_max: 3,
+                focus: 1,
+                focus_max: 4,
+              },
+              controller: {
+                controller_id: 'ctrl_1',
+                generation: 7,
+              },
+              target_groups: {
+                exit: [
+                  { id: 'room_2', label: 'north', kind: 'exit' },
+                ],
+                object: [
+                  { id: 'apple_1', label: 'Apple', kind: 'food' },
+                ],
+              },
+            })
+            """
+        )
+        if projection_contract["characterId"] != "char_1" or projection_contract["worldEpoch"] != 12:
+            raise AssertionError(f"toon character projection identity was not normalized: {projection_contract!r}")
+        if projection_contract["points"]["action"] != 2 or projection_contract["points"]["focus_max"] != 4:
+            raise AssertionError(f"toon character projection points were not preserved: {projection_contract!r}")
+        if projection_contract["controller"]["controller_id"] != "ctrl_1":
+            raise AssertionError(f"toon character projection controller was not preserved: {projection_contract!r}")
+        if projection_contract["targetGroups"]["exit"][0]["value"] != "room_2":
+            raise AssertionError(f"toon character projection exits were not normalized: {projection_contract!r}")
+        if projection_contract["targetGroups"]["object"][0]["label"] != "Apple":
+            raise AssertionError(f"toon character projection objects were not normalized: {projection_contract!r}")
 
         page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
         collision_rects = page.evaluate(
