@@ -43,10 +43,12 @@ The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_UR
 
 ## API contracts
 
-The room-focused play client (`toon-client.html`) uses the viewer-scoped
-`/world/character/{id}` projection for player controls, points, controller state, and
-action targets. It still reads `/world/snapshot` for room rendering until those visual
-world details have their own play-facing projection.
+The room-focused play client (`toon-client.html`) uses play-facing contracts for normal
+play: `/world/character/{id}` for viewer-scoped player controls, points, controller state,
+and action targets; `/world/room/{id}` for room rendering; and
+`/world/character/{id}/commands` for the selected character's queued commands. It still
+reads `/world/snapshot` only to discover selectable characters until that list has its own
+play-facing projection.
 
 The inspector, world editor, and world generator are developer/admin surfaces and remain
 snapshot-based because they intentionally need broad world state. Keep new play-facing

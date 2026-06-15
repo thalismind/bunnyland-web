@@ -395,6 +395,44 @@ function parseCharacterProjection(data) {
   };
 }
 
+function parseRoomProjection(data) {
+  const room = data?.room;
+  if (!room || !room.id) return null;
+  return {
+    worldEpoch: data.world_epoch || 0,
+    room: {
+      id: room.id,
+      name: room.title || room.id,
+      kind: 'room',
+      isCharacter: false,
+      defaultStart: Boolean(room.default_start),
+      sprite: room.sprite || {},
+      exits: (room.exits || []).map(exit => ({
+        id: exit.id,
+        direction: exit.direction || '',
+        label: exit.label || exit.id,
+        locked: Boolean(exit.locked),
+      })),
+    },
+    entities: (room.entities || []).map(entity => ({
+      id: entity.id,
+      name: entity.name || entity.id,
+      kind: entity.kind || 'other',
+      isCharacter: Boolean(entity.is_character),
+      sprite: entity.sprite || {},
+    })),
+  };
+}
+
+function parseQueuedCommands(data) {
+  if (!data || typeof data !== 'object' || !data.character_id) return null;
+  return {
+    characterId: data.character_id,
+    worldEpoch: data.world_epoch || 0,
+    commands: data.commands || [],
+  };
+}
+
 const KIND_ICON = {
   room: '🏠', character: '🐰', container: '📦', item: '✦',
   door: '🚪', food: '🍎', water: '💧', chair: '🪑', table: '🪵',
@@ -402,7 +440,9 @@ const KIND_ICON = {
 };
 
 function entityType(entity) {
-  const c = entity.components;
+  if (entity?.kind) return entity.kind;
+  if (entity?.isCharacter) return 'character';
+  const c = entity?.components || {};
   if (c.RoomComponent) return 'room';
   if (c.CharacterComponent) return 'character';
   if (c.DoorComponent) return 'door';
@@ -413,9 +453,9 @@ function entityType(entity) {
 
 // A custom EditorDisplayComponent.emoji wins; else fall back to kind iconography.
 function entityIcon(entity) {
-  const emoji = entity?.components?.EditorDisplayComponent?.emoji;
+  const emoji = entity?.sprite?.emoji || entity?.components?.EditorDisplayComponent?.emoji;
   if (emoji) return emoji;
-  const kind = entity?.components?.IdentityComponent?.kind;
+  const kind = entity?.kind || entity?.components?.IdentityComponent?.kind;
   return KIND_ICON[kind] || KIND_ICON[entityType(entity)] || KIND_ICON.other;
 }
 
@@ -426,7 +466,8 @@ function targetIcon(kind) {
 }
 
 function entityName(entity) {
-  const c = entity.components;
+  if (entity?.name) return entity.name;
+  const c = entity?.components || {};
   if (c.RoomComponent) return c.RoomComponent.title || entity.id;
   return c.IdentityComponent?.name || entity.id.slice(0, 16);
 }
@@ -544,6 +585,8 @@ class RoomClient {
     this.world = null;
     this.playerId = '';
     this.characterProjection = null;
+    this.roomProjection = null;
+    this.queuedCommands = null;
     this.control = null;
     this.viewRoomId = null;
     this.followPlayer = true;
@@ -640,6 +683,9 @@ class RoomClient {
     }
     this._setStatus('', '○ Offline');
     document.getElementById('btn-connect').textContent = 'Connect Live';
+    this.characterProjection = null;
+    this.roomProjection = null;
+    this.queuedCommands = null;
     this._syncUrl();
   }
 
@@ -648,7 +694,12 @@ class RoomClient {
       const res = await fetch(`${this.apiBase}/world/snapshot`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this._applyWorld(parseApiSnapshot(await res.json()));
-      if (this.playerId) await this._refreshCharacterProjection({ render: true });
+      if (this.playerId) {
+        await this._refreshCharacterProjection();
+        await this._refreshQueuedCommands();
+      }
+      if (this.viewRoomId) await this._refreshRoomProjection(this.viewRoomId);
+      this.render();
       this._setStatus('live', `● Live · epoch ${this.world.epoch}s`);
     } catch (err) {
       this._setStatus('error', `⚠ ${err.message}`);
@@ -666,11 +717,56 @@ class RoomClient {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const projection = parseCharacterProjection(await res.json());
       this.characterProjection = projection?.characterId === this.playerId ? projection : null;
+      if (this.followPlayer && this.characterProjection?.room?.id) {
+        this.viewRoomId = this.characterProjection.room.id;
+      }
       if (render) this.render();
       return this.characterProjection;
     } catch (err) {
       console.warn('Could not refresh Bunnyland character projection', err);
       this.characterProjection = null;
+      if (render) this.render();
+      return null;
+    }
+  }
+
+  async _refreshRoomProjection(roomId = this.viewRoomId, { render = false } = {}) {
+    if (!this.apiBase || !roomId) {
+      this.roomProjection = null;
+      if (render) this.render();
+      return null;
+    }
+    try {
+      const res = await fetch(`${this.apiBase}/world/room/${encodeURIComponent(roomId)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const projection = parseRoomProjection(await res.json());
+      this.roomProjection = projection?.room?.id === roomId ? projection : null;
+      if (render) this.render();
+      return this.roomProjection;
+    } catch (err) {
+      console.warn('Could not refresh Bunnyland room projection', err);
+      this.roomProjection = null;
+      if (render) this.render();
+      return null;
+    }
+  }
+
+  async _refreshQueuedCommands({ render = false } = {}) {
+    if (!this.apiBase || !this.playerId) {
+      this.queuedCommands = null;
+      if (render) this.render();
+      return null;
+    }
+    try {
+      const res = await fetch(`${this.apiBase}/world/character/${encodeURIComponent(this.playerId)}/commands`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const projection = parseQueuedCommands(await res.json());
+      this.queuedCommands = projection?.characterId === this.playerId ? projection.commands : null;
+      if (render) this.render();
+      return this.queuedCommands;
+    } catch (err) {
+      console.warn('Could not refresh Bunnyland queued commands', err);
+      this.queuedCommands = null;
       if (render) this.render();
       return null;
     }
@@ -683,6 +779,7 @@ class RoomClient {
     if (!this.viewRoomId || !this.world.entities[this.viewRoomId]) {
       this.viewRoomId = this._playerRoomId() || this._defaultRoomId();
     }
+    if (this.roomProjection?.room?.id !== this.viewRoomId) this.roomProjection = null;
     this.render();
   }
 
@@ -723,11 +820,28 @@ class RoomClient {
   }
 
   _playerRoomId() {
+    if (this.characterProjection?.characterId === this.playerId && this.characterProjection.room?.id) {
+      return this.characterProjection.room.id;
+    }
     return this._roomOf(this.playerId);
+  }
+
+  _currentRoom() {
+    if (this.roomProjection?.room?.id === this.viewRoomId) return this.roomProjection.room;
+    return this.viewRoomId ? this.world?.entities[this.viewRoomId] : null;
+  }
+
+  _entityById(id) {
+    if (this.roomProjection?.room?.id === this.viewRoomId) {
+      const projected = this.roomProjection.entities.find(entity => entity.id === id);
+      if (projected) return projected;
+    }
+    return this.world?.entities?.[id] || null;
   }
 
   // Members (characters + objects) sitting directly in a room.
   _roomMembers(roomId) {
+    if (this.roomProjection?.room?.id === roomId) return this.roomProjection.entities;
     const room = this.world.entities[roomId];
     if (!room) return [];
     return (room.relationships.Contains || [])
@@ -736,7 +850,7 @@ class RoomClient {
   }
 
   _spritePos(entity) {
-    const p = entity.components.SpritePosition;
+    const p = entity?.sprite?.position || entity?.components?.SpritePosition;
     return p
       ? {
           x: Number.isFinite(Number(p.x)) ? Number(p.x) : ROOM_WIDTH / 2,
@@ -746,15 +860,15 @@ class RoomClient {
   }
 
   _spriteLayer(entity) {
-    return entity.components.SpriteLayer?.layer ?? 20;
+    return entity?.sprite?.layer ?? entity?.components?.SpriteLayer?.layer ?? 20;
   }
 
   _spriteScale(entity) {
-    return entity.components.SpriteScale?.scale ?? 1;
+    return entity?.sprite?.scale ?? entity?.components?.SpriteScale?.scale ?? 1;
   }
 
   _spriteBounds(entity) {
-    const b = entity.components.SpriteBounds;
+    const b = entity?.sprite?.bounds || entity?.components?.SpriteBounds;
     if (b) {
       return {
         width: Number.isFinite(Number(b.width)) ? Number(b.width) : 4,
@@ -762,20 +876,26 @@ class RoomClient {
         solid: Boolean(b.solid),
       };
     }
-    if (entity.components.RoomComponent) return { width: ROOM_WIDTH, height: ROOM_HEIGHT, solid: false };
-    if (entity.components.CharacterComponent) return { width: 5, height: 8, solid: true };
-    const kind = entity.components.IdentityComponent?.kind || '';
+    if (entity?.kind === 'room' || entity?.components?.RoomComponent) {
+      return { width: ROOM_WIDTH, height: ROOM_HEIGHT, solid: false };
+    }
+    if (entity?.isCharacter || entity?.components?.CharacterComponent) {
+      return { width: 5, height: 8, solid: true };
+    }
+    const kind = entity?.kind || entity?.components?.IdentityComponent?.kind || '';
     if (SURFACE_KINDS.has(kind)) return { width: 22, height: 12, solid: true };
-    if (FURNITURE_KINDS.has(kind) || entity.components.ContainerComponent) {
+    if (FURNITURE_KINDS.has(kind) || entity?.components?.ContainerComponent) {
       return { width: 14, height: 10, solid: true };
     }
-    if (entity.components.DoorComponent) return { width: 10, height: 8, solid: false };
-    if (entity.components.PortableComponent) return { width: 4, height: 4, solid: false };
+    if (entity?.components?.DoorComponent) return { width: 10, height: 8, solid: false };
+    if (entity?.components?.PortableComponent || entity?.kind === 'item') {
+      return { width: 4, height: 4, solid: false };
+    }
     return { width: 4, height: 4, solid: false };
   }
 
   _roomBounds(room) {
-    const b = room?.components?.SpriteBounds;
+    const b = room?.sprite?.bounds || room?.components?.SpriteBounds;
     return {
       width: Number.isFinite(Number(b?.width)) ? Number(b.width) : ROOM_WIDTH,
       height: Number.isFinite(Number(b?.height)) ? Number(b.height) : ROOM_HEIGHT,
@@ -835,12 +955,13 @@ class RoomClient {
 
   _moveBlocked(pos) {
     if (!this._playerInView()) return true;
-    const player = this.world.entities[this.playerId];
-    const room = this.world.entities[this.viewRoomId];
+    const player = this._entityById(this.playerId);
+    const room = this._currentRoom();
+    if (!player || !room) return true;
     const playerAabb = this._aabb(pos, this._spriteBounds(player));
     if (!this._aabbInsideRoom(playerAabb, this._roomBounds(room))) return true;
     for (const member of this._roomMembers(this.viewRoomId)) {
-      if (member.id === this.playerId || member.components.DoorComponent) continue;
+      if (member.id === this.playerId || member.components?.DoorComponent) continue;
       const bounds = this._spriteBounds(member);
       if (!bounds.solid) continue;
       if (this._aabbOverlaps(playerAabb, this._aabb(this._spritePos(member), bounds))) {
@@ -865,6 +986,7 @@ class RoomClient {
       this.playerId = '';
       this.control = null;
       this.characterProjection = null;
+      this.queuedCommands = null;
     }
   }
 
@@ -872,18 +994,31 @@ class RoomClient {
     this.playerId = id;
     this.control = null;
     this.characterProjection = null;
+    this.queuedCommands = null;
+    this.roomProjection = null;
     document.getElementById('player-select').value = id;
     this.followPlayer = true;
     this.localPos = null;          // adopt the server position for the new player
     this._recenterOnPlayer();
     this.render();
     if (id) this._claimPlayer(id);
-    if (id) this._refreshCharacterProjection({ render: true });
+    if (id) {
+      this._refreshCharacterProjection().then(() => {
+        const roomId = this._playerRoomId();
+        return Promise.all([
+          this._refreshQueuedCommands(),
+          roomId ? this._refreshRoomProjection(roomId) : null,
+        ]);
+      }).finally(() => this.render());
+    }
   }
 
   _recenterOnPlayer() {
     const roomId = this._playerRoomId();
-    if (roomId) this.viewRoomId = roomId;
+    if (roomId) {
+      this.viewRoomId = roomId;
+      if (this.roomProjection?.room?.id !== roomId) this._refreshRoomProjection(roomId, { render: true });
+    }
   }
 
   // Controller (id + generation) claimed by this browser client.
@@ -991,6 +1126,7 @@ class RoomClient {
   }
 
   _playerQueuedCommands() {
+    if (this.queuedCommands) return this.queuedCommands;
     return (this.world?.queuedCommands || []).filter(command => command.character_id === this.playerId);
   }
 
@@ -1037,7 +1173,8 @@ class RoomClient {
     if (!this._playerInView()) return;
     const stage = document.getElementById('stage');
     const rect = stage.getBoundingClientRect();
-    const room = this.world.entities[this.viewRoomId];
+    const room = this._currentRoom();
+    if (!room) return;
     const pos = this._stageToRoomPoint(e.clientX, e.clientY, rect, room);
     this._moveTo(pos.x, pos.y);
   }
@@ -1051,7 +1188,9 @@ class RoomClient {
     const delta = deltas[e.key];
     if (!delta) return;
     e.preventDefault();
-    const base = this.localPos || this._spritePos(this.world.entities[this.playerId]);
+    const player = this._entityById(this.playerId);
+    if (!player) return;
+    const base = this.localPos || this._spritePos(player);
     this._moveTo(base.x + delta[0] * MOVE_STEP, base.y + delta[1] * MOVE_STEP);
   }
 
@@ -1109,8 +1248,8 @@ class RoomClient {
     const room = this.world?.entities[roomId];
     const asTarget = (e) => ({ value: e.id, label: entityName(e), icon: entityIcon(e) });
     const members = this._roomMembers(roomId)
-      .filter(e => e.id !== this.playerId && !e.components.RoomComponent);
-    const roomItems = members.filter(e => !e.components.CharacterComponent);
+      .filter(e => e.id !== this.playerId && entityType(e) !== 'room');
+    const roomItems = members.filter(e => !e.isCharacter && !e.components?.CharacterComponent);
     const carried = this._carried(this.playerId);
 
     if (kind === 'exits') {
@@ -1120,9 +1259,9 @@ class RoomClient {
         return { value: target, label: `${dir} → ${dest ? entityName(dest) : target}`, icon: '🚪' };
       });
     }
-    if (kind === 'roomItems') return roomItems.filter(e => e.components.PortableComponent).map(asTarget);
+    if (kind === 'roomItems') return roomItems.filter(e => e.components?.PortableComponent).map(asTarget);
     if (kind === 'inventory') return carried.map(asTarget);
-    if (kind === 'characters') return members.filter(e => e.components.CharacterComponent).map(asTarget);
+    if (kind === 'characters') return members.filter(e => e.isCharacter || e.components?.CharacterComponent).map(asTarget);
     if (kind === 'reachableItems') return [...roomItems, ...carried].map(asTarget);
     return [];
   }
@@ -1259,7 +1398,7 @@ class RoomClient {
 
     const stage = document.getElementById('stage');
     const empty = document.getElementById('stage-empty');
-    const room = this.viewRoomId && this.world?.entities[this.viewRoomId];
+    const room = this._currentRoom();
 
     for (const el of stage.querySelectorAll('.sprite, .door, .debug-box')) el.remove();
 
@@ -1276,7 +1415,7 @@ class RoomClient {
 
     // Background = the room's own sprite (layer 0), or a labelled placeholder.
     const bg = document.getElementById('room-bg');
-    const roomImg = room.components.SpriteImage?.url;
+    const roomImg = room.sprite?.image_url || room.sprite?.image_data || room.components?.SpriteImage?.url;
     bg.style.backgroundImage = roomImg ? `url("${roomImg}")` : '';
     bg.textContent = roomImg ? '' : `“${entityName(room)}”`;
 
@@ -1287,7 +1426,7 @@ class RoomClient {
     // Sprites: every member, ordered by layer, placed by SpritePosition (player uses
     // its optimistic local position so movement feels instant).
     const members = this._roomMembers(this.viewRoomId)
-      .filter(e => !e.components.DoorComponent)
+      .filter(e => !e.components?.DoorComponent)
       .sort((a, b) => this._spriteLayer(a) - this._spriteLayer(b));
     for (const member of members) {
       const isPlayer = member.id === this.playerId;
@@ -1315,7 +1454,7 @@ class RoomClient {
     // compositing. Only the glyph scales; the name label stays legible.
     const scale = this._spriteScale(entity);
     const scaleStyle = scale !== 1 ? ` style="transform: scale(${scale})"` : '';
-    const img = entity.components.SpriteImage?.url;
+    const img = entity.sprite?.image_url || entity.sprite?.image_data || entity.components?.SpriteImage?.url;
     const glyph = img
       ? `<img class="glyph" src="${img}" alt=""${scaleStyle}>`
       : `<div class="glyph"${scaleStyle}>${entityIcon(entity)}</div>`;
@@ -1325,6 +1464,33 @@ class RoomClient {
 
   _renderDoors(stage, room, rect) {
     const margin = 14;
+    if (this.roomProjection?.room?.id === room.id) {
+      for (const exit of room.exits || []) {
+        const dir = (exit.direction || '').toLowerCase();
+        const [ox, oy] = DIR_EDGE[dir] || [1, 0];
+        const door = document.createElement('div');
+        door.className = 'door';
+        door.innerHTML =
+          `🚪 ${BunnylandUI.escapeHtml(exit.label)}` +
+          (dir ? `<span class="door-dir">${BunnylandUI.escapeHtml(dir)}</span>` : '');
+        door.style.left = ox === 0 ? '50%' : (ox < 0 ? `${margin}px` : 'auto');
+        door.style.right = ox > 0 ? `${margin}px` : 'auto';
+        door.style.top = oy === 0 ? '50%' : (oy < 0 ? `${margin}px` : 'auto');
+        door.style.bottom = oy > 0 ? `${margin}px` : 'auto';
+        if (ox === 0) door.style.transform = 'translateX(-50%)';
+        if (oy === 0) door.style.transform = 'translateY(-50%)';
+        door.title = `Go to ${exit.label}`;
+        door.addEventListener('click', () => {
+          this.viewRoomId = exit.id;
+          this.followPlayer = false;
+          this.roomProjection = null;
+          this._refreshRoomProjection(exit.id, { render: true });
+          this.render();
+        });
+        stage.appendChild(door);
+      }
+      return;
+    }
     for (const { target, edge } of (room.relationships.ExitTo || [])) {
       const dest = this.world.entities[target];
       if (!dest) continue;
@@ -1365,7 +1531,7 @@ class RoomClient {
     );
 
     for (const member of this._roomMembers(this.viewRoomId)) {
-      if (member.components.DoorComponent) continue;
+      if (member.components?.DoorComponent) continue;
       const bounds = this._spriteBounds(member);
       const pos = (member.id === this.playerId && this.localPos)
         ? this.localPos

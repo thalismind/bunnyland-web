@@ -149,6 +149,59 @@ def main() -> None:
             raise AssertionError(f"toon character projection exits were not normalized: {projection_contract!r}")
         if projection_contract["targetGroups"]["object"][0]["label"] != "Apple":
             raise AssertionError(f"toon character projection objects were not normalized: {projection_contract!r}")
+        room_contract = page.evaluate(
+            """
+            () => window.parseRoomProjection({
+              world_epoch: 13,
+              room: {
+                id: 'room_1',
+                title: 'Landing',
+                default_start: true,
+                sprite: {
+                  image_url: '/rooms/landing.png',
+                  bounds: { width: 120, height: 80, solid: false },
+                },
+                entities: [
+                  {
+                    id: 'char_1',
+                    name: 'Juniper',
+                    kind: 'character',
+                    is_character: true,
+                    sprite: {
+                      position: { x: 10, y: 20 },
+                      layer: 30,
+                      bounds: { width: 5, height: 8, solid: true },
+                    },
+                  },
+                ],
+                exits: [
+                  { id: 'room_2', direction: 'north', label: 'North Room', locked: false },
+                ],
+              },
+            })
+            """
+        )
+        if room_contract["room"]["id"] != "room_1" or room_contract["worldEpoch"] != 13:
+            raise AssertionError(f"toon room projection identity was not normalized: {room_contract!r}")
+        if room_contract["room"]["sprite"]["image_url"] != "/rooms/landing.png":
+            raise AssertionError(f"toon room projection sprite was not preserved: {room_contract!r}")
+        if room_contract["entities"][0]["id"] != "char_1" or not room_contract["entities"][0]["isCharacter"]:
+            raise AssertionError(f"toon room projection entities were not normalized: {room_contract!r}")
+        if room_contract["room"]["exits"][0]["id"] != "room_2":
+            raise AssertionError(f"toon room projection exits were not normalized: {room_contract!r}")
+        queued_contract = page.evaluate(
+            """
+            () => window.parseQueuedCommands({
+              character_id: 'char_1',
+              world_epoch: 14,
+              commands: [
+                { command_id: 'cmd_1', character_id: 'char_1', command_type: 'wait' },
+              ],
+            })
+            """
+        )
+        if queued_contract["characterId"] != "char_1" or queued_contract["commands"][0]["command_id"] != "cmd_1":
+            raise AssertionError(f"toon queued command projection was not normalized: {queued_contract!r}")
 
         page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
         collision_rects = page.evaluate(
