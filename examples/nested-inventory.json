@@ -3,6 +3,8 @@
   "bunnyland": { "seed": "nested-test", "generator": "handcrafted" },
   "prefabs": { "entity": { "components": {} } },
   "entities": {
+    "mosswood": { "prefab": "entity", "created_epoch": 0 },
+    "mosslit_glade": { "prefab": "entity", "created_epoch": 0 },
     "room1": { "prefab": "entity", "created_epoch": 0 },
     "room2": { "prefab": "entity", "created_epoch": 0 },
     "room3": { "prefab": "entity", "created_epoch": 0 },
@@ -24,6 +26,10 @@
     "rew1": { "prefab": "entity", "created_epoch": 0 }
   },
   "components": {
+    "RegionComponent": {
+      "mosswood": { "name": "Mosswood", "kind": "region", "population": 1800, "climate": "temperate", "terrain": "old forest" },
+      "mosslit_glade": { "name": "Mosslit Glade", "kind": "area", "population": 40, "climate": "shaded", "terrain": "warren burrows" }
+    },
     "RoomComponent": {
       "room1": { "title": "Mosslit Burrow", "biome": "burrow", "indoor": true },
       "room2": { "title": "North Tunnel", "biome": "tunnel", "indoor": true },
@@ -119,6 +125,14 @@
       "room2": [{ "target": "room1", "edge": { "direction": "south" } }]
     },
     "Contains": {
+      "mosswood": [
+        { "target": "mosslit_glade", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "mosslit_glade": [
+        { "target": "room1", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "room2", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "room3", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
       "room1": [
         { "target": "clover", "edge": { "mode": "occupant" } },
         { "target": "pip", "edge": { "mode": "occupant" } },

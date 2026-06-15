@@ -3,6 +3,8 @@
   "bunnyland": { "seed": "frostpeak-hold", "generator": "handcrafted" },
   "prefabs": { "entity": { "components": {} } },
   "entities": {
+    "frostpeak_mountains": { "prefab": "entity", "created_epoch": 0 },
+    "frostpeak_hold": { "prefab": "entity", "created_epoch": 0 },
     "great_hall": { "prefab": "entity", "created_epoch": 0 },
     "mead_hall": { "prefab": "entity", "created_epoch": 0 },
     "war_room": { "prefab": "entity", "created_epoch": 0 },
@@ -39,6 +41,10 @@
     "rew_blade": { "prefab": "entity", "created_epoch": 0 }
   },
   "components": {
+    "RegionComponent": {
+      "frostpeak_mountains": { "name": "Frostpeak Mountains", "kind": "region", "population": 9000, "climate": "subarctic", "terrain": "glaciered peaks" },
+      "frostpeak_hold": { "name": "Frostpeak Hold", "kind": "building", "population": 140, "climate": "indoor", "terrain": "stone longhouse" }
+    },
     "RoomComponent": {
       "great_hall": { "title": "Great Hall", "biome": "hall", "indoor": true },
       "mead_hall": { "title": "Mead Hall", "biome": "hall", "indoor": true },
@@ -165,6 +171,17 @@
       "forge": [{ "target": "training_yard", "edge": { "direction": "west" } }]
     },
     "Contains": {
+      "frostpeak_mountains": [
+        { "target": "frostpeak_hold", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "frostpeak_hold": [
+        { "target": "great_hall", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "mead_hall", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "war_room", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "forge", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "training_yard", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "dungeon", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
       "great_hall": [
         { "target": "ragnvald", "edge": { "mode": "occupant" } },
         { "target": "war_chest", "edge": { "mode": "fixture" } }

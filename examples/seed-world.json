@@ -32,6 +32,14 @@
     }
   },
   "entities": {
+    "mistmoor_marsh": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
+    "mosslit_warren": {
+      "prefab": "entity",
+      "created_epoch": 0
+    },
     "entity_1780174690137004": {
       "prefab": "entity",
       "created_epoch": 0
@@ -78,6 +86,10 @@
     }
   },
   "components": {
+    "RegionComponent": {
+      "mistmoor_marsh": { "name": "Mistmoor Marsh", "kind": "region", "population": 2400, "climate": "wet", "terrain": "reed marsh" },
+      "mosslit_warren": { "name": "Mosslit Warren", "kind": "area", "population": 60, "climate": "damp", "terrain": "mossy burrows" }
+    },
     "IdentityComponent": {
       "entity_1780174690137004": {
         "name": "a stone basin of water",
@@ -514,6 +526,37 @@
       ]
     },
     "Contains": {
+      "mistmoor_marsh": [
+        {
+          "target": "mosslit_warren",
+          "edge": {
+            "mode": "region",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        }
+      ],
+      "mosslit_warren": [
+        {
+          "target": "entity_1780174690137002",
+          "edge": {
+            "mode": "region",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        },
+        {
+          "target": "entity_1780174690137001",
+          "edge": {
+            "mode": "region",
+            "visible": true,
+            "discovered": true,
+            "order": 0
+          }
+        }
+      ],
       "entity_1780174690137001": [
         {
           "target": "entity_1780174690137003",

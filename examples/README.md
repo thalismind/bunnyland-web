@@ -14,27 +14,32 @@ Drop any of these into the inspector (file picker or drag-and-drop) to explore o
   Bramble, adds relationships for the **Social view**: Clover and Pip are partners (with
   mutual social bonds), Bramble is Pip's parent and jealous of Clover. It also has a quest
   for the **Quests view**: "Find the Lost Carrot" (active) with one done and one pending
-  objective, plus an unclaimed reward.
+  objective, plus an unclaimed reward. The three rooms sit under a region hierarchy
+  (`Mosswood` → `Mosslit Glade`) for the **Regions view**.
 
 - **`barbarian-hold.json`** — *Frostpeak Hold*, a larger barbarian world: six rooms
   (great hall, mead hall, war room, forge, training yard, and a one-way trapdoor down to a
   dungeon), five characters across LLM / Discord / suspended control, nested loot (a locked
   war chest holding a runic coffer holding a frost rune), a wed Jarl and shieldmaiden with a
   jealous seer, and the "Reclaim the Frostblade" quest. A captive thrall is downed, bleeding,
-  and injured.
+  and injured. The six rooms sit under a region hierarchy (`Frostpeak Mountains` →
+  `Frostpeak Hold`) for the **Regions view**.
 
 - **`scifi-station.json`** — *Derelict Station Kepler-9*, a larger sci-fi world: seven decks
   laid out by ship bearings (fore/aft/port/starboard), a locked reactor blast door and a
   one-way maintenance crawlway, a deactivated android, an injured engineer, a cryosleeping
   colonist, nested cargo (crate → sealed case → data core), and two quests ("Restore Main
-  Power", "Wake the Colonists").
+  Power", "Wake the Colonists"). The seven decks sit under a region hierarchy
+  (`Kepler-9 System` → `Derelict Station Kepler-9`) for the **Regions view**.
 
 - **`regional-hierarchy.json`** — a compact map-scale demo that uses `Contains` edges with
   `mode: "region"` for every regional level: planet → continent → country → region → city
   → area → neighborhood → zone → street → building → story → room.
 
 - **`seed-world.json`** — a real snapshot saved from the server (`--seed test`). Two
-  connected rooms with characters and ground items; useful as a realistic baseline.
+  connected rooms with characters and ground items; useful as a realistic baseline. Both
+  rooms sit under a region hierarchy (`Mistmoor Marsh` → `Mosslit Warren`) for the
+  **Regions view**.
 
 ## Example scripts
 

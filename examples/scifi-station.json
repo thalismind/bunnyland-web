@@ -3,6 +3,8 @@
   "bunnyland": { "seed": "kepler-9", "generator": "handcrafted" },
   "prefabs": { "entity": { "components": {} } },
   "entities": {
+    "kepler9_system": { "prefab": "entity", "created_epoch": 0 },
+    "kepler9_station": { "prefab": "entity", "created_epoch": 0 },
     "bridge": { "prefab": "entity", "created_epoch": 0 },
     "medbay": { "prefab": "entity", "created_epoch": 0 },
     "engineering": { "prefab": "entity", "created_epoch": 0 },
@@ -42,6 +44,10 @@
     "obj_thaw": { "prefab": "entity", "created_epoch": 0 }
   },
   "components": {
+    "RegionComponent": {
+      "kepler9_system": { "name": "Kepler-9 System", "kind": "sector", "population": 0, "climate": "vacuum", "terrain": "asteroid belt" },
+      "kepler9_station": { "name": "Derelict Station Kepler-9", "kind": "station", "population": 5, "climate": "failing life support", "terrain": "orbital decks" }
+    },
     "RoomComponent": {
       "bridge": { "title": "Command Bridge", "biome": "deck", "indoor": true },
       "medbay": { "title": "Med Bay", "biome": "deck", "indoor": true },
@@ -174,6 +180,18 @@
       "cryo": [{ "target": "medbay", "edge": { "direction": "fore" } }]
     },
     "Contains": {
+      "kepler9_system": [
+        { "target": "kepler9_station", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
+      "kepler9_station": [
+        { "target": "bridge", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "medbay", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "engineering", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "cargo_hold", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "airlock", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "reactor", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } },
+        { "target": "cryo", "edge": { "mode": "region", "visible": true, "discovered": true, "order": 0 } }
+      ],
       "bridge": [{ "target": "vega", "edge": { "mode": "occupant" } }],
       "medbay": [
         { "target": "okafor", "edge": { "mode": "occupant" } },
