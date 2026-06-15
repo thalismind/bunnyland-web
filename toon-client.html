@@ -541,7 +541,7 @@ const UNNARRATED_EVENT_TYPES = new Set([
 ]);
 const EVENT_BASE_KEYS = new Set([
   'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
-  'target_ids', 'causation_id', 'correlation_id',
+  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
 ]);
 
 const fmtPoints = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
@@ -1287,6 +1287,10 @@ class RoomClient {
   _renderEventLine(data) {
     const event = data.event || {};
     const eventType = String(data.event_type || 'Event');
+    if (eventType === 'ActorMovedEvent' && this.playerId &&
+        event.actor_id === this.playerId && event.arrival_summary) {
+      return { text: String(event.arrival_summary), kind: '' };
+    }
     const actor = event.actor_id ? this._nameFor(event.actor_id) : null;
     const details = [];
     for (const [key, value] of Object.entries(event)) {
