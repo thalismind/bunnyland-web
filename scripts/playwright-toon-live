@@ -183,6 +183,25 @@ def main() -> None:
         page.wait_for_timeout(1000)
         shots.append(screenshot(page, "05-room-moved"))
 
+        # Clicking a door in your own room queues a move through that exit (no menu/picker).
+        page.wait_for_function(
+            "() => window.app?._playerInView() && document.querySelector('#stage .door')",
+            timeout=15000,
+        )
+        before_door_room = new_room
+        page.locator("#stage .door").first.click()
+        door_moved = wait_for(
+            page,
+            "room movement through a clicked door",
+            lambda: character_room(page, character_id),
+            lambda projection: (projection.get("room") or {}).get("id")
+            not in (None, before_door_room),
+        )
+        door_room = (door_moved.get("room") or {}).get("id")
+        page.locator("#btn-follow").click()
+        page.wait_for_timeout(1000)
+        shots.append(screenshot(page, "06-door-moved"))
+
         browser.close()
 
     print(
@@ -195,6 +214,7 @@ def main() -> None:
                 "start_room": start_room,
                 "expected_exit_room": expected_exit_room,
                 "new_room": new_room,
+                "door_room": door_room,
                 "before_pos": before_pos,
                 "target_pos": target_pos,
                 "activity": activity,

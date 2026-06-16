@@ -1353,6 +1353,27 @@ class RoomClient {
     if (!ok) this.localDirty = true;
   }
 
+  // Queue a real move through a clicked door. The exit's id is the destination room id,
+  // which is exactly what the move command's exit_id argument expects. The server validates
+  // reachability and queues the action when the player is short on points.
+  async _moveThroughExit(exit) {
+    if (!exit || !this._playerInView()) return;
+    const action = this._availableActions().find(item =>
+      actionArguments(item).some(arg => arg.target_group === 'exits'));
+    if (!action) return;
+    const exitArg = actionArguments(action).find(arg => arg.target_group === 'exits');
+    const cost = actionCost(action);
+    if (await this._postCommand(
+      action.command_type || actionTool(action),
+      { [exitArg.key]: exit.id },
+      cost.action,
+      cost.focus,
+      actionLane(action),
+    )) {
+      await this._refresh();
+    }
+  }
+
   // ── Room action verbs ────────────────────────────────────────────────────────
 
   async _doVerb(verb) {
@@ -1595,7 +1616,7 @@ class RoomClient {
 
     const hint = document.getElementById('stage-hint');
     hint.textContent = this._playerInView()
-      ? 'Click or use arrow keys / WASD to move · doors lead to other rooms'
+      ? 'Click or use arrow keys / WASD to move · click a door to walk to the next room'
       : (this.playerId ? 'Spectating another room — “Follow player” to return' : 'Pick a player to move');
   }
 
@@ -1634,13 +1655,21 @@ class RoomClient {
         door.style.bottom = oy > 0 ? `${margin}px` : 'auto';
         if (ox === 0) door.style.transform = 'translateX(-50%)';
         if (oy === 0) door.style.transform = 'translateY(-50%)';
-        door.title = `Go to ${exit.label}`;
+        door.title = this._playerInView()
+          ? `Walk through ${exit.label}`
+          : `Look into ${exit.label}`;
         door.addEventListener('click', () => {
-          this.viewRoomId = exit.id;
-          this.followPlayer = false;
-          this.roomProjection = null;
-          this._refreshRoomProjection(exit.id, { render: true });
-          this.render();
+          // From your own room a door is a real exit: queue a move through it. While
+          // spectating another room you cannot move there, so the door just peeks further.
+          if (this._playerInView()) {
+            this._moveThroughExit(exit);
+          } else {
+            this.viewRoomId = exit.id;
+            this.followPlayer = false;
+            this.roomProjection = null;
+            this._refreshRoomProjection(exit.id, { render: true });
+            this.render();
+          }
         });
         stage.appendChild(door);
       }
