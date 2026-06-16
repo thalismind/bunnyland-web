@@ -329,7 +329,7 @@
     <span style="color: var(--bl-text);">🐰 Bunnyland Toon</span>
     <span class="toolbar-sep">|</span>
     <label for="api-url">Server:</label>
-    <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+    <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <span class="toolbar-sep">|</span>
@@ -694,6 +694,7 @@ class RoomClient {
     this._bindUi();
     this.render();                 // show the initial (disconnected) action panel
     this._restoreServerParam();
+    this._loadConfig();
     setInterval(() => this._syncTick(), SYNC_INTERVAL_MS);
   }
 
@@ -731,6 +732,22 @@ class RoomClient {
     if (server) {
       document.getElementById('api-url').value = server;
       this.connect(server);
+    }
+  }
+
+  async _loadConfig() {
+    // Match the other web clients: pick up the deploy-specific server URL and auto-connect
+    // from config.json. A ?server= param (handled by _restoreServerParam) still wins.
+    try {
+      const res = await fetch('config.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const config = await res.json();
+      if (config.serverUrl && !this.connected) {
+        document.getElementById('api-url').value = config.serverUrl;
+      }
+      if (config.autoConnect && !this.connected) this.connect(config.serverUrl);
+    } catch (_err) {
+      // Static local usage works without config.json.
     }
   }
 

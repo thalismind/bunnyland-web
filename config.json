@@ -1,4 +1,4 @@
 {
-  "serverUrl": "http://localhost:8765",
+  "serverUrl": "/api/",
   "autoConnect": false
 }
