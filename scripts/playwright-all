@@ -34,3 +34,4 @@ trap cleanup EXIT
 scripts/playwright-inspector
 scripts/playwright-world-editor-toolbar
 scripts/playwright-world-editor
+scripts/playwright-discord-link

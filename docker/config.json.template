@@ -1,0 +1,5 @@
+{
+  "serverUrl": "/api/",
+  "autoConnect": true,
+  "discordUrl": "${BUNNYLAND_DISCORD_URL}"
+}

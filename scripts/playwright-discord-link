@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Playwright checks for the deployment Discord link surfaced from config.json.
+
+The frontend renders config.json from its environment at container start; a configured
+``discordUrl`` should appear on the welcome page (hero button + Discord bullet) and in the
+shared client menu footer, and should be absent when no URL is configured. This test mocks
+config.json with Playwright route interception so it does not depend on a deployed value.
+"""
+
+from pathlib import Path
+import json
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+DISCORD_URL = "https://discord.gg/bunnyland-example"
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def mock_config(page, discord_url: str) -> None:
+    body = json.dumps(
+        {"serverUrl": "/api/", "autoConnect": False, "discordUrl": discord_url}
+    )
+    page.route(
+        "**/config.json",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=body
+        ),
+    )
+
+
+def check_present(page) -> None:
+    mock_config(page, DISCORD_URL)
+    page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
+
+    hero = page.locator("#discord-link")
+    hero.wait_for(state="visible")
+    if hero.get_attribute("href") != DISCORD_URL:
+        raise AssertionError("welcome hero Discord button has the wrong href")
+
+    entry_link = page.locator("#discord-entry a")
+    entry_link.wait_for(state="visible")
+    if entry_link.get_attribute("href") != DISCORD_URL:
+        raise AssertionError("welcome Discord bullet did not become a link")
+
+    page.locator("#btn-client-menu").click()
+    footer = page.locator(".client-menu-discord")
+    footer.wait_for(state="visible")
+    if footer.get_attribute("href") != DISCORD_URL:
+        raise AssertionError("client menu Discord link has the wrong href")
+
+
+def check_absent(page) -> None:
+    mock_config(page, "")
+    page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
+
+    if page.locator("#discord-link").is_visible():
+        raise AssertionError("welcome hero Discord button should stay hidden when unset")
+    if page.locator("#discord-entry a").count() != 0:
+        raise AssertionError("welcome Discord bullet should stay plain text when unset")
+
+    page.locator("#btn-client-menu").click()
+    page.locator(".client-menu-item").first.wait_for()
+    if page.locator(".client-menu-discord").count() != 0:
+        raise AssertionError("client menu Discord link should be absent when unset")
+
+
+def main() -> None:
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+
+        present = browser.new_page(viewport={"width": 1280, "height": 720})
+        check_present(present)
+        present.close()
+
+        absent = browser.new_page(viewport={"width": 1280, "height": 720})
+        check_absent(absent)
+        absent.close()
+
+        browser.close()
+
+    print("discord_link=ok")
+
+
+if __name__ == "__main__":
+    main()

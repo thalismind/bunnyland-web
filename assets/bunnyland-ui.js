@@ -48,6 +48,20 @@
     },
   ];
 
+  let deployConfigPromise = null;
+
+  // Fetch the deployment's config.json once and reuse it. Every client already reads this
+  // file for serverUrl/autoConnect; the shared menu reads it too so a configured Discord
+  // invite can appear in the menu on every page without each client wiring it up.
+  function loadConfig() {
+    if (!deployConfigPromise) {
+      deployConfigPromise = fetch('config.json', { cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : {}))
+        .catch(() => ({}));
+    }
+    return deployConfigPromise;
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, '&amp;')
@@ -133,7 +147,7 @@
     return dialog;
   }
 
-  function renderClientMenu(dialog) {
+  function renderClientMenu(dialog, discordUrl = '') {
     const current = currentPageName();
     dialog.innerHTML = `
       <div class="client-menu-card">
@@ -158,6 +172,11 @@
             `;
           }).join('')}
         </div>
+        ${discordUrl ? `
+          <div class="client-menu-footer">
+            <a class="client-menu-discord" href="${escapeHtml(discordUrl)}" target="_blank" rel="noopener">Join the Discord</a>
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -168,6 +187,12 @@
     dialog.classList.remove('hidden');
     const close = dialog.querySelector('.client-menu-close');
     close?.focus();
+    // config.json arrives async; re-render in place once it does so the Discord link
+    // appears without blocking the menu from opening immediately.
+    loadConfig().then((config) => {
+      const url = typeof config?.discordUrl === 'string' ? config.discordUrl.trim() : '';
+      if (url && !dialog.classList.contains('hidden')) renderClientMenu(dialog, url);
+    });
   }
 
   function closeClientMenu() {
@@ -294,6 +319,7 @@
     escapeHtml,
     initClientMenu,
     initTheme,
+    loadConfig,
     setTheme,
   };
 

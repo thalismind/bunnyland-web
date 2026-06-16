@@ -238,6 +238,28 @@ button:disabled { opacity: 0.4; cursor: default; }
   white-space: nowrap;
 }
 
+.client-menu-footer {
+  padding: 10px 14px;
+  border-top: 1px solid var(--bl-border);
+  background: var(--bl-bg);
+}
+
+.client-menu-discord {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-sm);
+  color: var(--bl-text);
+  font-size: var(--bl-text-sm);
+  text-decoration: none;
+}
+
+.client-menu-discord:hover {
+  background: var(--bl-surface);
+  border-color: var(--bl-accent);
+}
+
 #world-info,
 #status,
 #save-status,

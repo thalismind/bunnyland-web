@@ -359,6 +359,7 @@
           <div class="quick-links" aria-label="Get started">
             <a class="button-link primary" href="toon-client.html">Start playing</a>
             <a class="button-link" href="https://bunnyland.dev/guides/">Guides</a>
+            <a id="discord-link" class="button-link" href="#" target="_blank" rel="noopener" style="display:none">Join the Discord</a>
           </div>
         </div>
         <aside class="hero-panel" aria-label="Ways to play">
@@ -367,7 +368,7 @@
             <p><strong>Three ways to play:</strong></p>
             <ul class="play-list">
               <li><a href="toon-client.html">Toon Client</a> — a room-by-room view in your browser.</li>
-              <li><strong>Discord</strong> — Discord commands in a server channel.</li>
+              <li><span id="discord-entry"><strong>Discord</strong></span> — Discord commands in a server channel.</li>
               <li><strong>Terminal</strong> — the Textual TUI or the line REPL (below).</li>
             </ul>
           </div>
@@ -452,17 +453,39 @@
   // Fill the TUI/REPL connect commands from this deployment's config.json. The web clients
   // use a same-origin serverUrl (e.g. "/api/"); the terminal clients need an absolute URL,
   // so resolve it against this page's origin.
-  (async function showTerminalCommands() {
+  (async function applyDeployConfig() {
     let serverUrl = '/api/';
+    let discordUrl = '';
     try {
       const res = await fetch('config.json', { cache: 'no-store' });
       if (res.ok) {
         const cfg = await res.json();
         if (cfg && typeof cfg.serverUrl === 'string' && cfg.serverUrl) serverUrl = cfg.serverUrl;
+        if (cfg && typeof cfg.discordUrl === 'string') discordUrl = cfg.discordUrl.trim();
       }
     } catch (_err) {
-      // No config.json (static/local use): fall back to same-origin /api/.
+      // No config.json (static/local use): fall back to same-origin /api/ and no Discord link.
     }
+
+    // Surface the deployment's Discord invite when one is configured; otherwise the welcome
+    // page makes no promise of a Discord (the hero button stays hidden, the bullet stays plain).
+    if (discordUrl) {
+      const link = document.getElementById('discord-link');
+      if (link) {
+        link.href = discordUrl;
+        link.style.display = '';
+      }
+      const entry = document.getElementById('discord-entry');
+      if (entry) {
+        const anchor = document.createElement('a');
+        anchor.href = discordUrl;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener';
+        anchor.innerHTML = '<strong>Discord</strong>';
+        entry.replaceChildren(anchor);
+      }
+    }
+
     const base = new URL(serverUrl, location.href).href.replace(/\/+$/, '');
     const fill = (id, program) => {
       const el = document.getElementById(id);
