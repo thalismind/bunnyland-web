@@ -159,7 +159,7 @@
     .section-heading p {
       max-width: 560px;
       color: var(--bl-text-soft);
-      font-size: var(--bl-text-sm);
+      font-size: 14px;
       line-height: 1.55;
     }
 
@@ -174,7 +174,7 @@
     }
 
     .client-grid {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
     .info-card,
@@ -199,7 +199,7 @@
     .client-card p {
       margin-top: 8px;
       color: var(--bl-text-soft);
-      font-size: var(--bl-text-sm);
+      font-size: 14px;
       line-height: 1.6;
     }
 
@@ -310,7 +310,7 @@
       overflow-x: auto;
       white-space: nowrap;
       color: var(--bl-text);
-      font-size: var(--bl-text-sm);
+      font-size: 13px;
     }
     .cmd-copy {
       flex: 0 0 auto;
@@ -327,11 +327,17 @@
       gap: 7px;
     }
     .play-list li {
-      font-size: var(--bl-text-sm);
+      font-size: 14px;
       color: var(--bl-text-soft);
-      line-height: 1.5;
+      line-height: 1.55;
     }
     .play-list strong { color: var(--bl-text); }
+    .play-list a,
+    .play-list a:visited {
+      color: var(--bl-accent);
+      text-decoration: underline;
+    }
+    .play-list a:hover { color: var(--bl-accent-strong); }
   </style>
 </head>
 <body>
@@ -351,7 +357,7 @@
           <h1 id="welcome-title">A shared world for players, admins, scripts, and AI agents.</h1>
           <p class="lede">An open-source simulation server. Humans and LLM-driven characters share one living world and play it with the same commands.</p>
           <div class="quick-links" aria-label="Get started">
-            <a class="button-link primary" href="toon-client.html">Start as a player</a>
+            <a class="button-link primary" href="toon-client.html">Start playing</a>
             <a class="button-link" href="https://bunnyland.dev/guides/">Guides</a>
           </div>
         </div>
