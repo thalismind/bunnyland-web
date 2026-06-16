@@ -75,8 +75,8 @@ branch tags and `latest` for the default branch.
 
 ## Configuration
 
-On load the client reads `config.json` (next to `index.html`) for deploy-specific
-settings:
+On load the client reads `config.json` (served at the site root, beside the pages) for
+deploy-specific settings:
 
 ```json
 {
@@ -203,6 +203,6 @@ Each carries an entity-appropriate zoom-out button (`↑ Room Map`, `↑ Room`, 
 
 ## Notes
 
-- No build step — single `index.html` file, LiteGraph loaded from CDN.
+- No build step — single `inspector.html` file, LiteGraph loaded from CDN.
 - Nodes are repositionable; pan with middle-click/right-drag, zoom with scroll wheel.
 - The inspector persists the last selected entity when navigating between views.

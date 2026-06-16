@@ -5,14 +5,14 @@
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   const CLIENT_MENU_ITEMS = [
     {
-      href: 'welcome.html',
+      href: 'index.html',
       title: 'Welcome',
       label: 'Start here',
       description: 'Project overview, docs, admin notes, and client chooser.',
       supportsServer: false,
     },
     {
-      href: 'index.html',
+      href: 'inspector.html',
       title: 'Inspector',
       label: 'Graph client',
       description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',

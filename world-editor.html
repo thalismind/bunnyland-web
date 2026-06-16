@@ -210,7 +210,7 @@
     <div class="pane-header">
       <div class="pane-title">Entity Editor</div>
       <span class="pane-count" id="selected-label">No selection</span>
-      <a class="nav-link push" id="inspector-link" href="index.html" hidden>Open Inspector</a>
+      <a class="nav-link push" id="inspector-link" href="inspector.html" hidden>Open Inspector</a>
     </div>
     <div class="editor-scroll" id="entity-editor"></div>
   </section>
@@ -1039,7 +1039,7 @@ class WorldEditor {
   }
 
   _inspectorHref(entityId) {
-    const url = new URL('index.html', location.href);
+    const url = new URL('inspector.html', location.href);
     const server = this._serverUrlForLinks();
     if (server) url.searchParams.set('server', server);
     else url.searchParams.delete('server');

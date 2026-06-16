@@ -73,7 +73,7 @@ def main() -> None:
         inspector_href = page.locator("#inspector-link").get_attribute("href")
         if (
             not inspector_href
-            or "index.html" not in inspector_href
+            or "inspector.html" not in inspector_href
             or "server=http%3A%2F%2Fbunnyland.test" not in inspector_href
             or "#map/linked_entity" not in inspector_href
         ):

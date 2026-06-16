@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Inspector</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/css/litegraph.css">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    #breadcrumb {
+      flex: 1;
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text-dim);
+      padding-left: 4px;
+    }
+    #breadcrumb .crumb { color: var(--bl-accent); cursor: pointer; }
+    #breadcrumb .crumb:hover { text-decoration: underline; }
+    #breadcrumb .crumb-current { color: var(--bl-text); }
+    #api-url { width: 190px; }
+    #api-status { font-size: var(--bl-text-sm); white-space: nowrap; }
+    #runtime-status { white-space: nowrap; }
+
+    /* ── Search / jump-to-entity ── */
+    #search-box { position: relative; }
+    #search-input {
+      width: 170px;
+    }
+    #search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 3px;
+      min-width: 240px;
+      max-height: 320px;
+      overflow-y: auto;
+      background: var(--bl-bg);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      z-index: 20;
+      box-shadow: var(--bl-shadow-popover);
+    }
+    #search-results.hidden { display: none; }
+    .search-item {
+      padding: 4px 9px;
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text);
+      cursor: pointer;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--bl-bg-strong);
+    }
+    .search-item:hover, .search-item.active { background: var(--bl-surface); }
+    .search-item .si-icon { margin-right: 4px; }
+    .search-item .si-type { color: var(--bl-text-dim); margin-left: 5px; }
+    .search-empty { padding: 8px 10px; font-size: var(--bl-text-sm); color: var(--bl-text-muted); }
+    #parents-toggle {
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text-soft);
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    #parents-toggle input { cursor: pointer; }
+
+    /* ── Main layout ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Graph area ── */
+    #graph-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #graph-canvas { display: block; }
+
+    #drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(30, 30, 46, 0.95);
+      z-index: 10;
+      font-size: 14px;
+      color: #a6adc8;
+      pointer-events: none;
+    }
+    #drop-overlay.hidden { display: none; }
+    #drop-overlay .title { font-size: 20px; color: #cdd6f4; }
+    #drop-overlay .hint { font-size: 11px; color: #585b70; margin-top: 4px; }
+
+    /* ── Right sidebar (inspector + optional event feed) ── */
+    #sidebar {
+      width: 370px;
+      min-width: 260px;
+      border-left: 1px solid #313244;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Inspector panel ── */
+    #inspector {
+      flex: 1;
+      min-height: 0;
+      background: #181825;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Event feed panel (optional, under the inspector) ── */
+    #event-panel {
+      flex-shrink: 0;
+      height: 45%;
+      display: flex;
+      flex-direction: column;
+      background: #181825;
+      border-top: 1px solid #313244;
+    }
+    #event-panel.hidden { display: none; }
+    #event-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: #89dceb;
+      background: #1e1e2e;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+    #event-panel-header .ev-title { font-weight: bold; }
+    #event-count { color: #585b70; }
+    #event-clear {
+      margin-left: auto;
+      font-size: 10px;
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      border-radius: 3px;
+      padding: 1px 7px;
+      cursor: pointer;
+    }
+    #event-clear:hover { background: #45475a; }
+    #event-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 3px 0;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+    #event-list::-webkit-scrollbar { width: 6px; }
+    #event-list::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
+    #event-empty { padding: 16px; text-align: center; color: #585b70; }
+    .ev-row {
+      padding: 1px 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid #1a1a2a;
+    }
+    .ev-row:hover { background: #1e1e2e; }
+    .ev-epoch { color: #585b70; margin-right: 5px; }
+    .ev-icon { margin-right: 4px; }
+    .ev-actor { color: #89b4fa; cursor: pointer; }
+    .ev-actor:hover { text-decoration: underline; }
+    .ev-text { color: #a6adc8; }
+    #events-toggle {
+      font-size: 11px;
+      color: #a6adc8;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    #events-toggle input { cursor: pointer; }
+
+    /* ── View switch (Map / Social) ── */
+    #view-switch { display: inline-flex; border: 1px solid #45475a; border-radius: 3px; overflow: hidden; }
+    #view-switch button {
+      padding: 2px 8px;
+      background: #1e1e2e;
+      border: none;
+      border-right: 1px solid #45475a;
+      color: #a6adc8;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    #view-switch button:last-child { border-right: none; }
+    #view-switch button.active { background: #45475a; color: #cdd6f4; }
+    #view-switch button:hover:not(.active) { background: #313244; }
+
+    /* ── Social view legend ── */
+    #social-legend {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 9;
+      background: rgba(24, 24, 37, 0.92);
+      border: 1px solid #313244;
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #a6adc8;
+      pointer-events: none;
+    }
+    #social-legend.hidden { display: none; }
+    #social-legend .leg-title { color: #89dceb; margin-bottom: 4px; font-weight: bold; }
+    #social-legend .leg-item { display: flex; align-items: center; gap: 6px; line-height: 1.7; }
+    #social-legend .leg-swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+
+    #inspector-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #313244;
+      background: #1e1e2e;
+      flex-shrink: 0;
+    }
+    #inspector-name {
+      font-size: 14px;
+      font-weight: bold;
+      color: #cdd6f4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #inspector-id {
+      font-size: 10px;
+      color: #585b70;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #inspector-links {
+      margin-top: 5px;
+    }
+    #inspector-links:empty {
+      display: none;
+    }
+    #inspector-kind {
+      font-size: 11px;
+      margin-top: 3px;
+      color: #a6adc8;
+    }
+    .control-badge {
+      font-weight: bold;
+      white-space: nowrap;
+    }
+    .status-badges {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #cdd6f4;
+    }
+
+    #inspector-body {
+      flex: 1;
+      overflow-y: auto;
+    }
+    #inspector-body::-webkit-scrollbar { width: 6px; }
+    #inspector-body::-webkit-scrollbar-track { background: #181825; }
+    #inspector-body::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
+
+    #inspector-empty {
+      padding: 20px;
+      text-align: center;
+      color: #585b70;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    /* ── Component sections ── */
+    .comp-section {
+      border-bottom: 1px solid #1e1e2e;
+    }
+    .comp-section > summary {
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #89dceb;
+      background: #1e1e2e;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .comp-section > summary::before { content: '▶'; font-size: 9px; color: #45475a; }
+    .comp-section[open] > summary::before { content: '▼'; }
+    .comp-section > summary:hover { background: #252535; }
+    .comp-section[open] > summary { color: #89b4fa; }
+
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .comp-table tr { border-bottom: 1px solid #1a1a2a; }
+    .comp-table tr:hover { background: #1e1e2e; }
+    .comp-table td {
+      padding: 2px 8px;
+      vertical-align: top;
+    }
+    .comp-table td.key {
+      color: #89b4fa;
+      width: 42%;
+      white-space: nowrap;
+      padding-right: 4px;
+      padding-left: 20px;
+    }
+    .comp-table td.val { color: #cdd6f4; word-break: break-word; }
+
+    .val-null { color: #585b70; font-style: italic; }
+    .val-bool-t { color: #a6e3a1; }
+    .val-bool-f { color: #f38ba8; }
+    .val-num { color: #fab387; }
+    .val-str { color: #a6e3a1; }
+
+    /* nested object inside a table cell */
+    .sub-table { margin: 2px 0 2px 8px; }
+    .sub-table td.key { padding-left: 4px; color: #74c7ec; }
+
+    /* ── Relationships section ── */
+    .rel-section {
+      padding: 5px 10px 8px 10px;
+      border-bottom: 1px solid #1e1e2e;
+    }
+    .rel-title {
+      font-size: 11px;
+      color: #89dceb;
+      margin-bottom: 4px;
+    }
+    .rel-row {
+      font-size: 10px;
+      color: #a6adc8;
+      padding: 1px 0 1px 10px;
+      line-height: 1.5;
+    }
+    .rel-edge-type { color: #89dceb; }
+    .rel-target { color: #89b4fa; cursor: pointer; }
+    .rel-target:hover { text-decoration: underline; }
+    .rel-edge-data { color: #6c7086; }
+
+    /* ── Meter bars (for hunger, thirst, etc.) ── */
+    .meter-bar-row td.val { padding-top: 1px; }
+    .meter-bar {
+      display: inline-block;
+      height: 6px;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="toolbar-row" id="toolbar-row1">
+    <label for="file-input">Snapshot:</label>
+    <input type="file" id="file-input" accept=".json">
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="http://localhost:8765" spellcheck="false">
+    <button id="btn-connect">Connect Live</button>
+    <span id="api-status">○ Offline</span>
+    <button id="btn-toggle-runtime" disabled>⏯</button>
+    <span id="runtime-status">runtime: offline</span>
+    <button id="btn-back" disabled>← Back</button>
+    <span id="search-box">
+      <input type="text" id="search-input" placeholder="🔍 find, type:, component:" spellcheck="false" autocomplete="off">
+      <div id="search-results" class="hidden"></div>
+    </span>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
+    <span id="view-switch">
+      <button id="btn-view-map" class="active">🗺 Map</button><button id="btn-view-region">🌐 Regions</button><button id="btn-view-social">👥 Social</button><button id="btn-view-quest">📜 Quests</button>
+    </span>
+    <label id="parents-toggle" title="Show the breadcrumb path as parent nodes you can zoom out to">
+      <input type="checkbox" id="toggle-parents" checked> parent nodes
+    </label>
+    <label id="events-toggle" title="Show a live feed of world events under the inspector">
+      <input type="checkbox" id="toggle-events"> events
+    </label>
+    <span class="toolbar-sep">|</span>
+    <span id="breadcrumb"><span class="crumb-current">Overview</span></span>
+    <span id="world-info"></span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="graph-wrapper">
+    <canvas id="graph-canvas"></canvas>
+    <div id="social-legend" class="hidden"></div>
+    <div id="drop-overlay">
+      <div class="title">🐰 Bunnyland Inspector</div>
+      <div>Load a world snapshot JSON to begin</div>
+      <div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div>
+    </div>
+  </div>
+  <div id="sidebar">
+    <div id="inspector">
+      <div id="inspector-header">
+        <div id="inspector-name">No entity selected</div>
+        <div id="inspector-id"></div>
+        <div id="inspector-links"></div>
+        <div id="inspector-kind"></div>
+      </div>
+      <div id="inspector-body">
+        <div id="inspector-empty">
+          Load a snapshot and click any node<br>to inspect its ECS components.
+        </div>
+      </div>
+    </div>
+    <div id="event-panel" class="hidden">
+      <div id="event-panel-header">
+        <span class="ev-title">⚡ Events</span>
+        <span id="event-count"></span>
+        <button id="event-clear">clear</button>
+      </div>
+      <div id="event-list">
+        <div id="event-empty">Connect to a live server to stream world events.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
+<script src="assets/bunnyland-ui.js"></script>
+<script>
+'use strict';
+
+BunnylandUI.initClientMenu({ showOnFirstLoad: true });
+
+// ── Snapshot parsing ─────────────────────────────────────────────────────────
+
+function parseSnapshot(json) {
+  const entities = {};
+  for (const id of Object.keys(json.entities || {})) {
+    entities[id] = { id, components: {}, relationships: {} };
+  }
+  for (const [ctype, table] of Object.entries(json.components || {})) {
+    for (const [eid, fields] of Object.entries(table)) {
+      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
+      entities[eid].components[ctype] = fields;
+    }
+  }
+  for (const [rtype, table] of Object.entries(json.relationships || {})) {
+    for (const [eid, edges] of Object.entries(table)) {
+      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
+      entities[eid].relationships[rtype] = edges;
+    }
+  }
+  return {
+    entities,
+    meta: json.bunnyland || {},
+    epoch: json.metadata?.epoch || 0,
+  };
+}
+
+// Parse the live server format: entities array, relationships use target_id.
+function parseApiSnapshot(data) {
+  const entities = {};
+  for (const e of data.entities || []) {
+    const rels = {};
+    for (const [rtype, edges] of Object.entries(e.relationships || {})) {
+      rels[rtype] = edges.map(({ target_id, edge }) => ({ target: target_id, edge }));
+    }
+    entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
+  }
+  return {
+    entities,
+    meta: data.metadata || {},
+    epoch: data.world_epoch || 0,
+  };
+}
+
+function entityType(entity) {
+  const c = entity.components;
+  if (c.RegionComponent) return 'region';
+  if (c.RoomComponent) return 'room';
+  if (c.CharacterComponent) return 'character';
+  if (c.DoorComponent) return 'door';
+  if (c.QuestComponent) return 'quest';
+  if (c.QuestObjectiveComponent) return 'objective';
+  if (c.QuestRewardComponent) return 'reward';
+  if (c.ContainerComponent) return 'container';
+  if (c.PortableComponent) return 'item';
+  return 'other';
+}
+
+function entityDisplayName(entity) {
+  const c = entity.components;
+  if (c.RegionComponent) return c.RegionComponent.name || entity.id;
+  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
+  if (c.QuestComponent) return c.QuestComponent.title || c.QuestComponent.quest_id || entity.id;
+  if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.description || entity.id;
+  if (c.QuestRewardComponent) return c.QuestRewardComponent.description || entity.id;
+  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
+  return entity.id.slice(0, 24);
+}
+
+function entitySubtitle(entity) {
+  const c = entity.components;
+  if (c.RegionComponent) return c.RegionComponent.kind || 'region';
+  if (c.RoomComponent) {
+    const r = c.RoomComponent;
+    return [r.biome, r.indoor ? 'indoor' : 'outdoor'].filter(Boolean).join(' · ');
+  }
+  if (c.CharacterComponent) return c.CharacterComponent.species || '';
+  if (c.DoorComponent) {
+    return c.LockableComponent?.locked ? '🔒 locked' : '';
+  }
+  if (c.QuestComponent) return c.QuestComponent.status || 'quest';
+  if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.completed ? '✅ done' : '⬜ to do';
+  if (c.QuestRewardComponent) return c.QuestRewardComponent.claimed ? 'claimed' : 'unclaimed';
+  if (c.DescriptionComponent) return c.DescriptionComponent.short || '';
+  if (c.IdentityComponent) return c.IdentityComponent.kind || '';
+  return '';
+}
+
+function compactText(value, maxLength = 28) {
+  if (value == null || value === '') return '';
+  const text = Array.isArray(value) ? value.filter(Boolean).join(', ') : String(value);
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 1).trimEnd() + '…';
+}
+
+function formatPopulation(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+    if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (abs >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+    return `${Math.round(value)}`;
+  }
+  return compactText(value, 16);
+}
+
+function temperatureIcon(celsius) {
+  if (celsius <= -10) return '🧊';
+  if (celsius <= 5) return '❄️';
+  if (celsius >= 30) return '🔥';
+  return '🌡️';
+}
+
+function terrainIcon(terrain) {
+  const text = String(terrain || '').toLowerCase();
+  if (/(mountain|hill|slope|highland|cliff|ridge)/.test(text)) return '⛰️';
+  if (/(river|lake|sea|coast|maritime|canal|water)/.test(text)) return '🌊';
+  if (/(forest|garden|green|wood|jungle)/.test(text)) return '🌳';
+  if (/(desert|dune|sand|waste)/.test(text)) return '🏜️';
+  if (/(city|urban|market|street|lane|road|cobble)/.test(text)) return '🏙️';
+  if (/(tower|building|indoor|level|story|floor|stone)/.test(text)) return '🏢';
+  return '🌐';
+}
+
+function regionCharacteristics(entity) {
+  const region = entity.components.RegionComponent;
+  if (!region) return [];
+  const temp = entity.components.TemperatureComponent?.celsius;
+  const population = formatPopulation(region.population);
+  const climate = compactText(region.climate, 14);
+  const terrain = compactText(region.terrain, 16);
+  const scale = [
+    population && `👥 ${population}`,
+    Number.isFinite(temp) && `${temperatureIcon(temp)} ${Math.round(temp)} C`,
+  ];
+  const environment = [
+    climate && `🌦️ ${climate}`,
+    terrain && `${terrainIcon(terrain)} ${terrain}`,
+  ];
+  return [scale.filter(Boolean).join(' · '), ...environment].filter(Boolean);
+}
+
+// A character's controller is a separate entity reached by the ControlledBy edge; its
+// component type says who is driving it: an LLM, a Discord player, or nobody (suspended).
+const CONTROL_STYLE = {
+  llm:       { icon: '🤖', label: 'LLM',       color: '#89b4fa' },
+  discord:   { icon: '🎮', label: 'Discord',   color: '#cba6f7' },
+  suspended: { icon: '💤', label: 'Suspended', color: '#6c7086' },
+};
+
+// Returns { kind, icon, label, color, detail } for whoever controls this entity, or null
+// if it has no controller (most non-character entities).
+function controlInfo(entity, world) {
+  const edges = entity.relationships?.ControlledBy;
+  if (!edges?.length) return null;
+  const controller = world.entities[edges[0].target];
+  if (!controller) return null;
+  const c = controller.components;
+  if (c.LLMControllerComponent) {
+    const m = c.LLMControllerComponent;
+    return { kind: 'llm', ...CONTROL_STYLE.llm,
+             detail: [m.profile_name, m.model].filter(Boolean).join(' / ') };
+  }
+  if (c.DiscordControllerComponent) {
+    const d = c.DiscordControllerComponent;
+    return { kind: 'discord', ...CONTROL_STYLE.discord,
+             detail: d.discord_user_id ? `user ${d.discord_user_id}` : '' };
+  }
+  if (c.SuspendedControllerComponent) {
+    const s = c.SuspendedControllerComponent;
+    return { kind: 'suspended', ...CONTROL_STYLE.suspended, detail: s.reason || '' };
+  }
+  return null;
+}
+
+// How long after an ActorMovedEvent (in world-epoch units) a character still counts as
+// "recently moved". Approximate by design — it just needs to fade out as the graph
+// refreshes, not be tick-exact.
+const MOVED_RECENT_EPOCHS = 60;
+const GRAPH_NODE_WIDTH = 240;
+const GRAPH_MIN_FIT_SCALE = 0.65;
+const GRAPH_WIDGET_HEIGHT = 24;
+const MOVED_HIGHLIGHT = '#f9e2af';
+
+// A need's meter carries its own band thresholds; report the worst one it has crossed.
+function needBand(meter) {
+  if (!meter) return null;
+  const v = meter.value ?? 0;
+  if (meter.crisis_at != null && v >= meter.crisis_at) return 'crisis';
+  if (meter.urgent_at != null && v >= meter.urgent_at) return 'urgent';
+  if (meter.warning_at != null && v >= meter.warning_at) return 'warning';
+  return null;
+}
+
+// Map the server's affect labels to a face; unknown labels still show as a 💭 mood badge.
+const MOOD_FACES = {
+  angry: '😠', insulted: '😠', furious: '😠',
+  afraid: '😨', threatened: '😨', scared: '😨',
+  sad: '😢', unhappy: '🙁', grieving: '😢',
+  stressed: '😰', anxious: '😰',
+  content: '🙂', happy: '😀', flattered: '😊', comforted: '😌',
+  confident: '😎', calm: '😌', excited: '🤩', curious: '🧐', lonely: '🥺',
+};
+function moodBadge(affect) {
+  const labels = affect?.labels || [];
+  if (!labels.length) return null;
+  let icon = '💭';
+  for (const l of labels) { if (MOOD_FACES[l]) { icon = MOOD_FACES[l]; break; } }
+  return { icon, label: labels.join(', ') };
+}
+
+// Status badges for a character: lifecycle, injury, pregnancy, needs, mood, thoughts.
+// Returns [{ icon, label }]; non-characters get none. Several is expected — the node
+// renders them on their own row.
+function statusBadges(entity, world) {
+  const c = entity.components;
+  if (!c.CharacterComponent) return [];
+  const out = [];
+  if (c.DeadComponent) out.push({ icon: '💀', label: 'dead' });
+  else if (c.DownedComponent) out.push({ icon: '💫', label: 'downed' });
+  if (c.BleedingComponent && (c.BleedingComponent.rate || 0) > 0) out.push({ icon: '🩸', label: 'bleeding' });
+  if (c.InjuryComponent || entity.relationships?.HasInjury?.length) out.push({ icon: '🤕', label: 'injured' });
+  if (c.PregnancyComponent) out.push({ icon: '🤰', label: 'pregnant' });
+
+  const hb = needBand(c.HungerComponent?.meter);
+  if (hb) out.push({ icon: '🍽️', label: hb === 'crisis' ? 'starving' : hb === 'urgent' ? 'very hungry' : 'hungry' });
+  const tb = needBand(c.ThirstComponent?.meter);
+  if (tb) out.push({ icon: '💧', label: tb === 'crisis' ? 'parched' : tb === 'urgent' ? 'very thirsty' : 'thirsty' });
+
+  const mood = moodBadge(c.AffectComponent);
+  if (mood) out.push(mood);
+
+  const thoughts = entity.relationships?.HasThought?.length || 0;
+  if (thoughts) out.push({ icon: '💭', label: `${thoughts} thought${thoughts > 1 ? 's' : ''}` });
+  return out;
+}
+
+// Icons for the live event feed; anything not listed falls back to a bullet.
+const EVENT_ICONS = {
+  ActorMovedEvent: '🏃', NoiseHeardEvent: '👂', EntitySeenEvent: '👁',
+  AttentionShiftedEvent: '🔭', AffectChangedEvent: '💭',
+  ActionPointsChangedEvent: '⚡', FocusPointsChangedEvent: '🎯',
+  ControllerChangedEvent: '🎮', CharacterDownedEvent: '💫',
+  CharacterRevivedEvent: '✨', CharacterDiedEvent: '💀',
+  InjuryAddedEvent: '🤕', PainChangedEvent: '😣', BleedingChangedEvent: '🩸',
+  EncumbranceChangedEvent: '🎒', PartnershipStartedEvent: '💞',
+  PartnershipEndedEvent: '💔', PregnancyStartedEvent: '🤰',
+  BirthDueEvent: '👶', BirthResolvedEvent: '👶', AdoptionCompletedEvent: '🍼',
+  ResourceGatheredEvent: '🌿', ItemCraftedEvent: '🔨', JobAssignedEvent: '📋',
+  JobCompletedEvent: '✅', OwnershipClaimedEvent: '🏷', CommandExecutedEvent: '🛠',
+  CommandRejectedEvent: '🚫',
+};
+
+// "ActorMovedEvent" → "actor moved"
+function humanizeEvent(type) {
+  return type.replace(/Event$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+}
+
+// Character-to-character relationship edges, rendered as colour-coded links in the
+// social view (with a matching legend).
+const SOCIAL_EDGES = {
+  PartnerOf:          { color: '#f38ba8', label: 'partner' },
+  RelationshipStatus: { color: '#cba6f7', label: 'relationship' },
+  ParentOf:           { color: '#a6e3a1', label: 'parent of' },
+  JealousOf:          { color: '#fab387', label: 'jealous of' },
+  MemberOf:           { color: '#89b4fa', label: 'member of' },
+  SocialBond:         { color: '#585b70', label: 'social bond' },
+};
+
+// Edge types that express "what is inside / carried by" an entity. Rooms contain
+// characters & objects (Contains); characters carry items (Holding) and wear them
+// (Wearing); containers hold their contents (Contains). Walking these recursively is
+// what lets the graph drill room → character → bag → … to any depth.
+const CONTAINMENT_EDGES = ['Contains', 'Holding', 'Wearing'];
+
+// Direct children of an entity: [{ target, rtype, edge }], skipping rooms (a Contains
+// edge never points at a room, but be defensive) and dangling targets.
+function entityChildren(entity, world) {
+  const out = [];
+  for (const rtype of CONTAINMENT_EDGES) {
+    for (const { target, edge } of (entity.relationships[rtype] || [])) {
+      const ce = world.entities[target];
+      if (!ce || entityType(ce) === 'room') continue;
+      out.push({ target, rtype, edge });
+    }
+  }
+  return out;
+}
+
+function hasChildren(entity, world) {
+  return entityChildren(entity, world).length > 0;
+}
+
+function roomCharacterCount(room, world) {
+  return (room.relationships?.Contains || [])
+    .filter(({ target }) => world.entities[target]?.components?.CharacterComponent)
+    .length;
+}
+
+// ── Room layout ──────────────────────────────────────────────────────────────
+
+const DIR_OFFSET = {
+  north:     [0, -1], south:     [0,  1],
+  east:      [1,  0], west:     [-1,  0],
+  northeast: [1, -1], northwest: [-1, -1],
+  southeast: [1,  1], southwest: [-1,  1],
+  up:        [0, -1], down:      [0,  1],
+  // nautical / ship directions (sci-fi worlds)
+  fore:      [0, -1], aft:       [0,  1],
+  port:     [-1,  0], starboard: [1,  0],
+};
+const ROOM_SPACING = 280;
+
+function roomPositionKey(x, y) {
+  return `${x},${y}`;
+}
+
+function nearestFreeRoomPosition(x, y, occupied, maxRooms) {
+  if (!occupied.has(roomPositionKey(x, y))) return [x, y];
+
+  for (let ring = 1; ring <= maxRooms + 4; ring++) {
+    const candidates = [];
+    for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        candidates.push([dx, dy]);
+      }
+    }
+    candidates.sort((a, b) => {
+      const da = Math.abs(a[0]) + Math.abs(a[1]);
+      const db = Math.abs(b[0]) + Math.abs(b[1]);
+      if (da !== db) return da - db;
+      if (a[1] !== b[1]) return a[1] - b[1];
+      return a[0] - b[0];
+    });
+
+    for (const [dx, dy] of candidates) {
+      const cx = x + dx * ROOM_SPACING;
+      const cy = y + dy * ROOM_SPACING;
+      if (!occupied.has(roomPositionKey(cx, cy))) return [cx, cy];
+    }
+  }
+
+  return [x, y + (maxRooms + 5) * ROOM_SPACING];
+}
+
+function layoutRooms(world, roomIds) {
+  const positions = {};
+  const discovered = new Set();
+  const occupied = new Set();
+  if (!roomIds.length) return positions;
+  const roomIdSet = new Set(roomIds);
+
+  const reserve = (id, x, y) => {
+    const [rx, ry] = nearestFreeRoomPosition(x, y, occupied, roomIds.length);
+    positions[id] = [rx, ry];
+    occupied.add(roomPositionKey(rx, ry));
+    discovered.add(id);
+    return [rx, ry];
+  };
+
+  const queue = [{ id: roomIds[0] }];
+  reserve(roomIds[0], 0, 0);
+  while (queue.length) {
+    const { id } = queue.shift();
+    const [x, y] = positions[id];
+
+    for (const { target, edge } of (world.entities[id]?.relationships.ExitTo || [])) {
+      if (!roomIdSet.has(target) || discovered.has(target)) continue;
+      const dir = (edge?.direction || '').toLowerCase();
+      const [dx, dy] = DIR_OFFSET[dir] || [1, 0];
+      reserve(target, x + dx * ROOM_SPACING, y + dy * ROOM_SPACING);
+      queue.push({ id: target });
+    }
+  }
+
+  // Disconnected rooms fall below
+  let col = 0;
+  for (const id of roomIds) {
+    if (!positions[id]) {
+      reserve(id, col * ROOM_SPACING, ROOM_SPACING * 2);
+      col++;
+    }
+  }
+
+  // Shift everything to start at (80, 60)
+  const xs = Object.values(positions).map(p => p[0]);
+  const ys = Object.values(positions).map(p => p[1]);
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  for (const id of Object.keys(positions)) {
+    positions[id] = [positions[id][0] - minX + 80, positions[id][1] - minY + 60];
+  }
+  return positions;
+}
+
+// ── Regional layout ─────────────────────────────────────────────────────────
+
+const REGION_KIND_LEVELS = {
+  planet: 0,
+  continent: 1,
+  country: 2,
+  region: 3,
+  province: 3,
+  state: 3,
+  city: 4,
+  area: 5,
+  zone: 5,
+  neighborhood: 5,
+  neighbourhood: 5,
+  district: 5,
+  street: 6,
+  building: 7,
+  level: 8,
+  story: 8,
+  storey: 8,
+  floor: 8,
+};
+
+function regionalEdges(world) {
+  const out = [];
+  for (const entity of Object.values(world.entities)) {
+    for (const rel of (entity.relationships?.Contains || [])) {
+      if (!world.entities[rel.target]) continue;
+      if (rel.edge?.mode !== 'region') continue;
+      out.push({ source: entity.id, target: rel.target, edge: rel.edge || {} });
+    }
+  }
+  return out;
+}
+
+function regionalNodeIds(world) {
+  const ids = new Set();
+  for (const entity of Object.values(world.entities)) {
+    if (entity.components.RegionComponent) ids.add(entity.id);
+  }
+  for (const { source, target } of regionalEdges(world)) {
+    if (world.entities[source]) ids.add(source);
+    if (world.entities[target]) ids.add(target);
+  }
+  return [...ids];
+}
+
+function regionalLevel(entity, fallback) {
+  if (entity.components.RoomComponent) return 9;
+  const kind = String(entity.components.RegionComponent?.kind || '').toLowerCase();
+  return REGION_KIND_LEVELS[kind] ?? fallback;
+}
+
+function compareRegionalNodes(world, a, b, edgeA = {}, edgeB = {}) {
+  const orderA = edgeA.order ?? 0;
+  const orderB = edgeB.order ?? 0;
+  if (orderA !== orderB) return orderA - orderB;
+
+  const levelA = regionalLevel(world.entities[a], 0);
+  const levelB = regionalLevel(world.entities[b], 0);
+  if (levelA !== levelB) return levelA - levelB;
+
+  const nameOrder = entityDisplayName(world.entities[a])
+    .localeCompare(entityDisplayName(world.entities[b]));
+  if (nameOrder !== 0) return nameOrder;
+
+  return a.localeCompare(b);
+}
+
+function layoutRegions(world, nodeIds) {
+  const incoming = {};
+  const children = {};
+  const edges = regionalEdges(world);
+  for (const id of nodeIds) {
+    incoming[id] = 0;
+    children[id] = [];
+  }
+  for (const { source, target, edge } of edges) {
+    if (!(source in incoming) || !(target in incoming)) continue;
+    incoming[target]++;
+    children[source].push({ id: target, edge });
+  }
+
+  for (const id of Object.keys(children)) {
+    children[id].sort((a, b) => compareRegionalNodes(world, a.id, b.id, a.edge, b.edge));
+  }
+
+  const roots = nodeIds
+    .filter(id => incoming[id] === 0)
+    .sort((a, b) => compareRegionalNodes(world, a, b));
+
+  const positions = {};
+  const visited = new Set();
+  let nextLeaf = 0;
+  const COL_W = GRAPH_NODE_WIDTH + 46;
+  const ROW_H = 145;
+
+  const place = (id, depth, stack = new Set()) => {
+    if (stack.has(id)) {
+      const cycleX = nextLeaf++ * COL_W;
+      positions[id] = [cycleX, depth * ROW_H];
+      return cycleX;
+    }
+    if (visited.has(id)) return positions[id][0];
+
+    stack.add(id);
+    const childIds = (children[id] || []).map(child => child.id);
+    let x;
+    if (!childIds.length) {
+      x = nextLeaf++ * COL_W;
+    } else {
+      const childXs = childIds.map(child => place(child, depth + 1, stack));
+      x = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+    }
+    stack.delete(id);
+    visited.add(id);
+    positions[id] = [x, depth * ROW_H];
+    return x;
+  };
+
+  for (const root of roots) place(root, 0);
+  for (const id of [...nodeIds].sort((a, b) => compareRegionalNodes(world, a, b))) {
+    if (!visited.has(id)) place(id, Math.max(0, regionalLevel(world.entities[id], 0)));
+  }
+
+  const xs = Object.values(positions).map(p => p[0]);
+  const minX = Math.min(...xs, 0);
+  for (const id of Object.keys(positions)) {
+    positions[id] = [positions[id][0] - minX + 80, positions[id][1] + 60];
+  }
+  return positions;
+}
+
+// ── LiteGraph node types ─────────────────────────────────────────────────────
+
+const ENTITY_STYLE = {
+  region:    { color: '#4d5f1a', bgcolor: '#2d3910', titleColor: '#a6e3a1', icon: '🌐' },
+  room:      { color: '#1a5f7a', bgcolor: '#0e3f52', titleColor: '#74c7ec', icon: '🏠' },
+  character: { color: '#2a6a3a', bgcolor: '#1a4228', titleColor: '#a6e3a1', icon: '🐰' },
+  container: { color: '#6a4a1a', bgcolor: '#402e0a', titleColor: '#fab387', icon: '📦' },
+  item:      { color: '#4a3a6a', bgcolor: '#2a2048', titleColor: '#cba6f7', icon: '✦' },
+  other:     { color: '#383848', bgcolor: '#222232', titleColor: '#a6adc8', icon: '⬡' },
+  door:      { color: '#5a5030', bgcolor: '#332d18', titleColor: '#f9e2af', icon: '🚪' },
+  quest:     { color: '#6a5a1a', bgcolor: '#3f350a', titleColor: '#f9e2af', icon: '📜' },
+  objective: { color: '#1a5a6a', bgcolor: '#0e3a45', titleColor: '#89dceb', icon: '◻' },
+  reward:    { color: '#5a3a6a', bgcolor: '#341f40', titleColor: '#cba6f7', icon: '🎁' },
+};
+
+const REGION_KIND_STYLE = {
+  planet:        { color: '#3456a4', bgcolor: '#17213d', titleColor: '#9cc7ff', icon: '🪐' },
+  continent:     { color: '#2f7d46', bgcolor: '#143320', titleColor: '#9ee6a8', icon: '🗺️' },
+  country:       { color: '#8b6a1f', bgcolor: '#38290d', titleColor: '#f5d77a', icon: '⚑' },
+  region:        { color: '#2f7f78', bgcolor: '#123533', titleColor: '#94e2d5', icon: '🌐' },
+  province:      { color: '#4d7a35', bgcolor: '#203516', titleColor: '#b7e87a', icon: '◇' },
+  state:         { color: '#4d7a35', bgcolor: '#203516', titleColor: '#b7e87a', icon: '◇' },
+  city:          { color: '#9a5332', bgcolor: '#3d2115', titleColor: '#fab387', icon: '🏙️' },
+  area:          { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  zone:          { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  neighborhood:  { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  neighbourhood: { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  district:      { color: '#7d6a2f', bgcolor: '#322912', titleColor: '#f9e2af', icon: '▣' },
+  street:        { color: '#59616d', bgcolor: '#242932', titleColor: '#bac2de', icon: '↔' },
+  building:      { color: '#536879', bgcolor: '#1f2b34', titleColor: '#89dceb', icon: '🏢' },
+  level:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  story:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  storey:        { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+  floor:         { color: '#6d5a96', bgcolor: '#2b233e', titleColor: '#cba6f7', icon: '▤' },
+};
+
+function entityStyle(entity) {
+  const type = entityType(entity);
+  if (type === 'region') {
+    const kind = String(entity.components.RegionComponent?.kind || '').toLowerCase();
+    return REGION_KIND_STYLE[kind] || ENTITY_STYLE.region;
+  }
+  return ENTITY_STYLE[type] || ENTITY_STYLE.other;
+}
+
+// The icon shown for an entity: a custom EditorDisplayComponent.emoji wins; otherwise
+// fall back to the built-in per-kind iconography from ENTITY_STYLE.
+function entityIcon(entity) {
+  const emoji = entity?.components?.EditorDisplayComponent?.emoji;
+  if (emoji) return emoji;
+  return entityStyle(entity).icon;
+}
+
+// Register one generic node type used for all entity kinds.
+// We apply color/icon/widgets dynamically after creation.
+(function registerNodeTypes() {
+  for (const [kind, style] of Object.entries(ENTITY_STYLE)) {
+    function EntityNode() {
+      this.addInput('←', '');
+      this.addOutput('→', '');
+    }
+    EntityNode.title = kind;
+    EntityNode.title_text_color = style.titleColor;
+    EntityNode.prototype = Object.create(LGraphNode.prototype);
+    EntityNode.prototype.constructor = EntityNode;
+    LiteGraph.registerNodeType(`bunnyland/${kind}`, EntityNode);
+  }
+})();
+
+// ── Inspector rendering ───────────────────────────────────────────────────────
+
+function esc(s) {
+  return BunnylandUI.escapeHtml(s);
+}
+
+function renderScalar(v) {
+  if (v === null || v === undefined) return '<span class="val-null">null</span>';
+  if (typeof v === 'boolean') return `<span class="${v ? 'val-bool-t' : 'val-bool-f'}">${v}</span>`;
+  if (typeof v === 'number') return `<span class="val-num">${v}</span>`;
+  if (typeof v === 'string') return `<span class="val-str">"${esc(v)}"</span>`;
+  return esc(String(v));
+}
+
+function renderValue(v, depth) {
+  if (depth === undefined) depth = 0;
+  if (v === null || v === undefined) return '<span class="val-null">null</span>';
+  if (typeof v === 'boolean') return `<span class="${v ? 'val-bool-t' : 'val-bool-f'}">${v}</span>`;
+  if (typeof v === 'number') return `<span class="val-num">${v}</span>`;
+  if (typeof v === 'string') return `<span class="val-str">"${esc(v)}"</span>`;
+  if (Array.isArray(v)) {
+    if (!v.length) return '<span class="val-null">[]</span>';
+    if (v.every(x => typeof x !== 'object' || x === null)) {
+      return '[' + v.map(x => renderScalar(x)).join(', ') + ']';
+    }
+    return '<span class="val-null">[…' + v.length + ']</span>';
+  }
+  if (typeof v === 'object') {
+    if (depth >= 1) {
+      // Nested object: render as sub-table
+      const rows = Object.entries(v).map(([k, val]) =>
+        `<tr><td class="key">${esc(k)}</td><td class="val">${renderValue(val, depth + 1)}</td></tr>`
+      ).join('');
+      return `<table class="comp-table sub-table">${rows}</table>`;
+    }
+    // Top-level object - shouldn't happen in a cell, but handle gracefully
+    return `<span class="val-null">{…}</span>`;
+  }
+  return esc(String(v));
+}
+
+// Special renderer for Meter objects (value/minimum/maximum)
+function isMeter(v) {
+  return v && typeof v === 'object' && 'value' in v && 'maximum' in v && 'minimum' in v;
+}
+
+function renderMeter(v) {
+  const pct = Math.max(0, Math.min(1, (v.value - v.minimum) / (v.maximum - v.minimum || 1)));
+  const color = pct > 0.7 ? '#f38ba8' : pct > 0.4 ? '#fab387' : '#a6e3a1';
+  const barW = Math.round(pct * 100);
+  return `<span class="meter-bar" style="width:${barW}px;background:${color}"></span>`
+    + `<span class="val-num">${v.value.toFixed(1)}</span>`
+    + `<span class="val-null"> / ${v.maximum}</span>`;
+}
+
+function renderComponentTable(fields) {
+  const rows = Object.entries(fields).map(([k, v]) => {
+    let valHtml;
+    if (isMeter(v)) {
+      valHtml = renderMeter(v);
+    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+      valHtml = renderValue(v, 1);
+    } else {
+      valHtml = renderValue(v, 0);
+    }
+    const meterClass = isMeter(v) ? ' meter-bar-row' : '';
+    return `<tr class="${meterClass}"><td class="key">${esc(k)}</td><td class="val">${valHtml}</td></tr>`;
+  }).join('');
+  return `<table class="comp-table">${rows}</table>`;
+}
+
+function renderRelationships(entity, world) {
+  const rels = entity.relationships;
+  if (!Object.keys(rels).length) return '';
+
+  let rows = '';
+  for (const [rtype, edges] of Object.entries(rels)) {
+    for (const { target, edge } of edges) {
+      const targetEnt = world.entities[target];
+      const targetName = targetEnt ? entityDisplayName(targetEnt) : target;
+      const edgeSummary = edge && Object.keys(edge).length
+        ? ' <span class="rel-edge-data">(' + esc(Object.entries(edge).map(([k,v]) => `${k}: ${JSON.stringify(v)}`).join(', ')) + ')</span>'
+        : '';
+      rows += `<div class="rel-row">
+        <span class="rel-edge-type">${esc(rtype)}</span> →
+        <span class="rel-target" onclick="window.app.selectEntity('${esc(target)}')">${esc(targetName)}</span>${edgeSummary}
+      </div>`;
+    }
+  }
+
+  return `<div class="rel-section"><div class="rel-title">🔗 Relationships</div>${rows}</div>`;
+}
+
+function worldEditorHref(entityId) {
+  const url = new URL('world-editor.html', location.href);
+  if (window.app?._apiBase) url.searchParams.set('server', window.app._apiBase);
+  else url.searchParams.delete('server');
+  url.hash = entityId ? encodeURIComponent(entityId) : '';
+  return url.toString();
+}
+
+function parseEntitySearch(query) {
+  const filters = [];
+  const text = [];
+  for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
+    const match = token.match(/^([a-z]+):(.*)$/i);
+    if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
+    else text.push(token.toLowerCase());
+  }
+  return { filters, text: text.join(' ') };
+}
+
+function matchesInspectorSearch(entity, parsed) {
+  const name = entityDisplayName(entity);
+  const type = entityType(entity);
+  const components = Object.keys(entity.components || {});
+  const hay = `${name} ${entity.id} ${type} ${entity.components.IdentityComponent?.kind || ''} ${components.join(' ')}`.toLowerCase();
+  if (parsed.text && !hay.includes(parsed.text)) return false;
+  return parsed.filters.every(({ key, value }) => {
+    if (key === 'type') return type.includes(value);
+    if (key === 'id') return entity.id.toLowerCase().includes(value);
+    if (key === 'name') return name.toLowerCase().includes(value);
+    if (key === 'kind') return String(entity.components.IdentityComponent?.kind || '').toLowerCase().includes(value);
+    if (key === 'component' || key === 'has') return components.some(component => component.toLowerCase().includes(value));
+    if (key === 'missing') return !components.some(component => component.toLowerCase().includes(value));
+    return hay.includes(`${key}:${value}`);
+  });
+}
+
+function showInspector(entityId, world) {
+  const entity = world.entities[entityId];
+  if (!entity) return;
+
+  const type = entityType(entity);
+  const name = entityDisplayName(entity);
+  const sub  = entitySubtitle(entity);
+  const style = entityStyle(entity);
+
+  document.getElementById('inspector-name').textContent = entityIcon(entity) + ' ' + name;
+  document.getElementById('inspector-id').textContent = entityId;
+  document.getElementById('inspector-links').innerHTML =
+    `<a class="nav-link" href="${esc(worldEditorHref(entityId))}">Open in World Editor</a>`;
+
+  const ctrl = controlInfo(entity, world);
+  const ctrlHtml = ctrl
+    ? ` <span class="control-badge" style="color:${ctrl.color}">${ctrl.icon} ${esc(ctrl.label)}`
+      + `${ctrl.detail ? ' · ' + esc(ctrl.detail) : ''}</span>`
+    : '';
+  const movedHtml = window.app?._movedRecently(entityId)
+    ? ` <span class="control-badge" style="color:${MOVED_HIGHLIGHT}">🏃 moved recently</span>`
+    : '';
+  const badges = statusBadges(entity, world);
+  const badgesHtml = badges.length
+    ? `<div class="status-badges">${badges.map(b => `${b.icon} ${esc(b.label)}`).join('  ·  ')}</div>`
+    : '';
+  document.getElementById('inspector-kind').innerHTML =
+    `<span style="color:${style.titleColor}">${type}</span>${sub ? '  ·  ' + esc(sub) : ''}${ctrlHtml}${movedHtml}${badgesHtml}`;
+
+  let html = '';
+  for (const [cname, fields] of Object.entries(entity.components)) {
+    html += `<details class="comp-section" open>
+      <summary>${esc(cname)}</summary>
+      ${renderComponentTable(fields)}
+    </details>`;
+  }
+  html += renderRelationships(entity, world);
+
+  const body = document.getElementById('inspector-body');
+  body.innerHTML = html || '<div id="inspector-empty">No components.</div>';
+
+  window.app?._noteSelection(entityId); // mirror the selected entity into the URL hash
+}
+
+// ── Main application ─────────────────────────────────────────────────────────
+
+class BunnylandInspector {
+  constructor() {
+    this.world = null;
+    this.lgraph = new LGraph();
+    this.lgcanvas = null;
+    this.viewStack = []; // {label, entityId} drilldown path
+    this._nodeMap = {};  // entityId → LGraphNode
+    this.showParents = true; // render the breadcrumb path as parent nodes in drilldown
+    this._rootView = 'map'; // top-level view when not drilled in: 'map' | 'social'
+
+    this._ws = null;
+    this._refreshTimer = null;
+    this._apiBase = null;
+    this._authHeader = null;
+    this._runtimePaused = null;
+    this._runtimeRunning = false;
+    this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
+    this._events = [];  // rolling buffer of recent event messages for the feed
+    this._eventsPrimed = false;
+    this._socialLinks = []; // [{fromId,toId,color,off}] drawn behind nodes in social view
+    this._searchHits = [];
+    this._searchIndex = 0; // highlighted result for keyboard navigation
+    this._selectedId = null;     // currently inspected entity (mirrored to the URL hash)
+    this._pendingNav = null;     // deep-link {view, entity} to apply once a world loads
+    this._applyingDeepLink = false;
+
+    this._initCanvas();
+    this._initFileInput();
+    this._initDragDrop();
+    document.getElementById('btn-back').addEventListener('click', () => this.navigateBack());
+    document.getElementById('toggle-parents').addEventListener('change', (e) => {
+      this.showParents = e.target.checked;
+      if (this.viewStack.length) {
+        this._showEntity(this.viewStack[this.viewStack.length - 1].entityId);
+      }
+    });
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this._ws) {
+        this.disconnectLive();
+      } else {
+        const url = document.getElementById('api-url').value.trim();
+        if (url) this.connectLive(url);
+      }
+    });
+    document.getElementById('btn-toggle-runtime').addEventListener('click', () => this._toggleRuntime());
+    document.getElementById('toggle-events').addEventListener('change', (e) => {
+      document.getElementById('event-panel').classList.toggle('hidden', !e.target.checked);
+    });
+    document.getElementById('event-clear').addEventListener('click', () => this._clearEvents());
+    document.getElementById('btn-view-map').addEventListener('click', () => this.setRootView('map'));
+    document.getElementById('btn-view-region').addEventListener('click', () => this.setRootView('region'));
+    document.getElementById('btn-view-social').addEventListener('click', () => this.setRootView('social'));
+    document.getElementById('btn-view-quest').addEventListener('click', () => this.setRootView('quest'));
+
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', (e) => this._search(e.target.value));
+    searchInput.addEventListener('keydown', (e) => {
+      const hits = this._searchHits;
+      if (e.key === 'ArrowDown') { e.preventDefault(); this._moveSearch(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this._moveSearch(-1); }
+      else if (e.key === 'Enter') { if (hits?.length) this._pickSearch(hits[this._searchIndex].id); }
+      else if (e.key === 'Escape') { document.getElementById('search-results').classList.add('hidden'); searchInput.blur(); }
+    });
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => document.getElementById('search-results').classList.add('hidden'), 150);
+    });
+    searchInput.addEventListener('focus', (e) => { if (e.target.value.trim()) this._search(e.target.value); });
+  }
+
+  _initCanvas() {
+    const canvas = document.getElementById('graph-canvas');
+    this.lgcanvas = new LGraphCanvas(canvas, this.lgraph);
+
+    // Styling
+    this.lgcanvas.render_shadows = false;
+    this.lgcanvas.render_canvas_border = false;
+    this.lgcanvas.default_link_color = '#45475a';
+    this.lgcanvas.highquality_render = false;
+    this.lgcanvas.links_render_mode = LiteGraph.STRAIGHT_LINK;
+    this.lgcanvas.title_text_font = '15px "Courier New", monospace';
+    this.lgcanvas.inner_text_font = '13px "Courier New", monospace';
+    this.lgcanvas.node_title_color = '#cdd6f4';
+    LiteGraph.NODE_WIDGET_HEIGHT = GRAPH_WIDGET_HEIGHT;
+    LiteGraph.WIDGET_BGCOLOR = '#313244';
+    LiteGraph.WIDGET_OUTLINE_COLOR = '#89b4fa';
+    LiteGraph.WIDGET_TEXT_COLOR = '#cdd6f4';
+    LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#a6adc8';
+    this.lgcanvas.getCanvasMenuOptions = () => null;
+    this.lgcanvas.getNodeMenuOptions = () => null;
+
+    this.lgcanvas.onNodeSelected = (node) => {
+      if (node?.entityId && this.world) {
+        showInspector(node.entityId, this.world);
+      }
+    };
+
+    // Social-view relationship edges are drawn behind the nodes (LiteGraph's single-link
+    // input slots can't represent multiple relationships per character).
+    this.lgcanvas.onDrawBackground = (ctx) => this._drawSocialLinks(ctx);
+
+    this._resizeCanvas();
+    window.addEventListener('resize', () => this._resizeCanvas());
+  }
+
+  _resizeCanvas() {
+    const wrapper = document.getElementById('graph-wrapper');
+    const canvas  = document.getElementById('graph-canvas');
+    canvas.width  = wrapper.clientWidth;
+    canvas.height = wrapper.clientHeight;
+    if (this.lgcanvas) this.lgcanvas.resize();
+  }
+
+  _initFileInput() {
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) this._readFile(file);
+    });
+  }
+
+  _initDragDrop() {
+    const wrapper = document.getElementById('graph-wrapper');
+    wrapper.addEventListener('dragover', (e) => e.preventDefault());
+    wrapper.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file) this._readFile(file);
+    });
+  }
+
+  _readFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target.result);
+        this.loadSnapshot(json);
+      } catch (err) {
+        alert('Could not parse JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  loadSnapshot(json) {
+    this.disconnectLive();
+    this._movedAt = {}; // movement is tracked from the live event stream only
+    this._clearEvents();
+    this._applyWorld(parseSnapshot(json), { resetView: true });
+  }
+
+  // ── Live server connection ─────────────────────────────────────────────────
+
+  connectLive(url) {
+    this.disconnectLive();
+    this._movedAt = {};
+    this._eventsPrimed = false;
+    this._clearEvents();
+    this._apiBase = url.replace(/\/$/, '');
+
+    const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
+    const ws = new WebSocket(wsUrl);
+    this._ws = ws;
+
+    ws.onopen = () => {
+      this._setApiStatus('live', '● Connected');
+      document.getElementById('btn-connect').textContent = 'Disconnect';
+      this._setRuntime(null, true);
+      this._refreshRuntime({ prompt: false });
+      this._syncUrl(); // reflect the live server in ?server=
+    };
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'snapshot') {
+        // Server sends full snapshot on connect — use it directly.
+        this._applyWorld(parseApiSnapshot(msg.data), { resetView: !this.world });
+        if (!this._eventsPrimed) { this._eventsPrimed = true; this._primeEvents(); }
+      } else if (msg.type === 'event') {
+        this._noteEvent(msg.data);
+        this._appendEvent(msg.data); // feed updates live, independent of the graph refresh
+        // Debounce: re-fetch the snapshot 400 ms after the last event burst.
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refreshFromApi(), 400);
+      } else if (msg.type === 'patch') {
+        clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => this._refreshFromApi(), 100);
+      }
+    };
+
+    ws.onclose = () => {
+      if (this._ws === ws) {
+        this._ws = null;
+        this._setApiStatus('', '○ Offline');
+        this._setRuntime(null, false);
+        document.getElementById('btn-connect').textContent = 'Connect Live';
+      }
+    };
+
+    ws.onerror = () => {
+      this._setApiStatus('error', '⚠ Connection failed');
+    };
+  }
+
+  disconnectLive() {
+    clearTimeout(this._refreshTimer);
+    if (this._ws) {
+      this._ws.onclose = null; // suppress the onclose handler firing
+      this._ws.close();
+      this._ws = null;
+    }
+    this._setApiStatus('', '○ Offline');
+    this._setRuntime(null, false);
+    document.getElementById('btn-connect').textContent = 'Connect Live';
+    this._syncUrl(); // drop ?server= now that we're offline
+  }
+
+  async _refreshFromApi() {
+    try {
+      const res = await fetch(`${this._apiBase}/world/snapshot`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      this._applyWorld(parseApiSnapshot(data), { resetView: false });
+      this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
+      if (this._authHeader) this._refreshRuntime({ prompt: false });
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _setApiStatus(cls, text) {
+    const el = document.getElementById('api-status');
+    el.className = cls;
+    el.textContent = text;
+  }
+
+  _adminHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      ...(this._authHeader ? { Authorization: this._authHeader } : {})
+    };
+  }
+
+  async _sendAdmin(path, { method, prompt = true } = {}) {
+    if (!this._apiBase) throw new Error('Connect to a live server first');
+    let res = await fetch(`${this._apiBase}${path}`, {
+      method,
+      headers: this._adminHeaders()
+    });
+    if (res.status === 401 && prompt && this._promptBasicAuth()) {
+      res = await fetch(`${this._apiBase}${path}`, {
+        method,
+        headers: this._adminHeaders()
+      });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+  }
+
+  async _refreshRuntime({ prompt = false } = {}) {
+    try {
+      const data = await this._sendAdmin('/admin/runtime', { method: 'GET', prompt });
+      this._applyRuntime(data);
+    } catch (err) {
+      this._setRuntime(null, Boolean(this._ws));
+      if (prompt && err.message !== 'HTTP 401') {
+        this._setApiStatus('error', `⚠ ${err.message}`);
+      }
+    }
+  }
+
+  async _toggleRuntime() {
+    try {
+      if (this._runtimePaused == null) await this._refreshRuntime({ prompt: true });
+      if (this._runtimePaused == null) throw new Error('Runtime status unavailable');
+      const path = this._runtimePaused ? '/admin/resume' : '/admin/pause';
+      const data = await this._sendAdmin(path, { method: 'POST', prompt: true });
+      this._applyRuntime(data);
+      this._setApiStatus('live', this._runtimePaused ? '● Paused' : '● Playing');
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _promptBasicAuth() {
+    const username = window.prompt('Admin username');
+    if (!username) return false;
+    const password = window.prompt('Admin password');
+    if (password == null) return false;
+    this._authHeader = `Basic ${btoa(`${username}:${password}`)}`;
+    return true;
+  }
+
+  _applyRuntime(data) {
+    if (data.world_epoch != null && this.world) this.world.epoch = data.world_epoch;
+    this._setRuntime(data.paused, data.running);
+  }
+
+  _setRuntime(paused, running) {
+    this._runtimePaused = paused == null ? null : Boolean(paused);
+    this._runtimeRunning = Boolean(running);
+    this._renderRuntime();
+  }
+
+  _renderRuntime() {
+    const button = document.getElementById('btn-toggle-runtime');
+    const status = document.getElementById('runtime-status');
+    button.disabled = !this._apiBase || !this._ws;
+    if (!this._apiBase || !this._ws) {
+      button.textContent = '⏯';
+      button.title = 'Connect live before changing runtime state';
+      status.textContent = 'runtime: offline';
+    } else if (this._runtimePaused == null) {
+      button.textContent = '⏯';
+      button.title = 'Runtime status is locked or unavailable';
+      status.textContent = 'runtime: locked';
+    } else if (this._runtimePaused) {
+      button.textContent = '▶';
+      button.title = 'Resume world ticks';
+      status.textContent = 'runtime: paused';
+    } else {
+      button.textContent = '⏸';
+      button.title = 'Pause world ticks';
+      status.textContent = this._runtimeRunning ? 'runtime: playing' : 'runtime: stopped';
+    }
+  }
+
+  // Record movement from the live event stream so we can flag who moved recently.
+  _noteEvent(data) {
+    if (data?.event_type !== 'ActorMovedEvent') return;
+    const ev = data.event || {};
+    if (ev.actor_id != null) {
+      this._movedAt[String(ev.actor_id)] = ev.world_epoch ?? this.world?.epoch ?? 0;
+    }
+  }
+
+  // True if this entity moved within MOVED_RECENT_EPOCHS of the current world epoch.
+  _movedRecently(entityId) {
+    const at = this._movedAt[entityId];
+    if (at == null || !this.world) return false;
+    return (this.world.epoch - at) <= MOVED_RECENT_EPOCHS;
+  }
+
+  // ── Live event feed ──────────────────────────────────────────────────────────
+
+  _nameFor(id) {
+    const e = this.world?.entities?.[id];
+    return e ? entityDisplayName(e) : String(id).slice(0, 14);
+  }
+
+  // A short human summary for an event, using entity names where we can resolve them.
+  _eventSummary(type, ev) {
+    const names = (ids) => (ids || []).map((t) => this._nameFor(t)).join(', ');
+    switch (type) {
+      case 'ActorMovedEvent':
+        return `moved ${ev.direction ? ev.direction + ' ' : ''}→ ${this._nameFor(ev.to_room_id)}`;
+      case 'ActionPointsChangedEvent': return `AP → ${ev.current}/${ev.maximum}`;
+      case 'FocusPointsChangedEvent':  return `focus → ${ev.current}/${ev.maximum}`;
+      case 'NoiseHeardEvent':          return 'heard a noise';
+      case 'EntitySeenEvent':          return `saw ${names(ev.target_ids) || 'something'}`;
+      case 'CharacterDiedEvent':       return 'died';
+      case 'CharacterDownedEvent':     return 'was downed';
+      case 'CharacterRevivedEvent':    return 'revived';
+      case 'InjuryAddedEvent':         return 'was injured';
+      case 'PartnershipStartedEvent':  return `partnered with ${names(ev.target_ids)}`;
+      case 'PartnershipEndedEvent':    return `partnership ended`;
+      case 'ResourceGatheredEvent':    return 'gathered a resource';
+      case 'ItemCraftedEvent':         return 'crafted an item';
+      case 'CommandRejectedEvent':     return `command rejected${ev.reason ? ': ' + ev.reason : ''}`;
+      default:                         return humanizeEvent(type);
+    }
+  }
+
+  _eventRow(data) {
+    const type = data.event_type || 'Event';
+    const ev = data.event || {};
+    const icon = EVENT_ICONS[type] || '•';
+    const epoch = ev.world_epoch != null ? `${ev.world_epoch}s` : '';
+    const actor = ev.actor_id != null
+      ? `<span class="ev-actor" onclick="window.app.selectEntity('${esc(ev.actor_id)}')">${esc(this._nameFor(ev.actor_id))}</span> `
+      : '';
+    return `<div class="ev-row" title="${esc(type)}">`
+      + `<span class="ev-epoch">${esc(epoch)}</span>`
+      + `<span class="ev-icon">${icon}</span>`
+      + `${actor}<span class="ev-text">${esc(this._eventSummary(type, ev))}</span></div>`;
+  }
+
+  _appendEvent(data) {
+    const list = document.getElementById('event-list');
+    const empty = document.getElementById('event-empty');
+    if (empty) empty.remove();
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    list.insertAdjacentHTML('beforeend', this._eventRow(data));
+    this._events.push(data);
+    while (list.children.length > 250) list.removeChild(list.firstChild);
+    if (this._events.length > 250) this._events.splice(0, this._events.length - 250);
+    if (atBottom) list.scrollTop = list.scrollHeight; // keep the newest in view
+    document.getElementById('event-count').textContent = `(${this._events.length})`;
+  }
+
+  // Prime the feed with the server's recent-event history on connect.
+  async _primeEvents() {
+    if (!this._apiBase) return;
+    try {
+      const res = await fetch(`${this._apiBase}/world/events/recent`);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const msg of (data.events || [])) this._appendEvent(msg.data || msg);
+    } catch (_) { /* feed just stays empty */ }
+  }
+
+  _clearEvents() {
+    this._events = [];
+    document.getElementById('event-list').innerHTML =
+      '<div id="event-empty">Connect to a live server to stream world events.</div>';
+    document.getElementById('event-count').textContent = '';
+  }
+
+  // Apply a parsed world object, optionally preserving the current view.
+  _applyWorld(world, { resetView = true } = {}) {
+    const prevEntityId = !resetView && this.viewStack.length
+      ? this.viewStack[this.viewStack.length - 1].entityId
+      : null;
+
+    this.world = world;
+    document.getElementById('drop-overlay').classList.add('hidden');
+
+    const m = world.meta;
+    const entityCount = Object.keys(world.entities).length;
+    document.getElementById('world-info').textContent =
+      [m.seed && `seed: ${m.seed}`, m.generator && `gen: ${m.generator}`,
+       `epoch: ${world.epoch}s`, `entities: ${entityCount}`].filter(Boolean).join(' · ');
+
+    if (this._pendingNav) {
+      // First world after a deep link — honour the URL's view/entity instead of the default.
+      const nav = this._pendingNav;
+      this._pendingNav = null;
+      this._applyDeepLink(nav);
+      return;
+    }
+    if (prevEntityId && world.entities[prevEntityId]) {
+      // Stay on the same entity, rebuild its subgraph with fresh data.
+      this._showEntity(prevEntityId);
+    } else {
+      this.viewStack = [];
+      this.showRoot();
+    }
+  }
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+
+  _rootLabel() {
+    return this._rootView === 'region' ? 'Regions'
+      : this._rootView === 'social' ? 'Social'
+      : this._rootView === 'quest' ? 'Quests'
+      : 'Room Map';
+  }
+
+  // Render whichever top-level view is active.
+  showRoot() {
+    if (this._rootView === 'region') this.showRegions();
+    else if (this._rootView === 'social') this.showSocial();
+    else if (this._rootView === 'quest') this.showQuests();
+    else this.showRoomMap();
+  }
+
+  // Switch top-level view (from the toolbar) and return to that root.
+  setRootView(view) {
+    this._rootView = view;
+    this._selectedId = null; // switching tabs is not "looking at" a specific entity
+    this._syncViewButtons();
+    this.viewStack = [];
+    this.showRoot();
+    this._syncUrl();
+  }
+
+  _syncViewButtons() {
+    for (const v of ['map', 'region', 'social', 'quest']) {
+      document.getElementById('btn-view-' + v).classList.toggle('active', v === this._rootView);
+    }
+  }
+
+  showRoomMap() {
+    this._clearGraph();
+    this._updateBreadcrumb('Room Map');
+
+    const roomIds = Object.values(this.world.entities)
+      .filter(e => e.components.RoomComponent)
+      .map(e => e.id);
+
+    const positions = layoutRooms(this.world, roomIds);
+    const roomNodes = {};
+
+    for (const id of roomIds) {
+      const entity = this.world.entities[id];
+      const [x, y] = positions[id] || [100, 100];
+      const occupants = `🐰 ${roomCharacterCount(entity, this.world)}`;
+      const node = this._makeNode(entity, x, y, () => this._pushEntity(id), null, occupants);
+      roomNodes[id] = node;
+    }
+
+    // ExitTo edges — deduplicate bidirectional pairs
+    const linked = new Set();
+    for (const id of roomIds) {
+      for (const { target } of (this.world.entities[id].relationships.ExitTo || [])) {
+        const key = [id, target].sort().join('|');
+        if (linked.has(key)) continue;
+        linked.add(key);
+        const sn = roomNodes[id], tn = roomNodes[target];
+        if (sn && tn) sn.connect(0, tn, 0);
+      }
+    }
+
+    this._hideSocialLegend();
+    this._fitView();
+  }
+
+  // Top-level regional view: map-scale Contains(mode="region") links, with rooms on the bottom row.
+  showRegions() {
+    this._clearGraph();
+    this._updateBreadcrumb('Regions');
+    this._hideSocialLegend();
+
+    const ids = regionalNodeIds(this.world);
+    const positions = layoutRegions(this.world, ids);
+    const nodes = {};
+
+    for (const id of ids) {
+      const entity = this.world.entities[id];
+      const [x, y] = positions[id] || [100, 100];
+      const enter = entityType(entity) === 'room' ? () => this._pushEntity(id) : null;
+      nodes[id] = this._makeNode(entity, x, y, enter, null, regionCharacteristics(entity));
+    }
+
+    for (const { source, target } of regionalEdges(this.world)) {
+      const sn = nodes[source], tn = nodes[target];
+      if (sn && tn) {
+        const link = sn.connect(0, tn, 0);
+        this._tintLink(link, sn, entityStyle(this.world.entities[source]).color);
+      }
+    }
+
+    this._fitView();
+  }
+
+  _tintLink(link, sourceNode, color) {
+    if (link && typeof link === 'object') {
+      link.color = color;
+      return;
+    }
+    const links = sourceNode.outputs?.[0]?.links || [];
+    const linkId = links[links.length - 1];
+    const graphLink = this.lgraph.links?.[linkId];
+    if (graphLink) graphLink.color = color;
+  }
+
+  // Top-level social view: every character as a node, relationship edges as colour-coded
+  // links (partner / parent / jealous / relationship / social bond / member-of) + a legend.
+  showSocial() {
+    this._clearGraph();
+    this._updateBreadcrumb('Social');
+
+    const chars = Object.values(this.world.entities).filter(e => e.components.CharacterComponent);
+    const nodes = {};
+    const cx = 520, cy = 360;
+    const R = Math.max(200, chars.length * 70);
+    chars.forEach((e, i) => {
+      const ang = (i / Math.max(1, chars.length)) * Math.PI * 2 - Math.PI / 2;
+      const x = cx + R * Math.cos(ang) - GRAPH_NODE_WIDTH / 2;
+      const y = cy + R * Math.sin(ang);
+      nodes[e.id] = this._makeNode(e, x, y, null);
+    });
+
+    const present = new Set();
+    const pairOffset = {}; // separate parallel edges between the same two characters
+    for (const e of chars) {
+      for (const [rtype, cfg] of Object.entries(SOCIAL_EDGES)) {
+        for (const { target } of (e.relationships?.[rtype] || [])) {
+          if (!nodes[e.id] || !nodes[target]) continue;
+          const key = [e.id, target].sort().join('|');
+          const off = pairOffset[key] = (pairOffset[key] ?? -1) + 1;
+          this._socialLinks.push({ fromId: e.id, toId: target, color: cfg.color, off });
+          present.add(rtype);
+        }
+      }
+    }
+
+    this._showSocialLegend(present);
+    this._fitView();
+  }
+
+  // Draw the social view's relationship edges as directed, colour-coded lines behind the
+  // character nodes. Parallel edges between the same pair are offset so each stays visible.
+  _drawSocialLinks(ctx) {
+    const links = this._socialLinks;
+    if (!links || !links.length) return;
+    ctx.save();
+    ctx.lineWidth = 2;
+    for (const l of links) {
+      const a = this._nodeMap[l.fromId], b = this._nodeMap[l.toId];
+      if (!a || !b) continue;
+      let ax = a.pos[0] + a.size[0] / 2, ay = a.pos[1] + a.size[1] / 2;
+      let bx = b.pos[0] + b.size[0] / 2, by = b.pos[1] + b.size[1] / 2;
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      const px = -dy / len, py = dx / len;       // perpendicular unit
+      const o = (l.off || 0) * 9;
+      ax += px * o; ay += py * o; bx += px * o; by += py * o;
+      // pull both ends back toward the gap so the line/arrow sit between nodes, not under them
+      ax += (dx / len) * 60; ay += (dy / len) * 60;
+      bx -= (dx / len) * 60; by -= (dy / len) * 60;
+      ctx.globalAlpha = 0.85; ctx.strokeStyle = l.color; ctx.fillStyle = l.color;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      const ang = Math.atan2(by - ay, bx - ax); // arrowhead at the target end
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx - 11 * Math.cos(ang - 0.4), by - 11 * Math.sin(ang - 0.4));
+      ctx.lineTo(bx - 11 * Math.cos(ang + 0.4), by - 11 * Math.sin(ang + 0.4));
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  _showSocialLegend(presentTypes) {
+    const el = document.getElementById('social-legend');
+    const rows = Object.entries(SOCIAL_EDGES)
+      .filter(([rtype]) => presentTypes.has(rtype))
+      .map(([, cfg]) => `<span class="leg-item"><span class="leg-swatch" style="background:${cfg.color}"></span>${esc(cfg.label)}</span>`)
+      .join('');
+    el.innerHTML = rows
+      ? `<div class="leg-title">Relationships</div>${rows}`
+      : '<div class="leg-title">No relationships in this world</div>';
+    el.classList.remove('hidden');
+  }
+
+  _hideSocialLegend() {
+    document.getElementById('social-legend').classList.add('hidden');
+  }
+
+  // Top-level quest view: each quest as a node with its objectives and rewards hanging
+  // below it (matched by quest_id), one quest per column.
+  showQuests() {
+    this._clearGraph();
+    this._updateBreadcrumb('Quests');
+    this._hideSocialLegend();
+
+    const all = Object.values(this.world.entities);
+    const quests = all.filter(e => e.components.QuestComponent);
+    const objectivesOf = (qid) => all.filter(e => e.components.QuestObjectiveComponent?.quest_id === qid);
+    const rewardsOf = (qid) => all.filter(e => e.components.QuestRewardComponent?.quest_id === qid);
+
+    const COL_W = 250, ROW_H = 110;
+    let colX = 40;
+    for (const q of quests) {
+      const qid = q.components.QuestComponent.quest_id;
+      const qnode = this._makeNode(q, colX, 40, null);
+      let y = 200;
+      for (const child of [...objectivesOf(qid), ...rewardsOf(qid)]) {
+        const cnode = this._makeNode(child, colX, y, null);
+        qnode.connect(0, cnode, 0);
+        y += ROW_H;
+      }
+      colX += COL_W;
+    }
+    this._fitView();
+  }
+
+  _pushEntity(entityId) {
+    const name = entityDisplayName(this.world.entities[entityId]);
+    this.viewStack.push({ label: name, entityId });
+    this._showEntity(entityId);
+  }
+
+  // Show one entity (room, character, container, …) as a header node with its direct
+  // contents below it. Any child that itself has contents gets an enter button, so the
+  // same view drills recursively: room → character inventory → bag → nested container → …
+  // When showParents is on, the breadcrumb path is drawn as a chain of parent nodes that
+  // flows into the header, each carrying a "zoom out to here" button.
+  _showEntity(entityId) {
+    this._clearGraph();
+    this._updateBreadcrumb();
+    this._hideSocialLegend();
+
+    const entity = this.world.entities[entityId];
+    const NODE_W = GRAPH_NODE_WIDTH, GAP = 16;
+
+    // Render the ancestor chain (Room Map root + every entity above this one) as a row of
+    // parent nodes leading into the header. The header sits just after the chain.
+    let headerX = 300;
+    let prevNode = null;
+    if (this.showParents && this.viewStack.length) {
+      let x = 40;
+      prevNode = this._makeRootNode(x, 40);
+      x += NODE_W + GAP;
+      const ancestors = this.viewStack.slice(0, -1); // entities above the current one
+      ancestors.forEach((crumb, depth) => {
+        const ae = this.world.entities[crumb.entityId];
+        const node = this._makeNode(ae, x, 40, null, () => this._goToDepth(depth));
+        prevNode.connect(0, node, 0);
+        prevNode = node;
+        x += NODE_W + GAP;
+      });
+      headerX = x;
+    }
+
+    // Header node for the current entity
+    const headerNode = this._makeNode(entity, headerX, 40, null);
+    if (prevNode) prevNode.connect(0, headerNode, 0);
+
+    // Collect and classify direct contents across all containment edges
+    const contents = { character: [], container: [], item: [], other: [] };
+    for (const { target } of entityChildren(entity, this.world)) {
+      const ce = this.world.entities[target];
+      const t = entityType(ce);
+      (contents[t] || contents.other).push(target);
+    }
+
+    // Lay out contents in type rows, centered under the header.
+    const centerX = headerX + NODE_W / 2;
+    const typeRows = [
+      { key: 'character', y: 220 },
+      { key: 'container', y: 360 },
+      { key: 'item',      y: 500 },
+      { key: 'other',     y: 500 },
+    ];
+
+    const usedRows = new Set();
+    let maxContentY = 40;
+    for (const { key, y } of typeRows) {
+      const ids = contents[key];
+      if (!ids?.length) continue;
+
+      // Merge 'item' and 'other' into same row
+      const rowKey = (key === 'other') ? 'item' : key;
+      const yCoord = usedRows.has(rowKey) ? y + 60 : y;
+      usedRows.add(rowKey);
+      maxContentY = Math.max(maxContentY, yCoord);
+
+      const totalW = ids.length * NODE_W + (ids.length - 1) * GAP;
+      let x = Math.max(40, centerX - totalW / 2);
+
+      for (const cid of ids) {
+        const ce = this.world.entities[cid];
+        const enter = hasChildren(ce, this.world) ? () => this._pushEntity(cid) : null;
+        const node = this._makeNode(ce, x, yCoord, enter);
+        headerNode.connect(0, node, 0);
+        x += NODE_W + GAP;
+      }
+    }
+
+    // Rooms also show their exits as door nodes you can step through.
+    this._layoutDoors(entity, headerNode, centerX, maxContentY + 160);
+
+    this._fitView();
+  }
+
+  // Draw a room's ExitTo edges as door nodes, each labelled with its destination and a
+  // button to walk there. An exit with no matching return edge is flagged one-way.
+  _layoutDoors(room, headerNode, centerX, y) {
+    const exits = room.relationships?.ExitTo || [];
+    if (!exits.length) return;
+
+    const NODE_W = GRAPH_NODE_WIDTH, GAP = 16;
+    const totalW = exits.length * NODE_W + (exits.length - 1) * GAP;
+    let x = Math.max(40, centerX - totalW / 2);
+
+    for (const { target, edge } of exits) {
+      const dest = this.world.entities[target];
+      if (!dest) continue;
+      const returns = (dest.relationships?.ExitTo || []).some(e => e.target === room.id);
+      const node = this._makeDoorNode(edge, dest, !returns, x, y);
+      headerNode.connect(0, node, 0);
+      x += NODE_W + GAP;
+    }
+  }
+
+  _makeDoorNode(edge, dest, oneWay, x, y) {
+    const style = ENTITY_STYLE.door;
+    const dir = (edge.direction || '').trim();
+    const destName = entityDisplayName(dest);
+
+    const node = LiteGraph.createNode('bunnyland/door');
+    node.title   = style.icon + ' ' + (dir ? dir.charAt(0).toUpperCase() + dir.slice(1) : 'Exit');
+    node.color   = style.color;
+    node.bgcolor = style.bgcolor;
+
+    const flags = [
+      oneWay ? 'one-way ⇒' : null,
+      edge.locked ? '🔒 locked' : null,
+      edge.hidden ? 'hidden' : null,
+    ].filter(Boolean);
+    const sub = '→ ' + destName + (flags.length ? '  ·  ' + flags.join('  ·  ') : '');
+    {
+      const w = node.addWidget('text', '', sub, () => {});
+      w.type = 'label';
+      w.draw = function (ctx, _n, _w, wy, H) {
+        ctx.fillStyle = oneWay ? '#f9e2af' : '#cdd6f4';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText(this.value, 10, wy + H * 0.7, _w - 18);
+      };
+    }
+
+    node.addWidget('button', '🚪 Go to Room →', null, () => this._goToRoom(dest.id));
+    node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 26 + 14];
+    node.pos = [x, y];
+    this.lgraph.add(node);
+    return node;
+  }
+
+  // Jump to a room as a fresh top-level drilldown (breadcrumb: Room Map › Room).
+  _goToRoom(roomId) {
+    const name = entityDisplayName(this.world.entities[roomId]);
+    this.viewStack = [{ label: name, entityId: roomId }];
+    this._showEntity(roomId);
+  }
+
+  // A small synthetic node standing in for the top-level room map at the head of the
+  // parent chain, with a button to zoom all the way back out.
+  _makeRootNode(x, y) {
+    const root = this._rootLabel();
+    const rootIcon = this._rootView === 'region' ? '🌐 '
+      : this._rootView === 'social' ? '👥 '
+      : this._rootView === 'quest' ? '📜 '
+      : '🗺 ';
+    const node = LiteGraph.createNode('bunnyland/other');
+    node.title   = rootIcon + root;
+    node.color   = ENTITY_STYLE.other.color;
+    node.bgcolor = ENTITY_STYLE.other.bgcolor;
+    node.addWidget('button', '🗺 ↑ ' + root, null, () => this._goToRoot());
+    node.size = [GRAPH_NODE_WIDTH, 24 + 26 + 14];
+    node.pos = [x, y];
+    this.lgraph.add(node);
+    return node;
+  }
+
+  navigateBack() {
+    if (!this.viewStack.length) return;
+    this.viewStack.pop();
+    if (!this.viewStack.length) {
+      this.showRoot();
+    } else {
+      const { entityId } = this.viewStack[this.viewStack.length - 1];
+      this._showEntity(entityId);
+    }
+  }
+
+  // ── Node factory ───────────────────────────────────────────────────────────
+
+  _makeNode(entity, x, y, enterFn, backFn, extraSub) {
+    const type  = entityType(entity);
+    const style = entityStyle(entity);
+    const name  = entityIcon(entity) + ' ' + entityDisplayName(entity);
+
+    // Tag controlled entities (characters) with who is driving them, after the subtitle.
+    const subRows = [entitySubtitle(entity)].filter(Boolean);
+    if (extraSub) {
+      if (Array.isArray(extraSub)) {
+        subRows.push(...extraSub.filter(Boolean));
+      } else {
+        subRows[0] = [subRows[0], extraSub].filter(Boolean).join('  ·  ');
+      }
+    }
+    const ctrl = this.world ? controlInfo(entity, this.world) : null;
+    if (ctrl) subRows[0] = [subRows[0], `${ctrl.icon} ${ctrl.label}`].filter(Boolean).join('  ·  ');
+
+    // Flag a character that moved within the recent window (from the live event stream).
+    const moved = this._movedRecently(entity.id);
+    if (moved) subRows[0] = [subRows[0], '🏃 moved'].filter(Boolean).join('  ·  ');
+
+    const node = LiteGraph.createNode(`bunnyland/${type}`);
+    node.title   = name;
+    node.color   = style.color;
+    node.bgcolor = style.bgcolor;
+    if (moved) node.boxcolor = MOVED_HIGHLIGHT; // glowing title dot highlights the mover
+    node.entityId = entity.id;
+
+    // Non-interactive subtitle label (custom widget type 'label' avoids LiteGraph's
+    // text-edit prompt while still reserving vertical space in the node body).
+    for (const row of subRows) {
+      const w = node.addWidget('text', '', row, () => {});
+      w.type = 'label'; // unknown type → LiteGraph skips mouse handling
+      w.draw = function(ctx, _node, widget_width, y, H) {
+        ctx.fillStyle = '#cdd6f4';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText(this.value, 10, y + H * 0.7, widget_width - 18);
+      };
+    }
+
+    // Status badges (characters): mood / needs / health / pregnancy / thoughts. These can
+    // be several, so they get their own row of icons; the inspector spells out the labels.
+    const badges = this.world ? statusBadges(entity, this.world) : [];
+    if (badges.length) {
+      const w = node.addWidget('text', '', badges.map(b => b.icon).join(' '), () => {});
+      w.type = 'label';
+      w.draw = function(ctx, _node, widget_width, y, H) {
+        ctx.fillStyle = '#cdd6f4';
+        ctx.font = '15px "Courier New", monospace';
+        ctx.fillText(this.value, 10, y + H * 0.72, widget_width - 18);
+      };
+    }
+
+    // Widget: drill-in button, labelled for what the entity holds.
+    if (enterFn) {
+      const label = type === 'room' ? '🚪 Enter Room →'
+        : type === 'character' ? '🎒 Inventory →'
+        : type === 'container' ? '📦 Open →'
+        : '↳ Enter →';
+      node.addWidget('button', label, null, () => enterFn());
+    }
+
+    // Widget: zoom-out button on a parent node, mirroring the drill-in label.
+    if (backFn) {
+      const label = type === 'room' ? '🏠 ↑ Room'
+        : type === 'character' ? '🎒 ↑ Inventory'
+        : type === 'container' ? '📦 ↑ Contents'
+        : '↖ Back';
+      node.addWidget('button', label, null, () => backFn());
+    }
+
+    node.size = [
+      GRAPH_NODE_WIDTH,
+      24 + subRows.length * 24 + (badges.length ? 24 : 0) + ((enterFn || backFn) ? 26 : 0) + 14,
+    ];
+    node.pos = [x, y];
+
+    // Selection → inspector
+    node.onSelected = () => {
+      if (this.world) showInspector(entity.id, this.world);
+    };
+
+    this.lgraph.add(node);
+    this._nodeMap[entity.id] = node;
+    return node;
+  }
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  _clearGraph() {
+    this.lgraph.clear();
+    this._nodeMap = {};
+    this._socialLinks = [];
+    this.lgcanvas.setDirty(true, true);
+  }
+
+  _fitView() {
+    // Frame current nodes while keeping labels readable; very wide parent chains may
+    // need panning instead of shrinking below the readability floor.
+    const nodes = this.lgraph._nodes;
+    const ds = this.lgcanvas.ds;
+    if (!nodes.length) {
+      ds.scale = 1;
+      ds.offset = [0, 0];
+      this.lgcanvas.setDirty(true, true);
+      return;
+    }
+
+    const titleH = LiteGraph.NODE_TITLE_HEIGHT || 20;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.pos[0]);
+      minY = Math.min(minY, n.pos[1] - titleH);
+      maxX = Math.max(maxX, n.pos[0] + n.size[0]);
+      maxY = Math.max(maxY, n.pos[1] + n.size[1]);
+    }
+
+    const margin = 60;
+    const cw = this.lgcanvas.canvas.width;
+    const ch = this.lgcanvas.canvas.height;
+    const w = (maxX - minX) + margin * 2;
+    const h = (maxY - minY) + margin * 2;
+    const scale = Math.max(GRAPH_MIN_FIT_SCALE, Math.min(1, Math.min(cw / w, ch / h)));
+    ds.scale = scale;
+    // screenX = (graphX + offsetX) * scale; place the content box, then center the slack.
+    ds.offset = [
+      -minX + margin + (cw / scale - w) / 2,
+      -minY + margin + (ch / scale - h) / 2,
+    ];
+    this.lgcanvas.setDirty(true, true);
+  }
+
+  _updateBreadcrumb(label) {
+    // label overrides (for top-level "Room Map")
+    const crumb = document.getElementById('breadcrumb');
+
+    const parts = [];
+
+    // Root crumb reflects the active top-level view (Room Map or Social).
+    const root = this._rootLabel();
+    if (this.viewStack.length > 0) {
+      parts.push(`<span class="crumb" onclick="window.app._goToRoot()">${esc(root)}</span>`);
+    } else {
+      parts.push(`<span class="crumb-current">${esc(label || root)}</span>`);
+    }
+
+    // Show the drilldown path
+    for (let i = 0; i < this.viewStack.length; i++) {
+      const { label: lbl } = this.viewStack[i];
+      if (i === this.viewStack.length - 1) {
+        parts.push(`<span class="crumb-current">${esc(lbl)}</span>`);
+      } else {
+        parts.push(`<span class="crumb" onclick="window.app._goToDepth(${i})">${esc(lbl)}</span>`);
+      }
+    }
+
+    crumb.innerHTML = parts.join(' › ');
+    document.getElementById('btn-back').disabled = this.viewStack.length === 0;
+  }
+
+  _goToRoot() {
+    this.viewStack = [];
+    this.showRoot();
+  }
+
+  _goToDepth(depth) {
+    this.viewStack = this.viewStack.slice(0, depth + 1);
+    const { entityId } = this.viewStack[this.viewStack.length - 1];
+    this._showEntity(entityId);
+  }
+
+  selectEntity(entityId) {
+    if (!this.world) return;
+    showInspector(entityId, this.world); // sets _selectedId + syncs the URL via _noteSelection
+    const node = this._nodeMap[entityId];
+    if (node) this.lgcanvas.selectNode(node, false);
+  }
+
+  // ── Deep linking (URL hash + ?server) ────────────────────────────────────────
+  //   ?server=<url> (query) reflects the live connection;
+  //   #<tab>/<entity> (hash) reflects the active view and the inspected entity.
+
+  _noteSelection(entityId) {
+    this._selectedId = entityId;
+    this._syncUrl();
+  }
+
+  _syncUrl() {
+    if (this._applyingDeepLink) return;
+    const url = new URL(location.href);
+    if (this._ws && this._apiBase) url.searchParams.set('server', this._apiBase);
+    else url.searchParams.delete('server');
+    let hash = this._rootView;
+    if (this._selectedId) hash += '/' + encodeURIComponent(this._selectedId);
+    url.hash = hash;
+    history.replaceState(null, '', url.toString());
+  }
+
+  // Apply a parsed { view, entity } once a world is available.
+  _applyDeepLink(nav) {
+    this._applyingDeepLink = true;
+    try {
+      if (nav.view && ['map', 'region', 'social', 'quest'].includes(nav.view)) this.setRootView(nav.view);
+      else this.showRoot();
+      if (nav.entity && this.world?.entities[nav.entity]) {
+        // Visible in the current view → just select it; otherwise drill to where it lives.
+        if (this._nodeMap[nav.entity]) this.selectEntity(nav.entity);
+        else this.jumpToEntity(nav.entity);
+      }
+    } finally {
+      this._applyingDeepLink = false;
+      this._syncUrl();
+    }
+  }
+
+  // ── Search / jump-to-entity ──────────────────────────────────────────────────
+
+  // child entityId → parent entityId, following containment edges (room/inventory/box).
+  _parentMap() {
+    const parent = {};
+    for (const e of Object.values(this.world.entities)) {
+      for (const rtype of CONTAINMENT_EDGES) {
+        for (const { target } of (e.relationships?.[rtype] || [])) parent[target] = e.id;
+      }
+    }
+    return parent;
+  }
+
+  // Navigate to wherever an entity lives and select it: rooms/contents under the map,
+  // quest pieces under the quest view, building the drilldown path for nested entities.
+  jumpToEntity(id) {
+    const entity = this.world?.entities[id];
+    if (!entity) return;
+    const type = entityType(entity);
+
+    if (type === 'quest' || type === 'objective' || type === 'reward') {
+      this.setRootView('quest');
+      this.selectEntity(id);
+      return;
+    }
+    if (type === 'region') {
+      this.setRootView('region');
+      this.selectEntity(id);
+      return;
+    }
+    if (type === 'room') {
+      this.setRootView('map');
+      this.selectEntity(id);
+      return;
+    }
+
+    // Contained entity: walk up to the root room, then show its parent's view.
+    const parent = this._parentMap();
+    const chain = [];
+    let cur = id, guard = 0;
+    while (parent[cur] != null && guard++ < 64) { cur = parent[cur]; chain.push(cur); }
+    chain.reverse(); // root room → … → direct parent of id
+
+    if (chain.length) {
+      this._rootView = 'map';
+      this._syncViewButtons();
+      this.viewStack = chain.map((eid) => ({ label: entityDisplayName(this.world.entities[eid]), entityId: eid }));
+      this._showEntity(chain[chain.length - 1]);
+      this.selectEntity(id);
+    } else {
+      this.selectEntity(id); // orphan (e.g. a controller) — inspector only
+    }
+  }
+
+  _search(query) {
+    const box = document.getElementById('search-results');
+    const parsed = parseEntitySearch(query);
+    if ((!parsed.text && !parsed.filters.length) || !this.world) { box.classList.add('hidden'); box.innerHTML = ''; this._searchHits = []; return; }
+
+    const hits = [];
+    for (const e of Object.values(this.world.entities)) {
+      const name = entityDisplayName(e);
+      const type = entityType(e);
+      if (matchesInspectorSearch(e, parsed)) hits.push({ id: e.id, name, type, icon: entityIcon(e) });
+      if (hits.length >= 15) break;
+    }
+    hits.sort((a, b) => a.name.localeCompare(b.name));
+    this._searchHits = hits;
+    this._searchIndex = 0;
+
+    box.innerHTML = hits.length
+      ? hits.map((h, i) => {
+          const icon = h.icon || (ENTITY_STYLE[h.type] || ENTITY_STYLE.other).icon;
+          return `<div class="search-item" data-i="${i}" onmousedown="window.app._pickSearch('${esc(h.id)}')">`
+            + `<span class="si-icon">${icon}</span> ${esc(h.name)} <span class="si-type">${esc(h.type)}</span></div>`;
+        }).join('')
+      : '<div class="search-empty">no matches</div>';
+    box.classList.remove('hidden');
+    this._highlightSearch();
+  }
+
+  // Move the keyboard-highlighted result (clamped to the list).
+  _moveSearch(delta) {
+    const n = this._searchHits?.length || 0;
+    if (!n) return;
+    this._searchIndex = Math.max(0, Math.min(n - 1, this._searchIndex + delta));
+    this._highlightSearch();
+  }
+
+  _highlightSearch() {
+    const items = document.querySelectorAll('#search-results .search-item');
+    items.forEach((el, i) => {
+      const on = i === this._searchIndex;
+      el.classList.toggle('active', on);
+      if (on) el.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  _pickSearch(id) {
+    const box = document.getElementById('search-results');
+    box.classList.add('hidden');
+    document.getElementById('search-input').value = '';
+    this._searchHits = [];
+    this._searchIndex = 0;
+    this.jumpToEntity(id);
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+window.app = new BunnylandInspector();
+
+// Optional deploy-specific settings from config.json next to index.html:
+//   { "serverUrl": "http://host:port", "autoConnect": true }
+async function readConfig() {
+  try {
+    const res = await fetch('config.json', { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null; // not served over http, or unparseable
+  }
+}
+
+// Deep link: ?server=<url> in the query string, #<tab>/<entity> in the hash.
+// (a server= embedded in the hash is also accepted, for links pasted as #tab/entity?server=…)
+function parseDeepLink() {
+  let server = new URLSearchParams(location.search).get('server');
+  let hash = location.hash.replace(/^#/, '');
+  const qi = hash.indexOf('?');
+  if (qi >= 0) {
+    if (!server) server = new URLSearchParams(hash.slice(qi + 1)).get('server');
+    hash = hash.slice(0, qi);
+  }
+  const parts = hash.split('/').filter(Boolean).map(decodeURIComponent);
+  return { server, view: parts[0] || null, entity: parts.slice(1).join('/') || null };
+}
+
+(async function boot() {
+  const cfg = await readConfig();
+  const dl = parseDeepLink();
+
+  // The URL's server wins over config; otherwise fall back to config's serverUrl.
+  const server = dl.server || (cfg && typeof cfg.serverUrl === 'string' ? cfg.serverUrl : null);
+  if (server) document.getElementById('api-url').value = server;
+
+  // Hold the view/entity to apply once a world is available.
+  if (dl.view || dl.entity) window.app._pendingNav = { view: dl.view, entity: dl.entity };
+
+  // Connect if the URL provided a server, or config asked to auto-connect.
+  if (dl.server || (cfg && cfg.autoConnect && server)) window.app.connectLive(server);
+})();
+
+// Allow loading the test snapshot from the CLI for development
+// e.g. fetch('/snapshot.json').then(r=>r.json()).then(j=>app.loadSnapshot(j))
+</script>
+</body>
+</html>

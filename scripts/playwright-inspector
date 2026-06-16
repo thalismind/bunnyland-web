@@ -66,7 +66,7 @@ def main() -> None:
             """
         )
         page.route("**/admin/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
-        page.goto(f"{BASE_URL}/index.html?server=http://127.0.0.1:18080", wait_until="domcontentloaded")
+        page.goto(f"{BASE_URL}/inspector.html?server=http://127.0.0.1:18080", wait_until="domcontentloaded")
         page.wait_for_function("window.app && window.app._apiBase")
         page.wait_for_timeout(200)
         if not page.locator("#client-menu-dialog:not(.hidden)").is_visible():
@@ -203,7 +203,7 @@ def main() -> None:
         if queued_contract["characterId"] != "char_1" or queued_contract["commands"][0]["command_id"] != "cmd_1":
             raise AssertionError(f"toon queued command projection was not normalized: {queued_contract!r}")
 
-        page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
+        page.goto(f"{BASE_URL}/inspector.html", wait_until="domcontentloaded")
         collision_rects = page.evaluate(
             """
             () => {
