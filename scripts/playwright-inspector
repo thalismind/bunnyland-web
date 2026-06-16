@@ -80,39 +80,24 @@ def main() -> None:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
 
         page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")
-        toon_default = page.evaluate(
+        lobby_contract = page.evaluate(
             """
-            () => {
-              window.app._applyWorld({
-                epoch: 0,
-                queuedCommands: [],
-                entities: {
-                  first_room: {
-                    id: 'first_room',
-                    components: { RoomComponent: { title: 'First Room' } },
-                    relationships: {},
-                  },
-                  landing_room: {
-                    id: 'landing_room',
-                    components: {
-                      RoomComponent: { title: 'Landing Room' },
-                      ToonRoomComponent: { default_start: true },
-                    },
-                    relationships: {},
-                  },
-                },
-              });
-              return {
-                viewRoomId: window.app.viewRoomId,
-                title: document.querySelector('#room-title').textContent,
-              };
-            }
+            () => window.parseCharacterList({
+              world_epoch: 11,
+              characters: [
+                { character_id: 'char_1', name: 'Juniper', kind: 'character', suspended: false },
+                { character_id: 'char_2', name: 'Bramble', kind: 'character', suspended: true },
+              ],
+            })
             """
         )
-        if toon_default["viewRoomId"] != "landing_room":
-            raise AssertionError(f"toon client did not select default room: {toon_default!r}")
-        if "Landing Room" not in toon_default["title"]:
-            raise AssertionError(f"toon client title did not show default room: {toon_default!r}")
+        if lobby_contract["epoch"] != 11 or len(lobby_contract["characters"]) != 2:
+            raise AssertionError(f"toon character list was not normalized: {lobby_contract!r}")
+        first, second = lobby_contract["characters"]
+        if first["id"] != "char_1" or first["name"] != "Juniper" or first["suspended"] is not False:
+            raise AssertionError(f"toon character list fields were not normalized: {lobby_contract!r}")
+        if second["id"] != "char_2" or second["suspended"] is not True:
+            raise AssertionError(f"toon character list suspended flag was not normalized: {lobby_contract!r}")
         projection_contract = page.evaluate(
             """
             () => window.parseCharacterProjection({
