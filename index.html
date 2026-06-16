@@ -293,6 +293,30 @@
         grid-template-columns: 1fr;
       }
     }
+
+    .cmd {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--bl-surface);
+      border: 1px solid var(--bl-border);
+      border-radius: var(--bl-radius-md);
+    }
+    .cmd code {
+      flex: 1;
+      min-width: 0;
+      overflow-x: auto;
+      white-space: nowrap;
+      color: var(--bl-text);
+      font-size: var(--bl-text-sm);
+    }
+    .cmd-copy {
+      flex: 0 0 auto;
+      padding: 2px 9px;
+      font-size: var(--bl-text-xs);
+    }
   </style>
 </head>
 <body>
@@ -395,6 +419,28 @@
         </div>
       </section>
 
+      <section class="section" aria-labelledby="terminal-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Terminal clients</p>
+            <h2 id="terminal-title">Play from a shell.</h2>
+          </div>
+          <p>The Textual TUI and the line-based REPL connect to this server's play-facing API over HTTP — no admin login needed. Install them with <code>uv sync --extra tui</code> or <code>--extra repl</code> (or run the published <code>bunnyland-tui</code> / <code>bunnyland-repl</code> container), then connect to this deployment:</p>
+        </div>
+        <div class="info-grid">
+          <article class="info-card">
+            <h3>Textual TUI</h3>
+            <p>Full-screen ASCII interface with a classic MUD feel.</p>
+            <div class="cmd"><code id="cmd-tui">bunnyland-tui --server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
+          </article>
+          <article class="info-card">
+            <h3>Line REPL</h3>
+            <p>Lightweight prompt with tab completion and clickable targets.</p>
+            <div class="cmd"><code id="cmd-repl">bunnyland-repl --server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
+          </article>
+        </div>
+      </section>
+
       <section class="section" aria-labelledby="resources-title">
         <div class="section-heading">
           <div>
@@ -417,6 +463,44 @@
   'use strict';
 
   BunnylandUI.initClientMenu();
+
+  // Fill the TUI/REPL connect commands from this deployment's config.json. The web clients
+  // use a same-origin serverUrl (e.g. "/api/"); the terminal clients need an absolute URL,
+  // so resolve it against this page's origin.
+  (async function showTerminalCommands() {
+    let serverUrl = '/api/';
+    try {
+      const res = await fetch('config.json', { cache: 'no-store' });
+      if (res.ok) {
+        const cfg = await res.json();
+        if (cfg && typeof cfg.serverUrl === 'string' && cfg.serverUrl) serverUrl = cfg.serverUrl;
+      }
+    } catch (_err) {
+      // No config.json (static/local use): fall back to same-origin /api/.
+    }
+    const base = new URL(serverUrl, location.href).href.replace(/\/+$/, '');
+    const fill = (id, program) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = `${program} --server ${base}`;
+    };
+    fill('cmd-tui', 'bunnyland-tui');
+    fill('cmd-repl', 'bunnyland-repl');
+
+    document.querySelectorAll('.cmd-copy').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const code = document.getElementById(btn.dataset.copy);
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code.textContent);
+          const previous = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = previous; }, 1200);
+        } catch (_err) {
+          // Clipboard may be unavailable (e.g. insecure context); the text is still selectable.
+        }
+      });
+    });
+  })();
   </script>
 </body>
 </html>
