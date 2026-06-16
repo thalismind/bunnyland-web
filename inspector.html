@@ -1363,12 +1363,20 @@ class BunnylandInspector {
 
   // ── Live server connection ─────────────────────────────────────────────────
 
-  connectLive(url) {
+  async connectLive(url) {
     this.disconnectLive();
     this._movedAt = {};
     this._eventsPrimed = false;
     this._clearEvents();
     this._apiBase = url.replace(/\/$/, '');
+
+    // The /world/updates stream is admin-gated and a WebSocket handshake can't carry a JS
+    // Authorization header, so it depends on the browser's cached HTTP credentials. A failed
+    // handshake won't prompt for them, so make a protected same-origin request first: its
+    // 401 triggers the native login dialog, and the browser then reuses those credentials on
+    // the WebSocket handshake (and every later admin request).
+    await this._ensureLogin();
+    if (this._apiBase !== url.replace(/\/$/, '')) return; // a newer connect superseded us
 
     const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
     const ws = new WebSocket(wsUrl);
@@ -1425,6 +1433,18 @@ class BunnylandInspector {
     this._setRuntime(null, false);
     document.getElementById('btn-connect').textContent = 'Connect Live';
     this._syncUrl(); // drop ?server= now that we're offline
+  }
+
+  async _ensureLogin() {
+    // Hit a protected, same-origin endpoint so a 401 makes the browser prompt for and cache
+    // HTTP credentials before the WebSocket handshake. The response is discarded; the side
+    // effect (the cached login) is the point.
+    if (!this._apiBase) return;
+    try {
+      await fetch(`${this._apiBase}/world/overview`, { cache: 'no-store' });
+    } catch (_err) {
+      // A network error surfaces when the WebSocket fails to open; ignore it here.
+    }
   }
 
   async _refreshFromApi() {
