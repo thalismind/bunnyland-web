@@ -112,6 +112,8 @@ def main() -> None:
 
         page.goto(PAGE_URL, wait_until="domcontentloaded")
         shots.append(screenshot(page, "01-loaded"))
+        page.locator('#loading-overlay').wait_for(state="visible", timeout=2000)
+        page.locator('#loading-overlay').wait_for(state="hidden", timeout=4000)
 
         page.locator("#api-url").fill(API_URL)
         page.locator("#btn-connect").click()

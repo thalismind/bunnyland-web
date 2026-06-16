@@ -320,9 +320,60 @@
     .target-item .ti-icon { font-size: 18px; line-height: 1; }
     .target-empty { padding: 12px; color: var(--bl-text-muted); font-size: var(--bl-text-sm); }
     .target-card-footer { padding: 8px 12px; border-top: 1px solid var(--bl-border); display: flex; justify-content: flex-end; }
+
+    /* ── Loading splash overlay (brief title + bunny) ── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 9, 19, 0.8);
+      opacity: 1;
+      transition: opacity 0.8s ease-in-out;
+      pointer-events: none;
+    }
+    #loading-overlay.hidden {
+      display: none;
+    }
+    #loading-overlay.fading {
+      opacity: 0;
+    }
+    .loading-card {
+      width: 280px;
+      padding: 14px 16px 16px;
+      background: var(--bl-bg);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-lg);
+      color: var(--bl-text);
+      box-shadow: var(--bl-shadow-popover);
+      text-align: center;
+    }
+    .loading-title {
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+    .loading-bunny {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      line-height: 1.05;
+      color: var(--bl-text-soft);
+      white-space: pre;
+    }
   </style>
 </head>
 <body>
+<div id="loading-overlay">
+  <div class="loading-card">
+    <div class="loading-title">Bunnyland</div>
+    <pre class="loading-bunny"> /)\_/\
+( =.= )
+ )   (
+(__ __)</pre>
+  </div>
+</div>
 
 <div id="toolbar">
   <div class="toolbar-row" id="toolbar-row1">
@@ -690,11 +741,14 @@ class RoomClient {
     this._pollTimer = null;
     this._clientId = null;
     this._clientIdPromise = persistentClientId();
+    this._loadingOverlay = null;
+    this._loadingTimers = [];
 
     this._bindUi();
     this.render();                 // show the initial (disconnected) action panel
     this._restoreServerParam();
     this._loadConfig();
+    this._showLoadingOverlay();
     setInterval(() => this._syncTick(), SYNC_INTERVAL_MS);
   }
 
@@ -753,8 +807,30 @@ class RoomClient {
 
   // ── Connection ───────────────────────────────────────────────────────────────
 
+  _showLoadingOverlay() {
+    if (this._loadingOverlay && this._loadingOverlay.classList.contains('hidden')) return;
+    const overlay = document.getElementById('loading-overlay');
+    if (!overlay) return;
+    this._loadingOverlay = overlay;
+    this._loadingTimers.forEach(clearTimeout);
+    this._loadingTimers = [];
+    this._loadingTimers.push(
+      window.setTimeout(() => overlay.classList.add('fading'), 1000),
+      window.setTimeout(() => overlay.classList.add('hidden'), 1850),
+    );
+  }
+
+  _hideLoadingOverlayImmediately() {
+    if (!this._loadingOverlay) return;
+    this._loadingTimers.forEach(clearTimeout);
+    this._loadingTimers = [];
+    this._loadingOverlay.classList.add('fading');
+    this._loadingOverlay.classList.add('hidden');
+  }
+
   connect(url) {
     if (!url) return;
+    this._hideLoadingOverlayImmediately();
     this.disconnect();
     this.apiBase = url.replace(/\/$/, '');
     this.connected = true;
