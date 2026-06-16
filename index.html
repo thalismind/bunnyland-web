@@ -477,11 +477,13 @@
       }
       const entry = document.getElementById('discord-entry');
       if (entry) {
+        // Plain anchor text (no <strong>) so it picks up the .play-list link styling and
+        // reads as a link like "Toon Client", not the bold "Terminal" label.
         const anchor = document.createElement('a');
         anchor.href = discordUrl;
         anchor.target = '_blank';
         anchor.rel = 'noopener';
-        anchor.innerHTML = '<strong>Discord</strong>';
+        anchor.textContent = 'Discord';
         entry.replaceChildren(anchor);
       }
     }
