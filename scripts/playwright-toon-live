@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -114,7 +115,11 @@ def main() -> None:
 
         page.locator("#api-url").fill(API_URL)
         page.locator("#btn-connect").click()
-        expect(page.locator("#api-status")).to_contain_text("Connected", timeout=15000)
+        # The status flips "● Connected" → "● Live · epoch …" within one poll, so accept
+        # either rather than racing the brief Connected state.
+        expect(page.locator("#api-status")).to_contain_text(
+            re.compile(r"Connected|Live"), timeout=15000
+        )
         page.wait_for_function(
             "() => window.app?.characterList && window.app.characterList.length > 0"
         )
