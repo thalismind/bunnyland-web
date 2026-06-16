@@ -4,6 +4,12 @@
 This intentionally exercises the deployed browser client against a running server:
 connect, claim a character with the web controller, move its in-room sprite, then move
 through a room exit. Screenshots are written after each visible step.
+
+The Toon client is a pure player surface: it reads only the play-facing projections
+(``/world/characters``, ``/world/character/{id}``, ``/world/room/{id}``,
+``/world/character/{id}/commands``, ``/world/events/recent``) and never the admin-gated
+snapshot or ``/world/updates`` stream. This test uses the same projections for its setup
+and assertions so it works without admin credentials.
 """
 
 from __future__ import annotations
@@ -32,66 +38,62 @@ def screenshot(page, name: str) -> str:
     return str(path)
 
 
-def api_snapshot(page) -> dict[str, Any]:
+def api_get(page, path: str) -> Any:
     return page.evaluate(
-        """async (api) => {
-            const res = await fetch(`${api}/world/snapshot`);
-            if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
+        """async ([api, path]) => {
+            const res = await fetch(`${api}${path}`);
+            if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
             return await res.json();
         }""",
-        API_URL,
+        [API_URL, path],
     )
 
 
-def entities_by_id(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entity["id"]: entity for entity in data.get("entities", [])}
+def character_room(page, character_id: str) -> dict[str, Any]:
+    """The character's perceived room id via the character projection."""
+    return api_get(page, f"/world/character/{character_id}")
 
 
-def relationship_targets(entity: dict[str, Any], edge_type: str) -> list[tuple[str, dict]]:
-    rels = entity.get("relationships", {}).get(edge_type, [])
-    return [(rel["target_id"], rel.get("edge") or {}) for rel in rels]
+def room_view(page, room_id: str) -> dict[str, Any]:
+    return api_get(page, f"/world/room/{room_id}")
 
 
-def room_of(data: dict[str, Any], entity_id: str) -> str | None:
-    for entity in data.get("entities", []):
-        if "RoomComponent" not in entity.get("components", {}):
-            continue
-        for target_id, _edge in relationship_targets(entity, "Contains"):
-            if target_id == entity_id:
-                return entity["id"]
+def room_entity(room: dict[str, Any], entity_id: str) -> dict[str, Any] | None:
+    for entity in (room.get("room") or {}).get("entities", []):
+        if entity.get("id") == entity_id:
+            return entity
     return None
 
 
-def sprite_pos(data: dict[str, Any], entity_id: str) -> tuple[float, float] | None:
-    entity = entities_by_id(data).get(entity_id)
-    if not entity:
-        return None
-    pos = entity.get("components", {}).get("SpritePosition")
+def sprite_pos(room: dict[str, Any], entity_id: str) -> tuple[float, float] | None:
+    entity = room_entity(room, entity_id)
+    pos = (entity or {}).get("sprite", {}).get("position")
     if not pos:
         return None
     return (float(pos.get("x") or 0), float(pos.get("y") or 0))
 
 
-def choose_character_with_exit(data: dict[str, Any]) -> tuple[str, str, str]:
-    entities = entities_by_id(data)
-    for room in data.get("entities", []):
-        if "RoomComponent" not in room.get("components", {}):
+def choose_character_with_exit(page) -> tuple[str, str, str]:
+    """Pick a character whose perceived room has at least one exit, using only projections."""
+    lobby = api_get(page, "/world/characters")
+    for summary in lobby.get("characters", []):
+        character_id = summary["character_id"]
+        projection = character_room(page, character_id)
+        room = projection.get("room") or {}
+        room_id = room.get("id")
+        if not room_id:
             continue
-        exits = relationship_targets(room, "ExitTo")
-        if not exits:
-            continue
-        for character_id, _edge in relationship_targets(room, "Contains"):
-            character = entities.get(character_id)
-            if character and "CharacterComponent" in character.get("components", {}):
-                return character_id, room["id"], exits[0][0]
+        exits = (room_view(page, room_id).get("room") or {}).get("exits", [])
+        if exits:
+            return character_id, room_id, exits[0]["id"]
     raise RuntimeError("could not find a character in a room with an exit")
 
 
-def wait_for_snapshot(page, label: str, predicate, timeout: float = 90.0) -> dict[str, Any]:
+def wait_for(page, label: str, fetch, predicate, timeout: float = 90.0) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last: dict[str, Any] | None = None
     while time.monotonic() < deadline:
-        last = api_snapshot(page)
+        last = fetch()
         if predicate(last):
             return last
         time.sleep(1.0)
@@ -114,12 +116,11 @@ def main() -> None:
         page.locator("#btn-connect").click()
         expect(page.locator("#api-status")).to_contain_text("Connected", timeout=15000)
         page.wait_for_function(
-            "() => window.app?.world && Object.keys(window.app.world.entities).length > 0"
+            "() => window.app?.characterList && window.app.characterList.length > 0"
         )
         shots.append(screenshot(page, "02-connected"))
 
-        initial = api_snapshot(page)
-        character_id, start_room, expected_exit_room = choose_character_with_exit(initial)
+        character_id, start_room, expected_exit_room = choose_character_with_exit(page)
         page.locator("#player-select").select_option(character_id)
         page.wait_for_function(
             """(characterId) => window.app?.control?.characterId === characterId""",
@@ -141,7 +142,7 @@ def main() -> None:
             raise RuntimeError(f"web controller claim failed: {control!r}")
         shots.append(screenshot(page, "03-claimed"))
 
-        before_pos = sprite_pos(api_snapshot(page), character_id) or (0.0, 0.0)
+        before_pos = sprite_pos(room_view(page, start_room), character_id) or (0.0, 0.0)
         stage = page.locator("#stage")
         box = stage.bounding_box()
         if not box:
@@ -151,11 +152,12 @@ def main() -> None:
         if not target_pos_raw or target_pos_raw[0] is None or target_pos_raw[1] is None:
             raise RuntimeError(f"sprite click did not set an optimistic local position: {target_pos_raw!r}")
         target_pos = (float(target_pos_raw[0]), float(target_pos_raw[1]))
-        wait_for_snapshot(
+        wait_for(
             page,
             "sprite position update",
-            lambda data: (
-                (pos := sprite_pos(data, character_id)) is not None
+            lambda: room_view(page, start_room),
+            lambda room: (
+                (pos := sprite_pos(room, character_id)) is not None
                 and abs(pos[0] - target_pos[0]) < 0.01
                 and abs(pos[1] - target_pos[1]) < 0.01
             ),
@@ -165,17 +167,18 @@ def main() -> None:
 
         page.locator('.verb.ready[data-tool="move"]').click()
         page.locator("#target-overlay .target-item").first.click()
-        moved_room = wait_for_snapshot(
+        moved = wait_for(
             page,
             "room movement through exit",
-            lambda data: room_of(data, character_id) != start_room,
+            lambda: character_room(page, character_id),
+            lambda projection: (projection.get("room") or {}).get("id") not in (None, start_room),
         )
         page.wait_for_function(
             "() => window.app?.activityLines?.length > 0",
             timeout=15000,
         )
         activity = page.evaluate("() => window.app.activityLines.map(line => line.text)")
-        new_room = room_of(moved_room, character_id)
+        new_room = (moved.get("room") or {}).get("id")
         page.locator("#btn-follow").click()
         page.wait_for_timeout(1000)
         shots.append(screenshot(page, "05-room-moved"))

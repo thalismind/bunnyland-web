@@ -379,16 +379,16 @@ BunnylandUI.initClientMenu();
 // ── Entity-model helpers (shared shapes with the Inspector) ────────────────────
 
 // Live server format: entities are an array, relationship edges use target_id.
-function parseApiSnapshot(data) {
-  const entities = {};
-  for (const e of data.entities || []) {
-    const rels = {};
-    for (const [rtype, edges] of Object.entries(e.relationships || {})) {
-      rels[rtype] = edges.map(({ target_id, edge }) => ({ target: target_id, edge: edge || {} }));
-    }
-    entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
-  }
-  return { entities, epoch: data.world_epoch || 0, queuedCommands: data.queued_commands || [] };
+function parseCharacterList(data) {
+  return {
+    epoch: data?.world_epoch || 0,
+    characters: (data?.characters || []).map(c => ({
+      id: c.character_id,
+      name: c.name || c.character_id,
+      kind: c.kind || 'character',
+      suspended: Boolean(c.suspended),
+    })),
+  };
 }
 
 function parseCharacterProjection(data) {
@@ -498,6 +498,7 @@ const DIR_EDGE = {
 };
 
 const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
+const POLL_INTERVAL_MS = 2000;  // how often the live view re-polls the player-facing projections
 const ROOM_WIDTH = 100;
 const ROOM_HEIGHT = 100;
 const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
@@ -669,8 +670,9 @@ function persistentClientIdFallback() {
 class RoomClient {
   constructor() {
     this.apiBase = null;
-    this.ws = null;
-    this.world = null;
+    this.connected = false;
+    this.characterList = [];
+    this.epoch = 0;
     this.playerId = '';
     this.characterProjection = null;
     this.roomProjection = null;
@@ -685,6 +687,7 @@ class RoomClient {
     this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
+    this._pollTimer = null;
     this._clientId = null;
     this._clientIdPromise = persistentClientId();
 
@@ -696,7 +699,7 @@ class RoomClient {
 
   _bindUi() {
     document.getElementById('btn-connect').addEventListener('click', () => {
-      if (this.ws) this.disconnect();
+      if (this.connected) this.disconnect();
       else this.connect(document.getElementById('api-url').value.trim());
     });
     document.getElementById('player-select').addEventListener('change', (e) => {
@@ -737,45 +740,21 @@ class RoomClient {
     if (!url) return;
     this.disconnect();
     this.apiBase = url.replace(/\/$/, '');
-    const wsUrl = this.apiBase.replace(/^http/, 'ws') + '/world/updates';
-    const ws = new WebSocket(wsUrl);
-    this.ws = ws;
-
-    ws.onopen = () => {
-      this._setStatus('live', '● Connected');
-      document.getElementById('btn-connect').textContent = 'Disconnect';
-      this._syncUrl();
-    };
-    ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data);
-      if (msg.type === 'snapshot') {
-        this._applyWorld(parseApiSnapshot(msg.data));
-      } else if (msg.type === 'event') {
-        this._drainEvents([msg]);
-        clearTimeout(this._refreshTimer);
-        this._refreshTimer = setTimeout(() => this._refresh(), 250);
-      } else if (msg.type === 'patch') {
-        clearTimeout(this._refreshTimer);
-        this._refreshTimer = setTimeout(() => this._refresh(), 250);
-      }
-    };
-    ws.onclose = () => {
-      if (this.ws === ws) {
-        this.ws = null;
-        this._setStatus('', '○ Offline');
-        document.getElementById('btn-connect').textContent = 'Connect Live';
-      }
-    };
-    ws.onerror = () => this._setStatus('error', '⚠ Connection failed');
+    this.connected = true;
+    // The player surface polls the ungated per-room projections; it never opens the
+    // admin-only /world/updates stream or reads the full snapshot.
+    this._setStatus('live', '● Connected');
+    document.getElementById('btn-connect').textContent = 'Disconnect';
+    this._syncUrl();
+    this._refresh();
+    this._pollTimer = setInterval(() => this._refresh(), POLL_INTERVAL_MS);
   }
 
   disconnect() {
+    clearInterval(this._pollTimer);
+    this._pollTimer = null;
     clearTimeout(this._refreshTimer);
-    if (this.ws) {
-      this.ws.onclose = null;
-      this.ws.close();
-      this.ws = null;
-    }
+    this.connected = false;
     this._setStatus('', '○ Offline');
     document.getElementById('btn-connect').textContent = 'Connect Live';
     this.characterProjection = null;
@@ -789,20 +768,30 @@ class RoomClient {
 
   async _refresh() {
     try {
-      const res = await fetch(`${this.apiBase}/world/snapshot`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      this._applyWorld(parseApiSnapshot(await res.json()));
+      await this._refreshCharacterList();
       if (this.playerId) {
         await this._refreshCharacterProjection();
         await this._refreshQueuedCommands();
       }
+      if (this.followPlayer) this._recenterOnPlayer();
       if (this.viewRoomId) await this._refreshRoomProjection(this.viewRoomId);
       await this._refreshRecentEvents();
       this.render();
-      this._setStatus('live', `● Live · epoch ${this.world.epoch}s`);
+      this._setStatus('live', `● Live · epoch ${this.epoch}s`);
     } catch (err) {
       this._setStatus('error', `⚠ ${err.message}`);
     }
+  }
+
+  async _refreshCharacterList() {
+    // The claim lobby: ids and names of every character, with no per-character state. This
+    // is the player-facing replacement for the admin-gated snapshot's character roster.
+    const res = await fetch(`${this.apiBase}/world/characters`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const parsed = parseCharacterList(await res.json());
+    this.characterList = parsed.characters;
+    this.epoch = parsed.epoch;
+    this._refreshPlayerOptions();
   }
 
   async _refreshCharacterProjection({ render = false } = {}) {
@@ -884,17 +873,6 @@ class RoomClient {
     }
   }
 
-  _applyWorld(world) {
-    this.world = world;
-    this._refreshPlayerOptions();
-    if (this.followPlayer) this._recenterOnPlayer();
-    if (!this.viewRoomId || !this.world.entities[this.viewRoomId]) {
-      this.viewRoomId = this._playerRoomId() || this._defaultRoomId();
-    }
-    if (this.roomProjection?.room?.id !== this.viewRoomId) this.roomProjection = null;
-    this.render();
-  }
-
   _setStatus(cls, text) {
     const el = document.getElementById('api-status');
     el.className = cls;
@@ -908,39 +886,18 @@ class RoomClient {
     history.replaceState(null, '', url);
   }
 
-  // ── World queries ──────────────────────────────────────────────────────────
-
-  _rooms() {
-    return Object.values(this.world?.entities || {}).filter(e => e.components.RoomComponent);
-  }
-
-  _defaultRoomId() {
-    const rooms = this._rooms();
-    const room = rooms.find(e => e.components.ToonRoomComponent?.default_start) || rooms[0];
-    return room ? room.id : null;
-  }
-
-  // The room directly containing an entity (rooms own members via Contains edges).
-  _roomOf(entityId) {
-    if (!entityId) return null;
-    for (const room of this._rooms()) {
-      for (const { target } of (room.relationships.Contains || [])) {
-        if (target === entityId) return room.id;
-      }
-    }
-    return null;
-  }
+  // ── World queries (player-facing projections only) ──────────────────────────
 
   _playerRoomId() {
     if (this.characterProjection?.characterId === this.playerId && this.characterProjection.room?.id) {
       return this.characterProjection.room.id;
     }
-    return this._roomOf(this.playerId);
+    return null;
   }
 
   _currentRoom() {
     if (this.roomProjection?.room?.id === this.viewRoomId) return this.roomProjection.room;
-    return this.viewRoomId ? this.world?.entities[this.viewRoomId] : null;
+    return null;
   }
 
   _entityById(id) {
@@ -948,17 +905,13 @@ class RoomClient {
       const projected = this.roomProjection.entities.find(entity => entity.id === id);
       if (projected) return projected;
     }
-    return this.world?.entities?.[id] || null;
+    return null;
   }
 
-  // Members (characters + objects) sitting directly in a room.
+  // Members (characters + objects) sitting directly in a room, from the room projection.
   _roomMembers(roomId) {
     if (this.roomProjection?.room?.id === roomId) return this.roomProjection.entities;
-    const room = this.world.entities[roomId];
-    if (!room) return [];
-    return (room.relationships.Contains || [])
-      .map(({ target }) => this.world.entities[target])
-      .filter(Boolean);
+    return [];
   }
 
   _spritePos(entity) {
@@ -1087,14 +1040,13 @@ class RoomClient {
 
   _refreshPlayerOptions() {
     const select = document.getElementById('player-select');
-    const chars = Object.values(this.world.entities)
-      .filter(e => e.components.CharacterComponent)
-      .sort((a, b) => entityName(a).localeCompare(entityName(b)));
+    const chars = this.characterList.slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
     const current = this.playerId;
     select.innerHTML = '<option value="">— none —</option>' +
-      chars.map(c => `<option value="${c.id}">${BunnylandUI.escapeHtml(entityName(c))}</option>`).join('');
-    if (current && this.world.entities[current]) select.value = current;
-    else {
+      chars.map(c => `<option value="${c.id}">${BunnylandUI.escapeHtml(c.name)}</option>`).join('');
+    if (current && chars.some(c => c.id === current)) select.value = current;
+    else if (current) {
       this.playerId = '';
       this.control = null;
       this.characterProjection = null;
@@ -1231,23 +1183,15 @@ class RoomClient {
         fpMax: points.focus_max ?? 0,
       };
     }
-    const p = this.world?.entities[this.playerId];
-    const ap = p?.components?.ActionPointsComponent;
-    const fp = p?.components?.FocusPointsComponent;
-    return {
-      has: !!p,
-      ap: ap?.current ?? 0, apMax: ap?.maximum ?? 0,
-      fp: fp?.current ?? 0, fpMax: fp?.maximum ?? 0,
-    };
+    return { has: false, ap: 0, apMax: 0, fp: 0, fpMax: 0 };
   }
 
   _playerQueuedCommands() {
-    if (this.queuedCommands) return this.queuedCommands;
-    return (this.world?.queuedCommands || []).filter(command => command.character_id === this.playerId);
+    return this.queuedCommands || [];
   }
 
   _nameFor(entityId) {
-    const entity = this._entityById(entityId) || this.world?.entities?.[entityId];
+    const entity = this._entityById(entityId);
     return entity ? entityName(entity) : null;
   }
 
@@ -1384,7 +1328,7 @@ class RoomClient {
   }
 
   async _syncTick() {
-    if (!this.localDirty || !this.ws || !this.localPos) return;
+    if (!this.localDirty || !this.connected || !this.localPos) return;
     const pos = this.localPos;
     this.localDirty = false;
     // move-sprite is free (0 AP / 0 FP); retry on the next tick if it fails.
@@ -1426,47 +1370,13 @@ class RoomClient {
     }
   }
 
-  // Entities the player is carrying (inventory, held, or worn).
-  _carried(playerId) {
-    const player = this.world?.entities[playerId];
-    if (!player) return [];
-    const out = [];
-    for (const rtype of ['Contains', 'Holding', 'Wearing']) {
-      for (const { target } of (player.relationships[rtype] || [])) {
-        const entity = this.world.entities[target];
-        if (entity) out.push(entity);
-      }
-    }
-    return out;
-  }
-
-  // Candidate targets for a verb, drawn from what's reachable in the player's room.
-  // The server still validates reachability/edibility/etc., so this can be permissive.
+  // Candidate targets for a verb, taken from the character projection's target groups
+  // (exits, roomItems, inventory, characters, reachableItems). The server still validates
+  // reachability/edibility/etc., so this only needs to offer plausible choices.
   _targetCandidates(kind) {
-    const projected = this.characterProjection?.targetGroups?.[kind];
-    if (this.characterProjection?.characterId === this.playerId && projected) {
-      return projected;
+    if (this.characterProjection?.characterId === this.playerId) {
+      return this.characterProjection.targetGroups?.[kind] || [];
     }
-
-    const roomId = this._playerRoomId();
-    const room = this.world?.entities[roomId];
-    const asTarget = (e) => ({ value: e.id, label: entityName(e), icon: entityIcon(e) });
-    const members = this._roomMembers(roomId)
-      .filter(e => e.id !== this.playerId && entityType(e) !== 'room');
-    const roomItems = members.filter(e => !e.isCharacter && !e.components?.CharacterComponent);
-    const carried = this._carried(this.playerId);
-
-    if (kind === 'exits') {
-      return (room?.relationships.ExitTo || []).map(({ target, edge }) => {
-        const dest = this.world.entities[target];
-        const dir = edge?.direction || 'exit';
-        return { value: target, label: `${dir} → ${dest ? entityName(dest) : target}`, icon: '🚪' };
-      });
-    }
-    if (kind === 'roomItems') return roomItems.filter(e => e.components?.PortableComponent).map(asTarget);
-    if (kind === 'inventory') return carried.map(asTarget);
-    if (kind === 'characters') return members.filter(e => e.isCharacter || e.components?.CharacterComponent).map(asTarget);
-    if (kind === 'reachableItems') return [...roomItems, ...carried].map(asTarget);
     return [];
   }
 
@@ -1634,7 +1544,7 @@ class RoomClient {
       empty.classList.remove('hidden');
       document.getElementById('room-bg').style.backgroundImage = '';
       document.getElementById('room-bg').textContent = '';
-      document.getElementById('room-title').textContent = this.ws ? 'No room' : 'Not connected';
+      document.getElementById('room-title').textContent = this.connected ? 'No room' : 'Not connected';
       return;
     }
     empty.classList.add('hidden');
@@ -1717,32 +1627,6 @@ class RoomClient {
         });
         stage.appendChild(door);
       }
-      return;
-    }
-    for (const { target, edge } of (room.relationships.ExitTo || [])) {
-      const dest = this.world.entities[target];
-      if (!dest) continue;
-      const dir = (edge?.direction || '').toLowerCase();
-      const [ox, oy] = DIR_EDGE[dir] || [1, 0];
-      const door = document.createElement('div');
-      door.className = 'door';
-      door.innerHTML =
-        `🚪 ${BunnylandUI.escapeHtml(entityName(dest))}` +
-        (dir ? `<span class="door-dir">${BunnylandUI.escapeHtml(dir)}</span>` : '');
-      // Pin to the edge the exit points toward.
-      door.style.left = ox === 0 ? '50%' : (ox < 0 ? `${margin}px` : 'auto');
-      door.style.right = ox > 0 ? `${margin}px` : 'auto';
-      door.style.top = oy === 0 ? '50%' : (oy < 0 ? `${margin}px` : 'auto');
-      door.style.bottom = oy > 0 ? `${margin}px` : 'auto';
-      if (ox === 0) door.style.transform = 'translateX(-50%)';
-      if (oy === 0) door.style.transform = 'translateY(-50%)';
-      door.title = `Go to ${entityName(dest)}`;
-      door.addEventListener('click', () => {
-        this.viewRoomId = target;
-        this.followPlayer = false;
-        this.render();
-      });
-      stage.appendChild(door);
     }
   }
 
