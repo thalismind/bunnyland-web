@@ -381,16 +381,16 @@
             <p class="eyebrow">Terminal play</p>
             <h2 id="terminal-title">Play from a shell.</h2>
           </div>
-          <p>Install with <code>uv sync --extra tui</code> / <code>--extra repl</code> (or run the published containers), then connect:</p>
+          <p>From a checkout, run with <code>uv run --all-extras</code> (or use the published containers), then connect:</p>
         </div>
         <div class="info-grid">
           <article class="info-card">
             <h3>Textual TUI</h3>
-            <div class="cmd"><code id="cmd-tui">bunnyland-tui --server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
+            <div class="cmd"><code id="cmd-tui">uv run --all-extras bunnyland-tui --server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
           </article>
           <article class="info-card">
             <h3>Line REPL</h3>
-            <div class="cmd"><code id="cmd-repl">bunnyland-repl --server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
+            <div class="cmd"><code id="cmd-repl">uv run --all-extras bunnyland-repl --server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
           </article>
         </div>
       </section>
@@ -493,8 +493,8 @@
       const el = document.getElementById(id);
       if (el) el.textContent = `${program} --server ${base}`;
     };
-    fill('cmd-tui', 'bunnyland-tui');
-    fill('cmd-repl', 'bunnyland-repl');
+    fill('cmd-tui', 'uv run --all-extras bunnyland-tui');
+    fill('cmd-repl', 'uv run --all-extras bunnyland-repl');
 
     document.querySelectorAll('.cmd-copy').forEach((btn) => {
       btn.addEventListener('click', async () => {
