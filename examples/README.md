@@ -56,3 +56,16 @@ Load these in `script-editor.html` with a compatible world snapshot:
 
 - **`script-world-sets.json`** — example pairings of world generator seed/plugin settings
   with the sample scripts.
+
+## Example behavior trees
+
+Load these in `behavior-editor.html` (file picker), tweak them, and download or register them
+on a live server. They reference the server's built-in condition/action leaf library:
+
+- **`behaviors/meadow-forager.json`** — a `selector` that first runs a `sequence`
+  (`has_visible_objects` → `take_first_item`) and otherwise falls back to `move_first_exit`,
+  i.e. grab a nearby item or wander. Mirrors the built-in `forager` tree.
+
+- **`behaviors/doorway-greeter.json`** — a `selector` whose `sequence` greets via the `say`
+  action (with `text`/`intent`/`approach` params) when `has_visible_characters` is true,
+  otherwise holds position.

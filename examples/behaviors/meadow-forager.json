@@ -1,0 +1,17 @@
+{
+  "name": "meadow-forager",
+  "description": "Take a visible item, otherwise wander toward an open exit.",
+  "root": {
+    "kind": "selector",
+    "children": [
+      {
+        "kind": "sequence",
+        "children": [
+          { "kind": "condition", "ref": "has_visible_objects", "params": {} },
+          { "kind": "action", "ref": "take_first_item", "params": {} }
+        ]
+      },
+      { "kind": "action", "ref": "move_first_exit", "params": {} }
+    ]
+  }
+}

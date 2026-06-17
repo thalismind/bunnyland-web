@@ -1,0 +1,20 @@
+{
+  "name": "doorway-greeter",
+  "description": "Greet a visitor when one is present, otherwise hold position.",
+  "root": {
+    "kind": "selector",
+    "children": [
+      {
+        "kind": "sequence",
+        "children": [
+          { "kind": "condition", "ref": "has_visible_characters", "params": {} },
+          {
+            "kind": "action",
+            "ref": "say",
+            "params": { "text": "welcome to the meadow.", "intent": "praise", "approach": "friendly" }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -30,6 +30,9 @@ similar to Chrome's memory snapshot tools.
 
 5. Open `/world-editor.html` to create or edit a world snapshot directly.
 
+6. Open `/behavior-editor.html` to author behavior-tree JSON for behavioral controllers, and
+   optionally connect to a live server to register it.
+
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
 
@@ -135,6 +138,16 @@ uses for persistence.
 It loads enabled generators from the server, accepts a seed/prompt and room budget, calls
 the reset generation endpoint, keeps a websocket open, polls snapshots during generation,
 and highlights entity ids that appear in the latest snapshot.
+
+**Behavior editor** — `behavior-editor.html` authors the behavior trees that drive
+`behavioral` controllers. Build a tree from `sequence`/`selector` composites and
+`condition`/`action` leaves, where each leaf references a named entry in the server's leaf
+library (`has_visible_objects`, `take_first_item`, `say`, …) with JSON params. It works fully
+offline (New / load file / download / copy JSON, with live validation against the built-in
+library), and when connected to a server it loads the live `condition`/`action` library plus
+the registered behavior names and can POST the tree to `/admin/controllers/behaviors` to
+register it without a restart. Sample trees live in
+[`examples/behaviors/`](examples/behaviors/).
 
 **Room Map** — top-level view shows rooms as nodes arranged by exit direction (north/south/east/west),
 connected by edges. Each room shows a 🐰 count for the characters currently inside it.

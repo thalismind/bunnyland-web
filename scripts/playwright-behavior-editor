@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Playwright regression tests for the Bunnyland behavior editor.
+
+Each test runs against a freshly loaded page so the cases stay independent. The behavior
+editor is a static, offline-capable page, so these checks cover authoring, node editing, and
+validation against the built-in leaf library without needing a live server.
+"""
+
+from pathlib import Path
+import json
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+SCREENSHOT = SCREENSHOT_DIR / "bunnyland-behavior-editor.png"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def fresh_page(browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+    page.goto(f"{BASE_URL}/behavior-editor.html", wait_until="networkidle")
+    return page
+
+
+def spec_json(page) -> dict:
+    return json.loads(page.locator("#json-output").input_value())
+
+
+def problems_text(page) -> str:
+    return page.locator("#problems").text_content() or ""
+
+
+def node_count(page) -> int:
+    return page.locator("#tree-root .bt-node").count()
+
+
+def assert_(condition, message) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+# --- individual regression tests -------------------------------------------
+
+
+def test_default_tree(page) -> None:
+    """The page loads a valid, multi-node default tree with a composite root."""
+    assert_(node_count(page) >= 4, f"default tree too small: {node_count(page)} nodes")
+    assert_("Valid behavior JSON" in problems_text(page), f"default invalid: {problems_text(page)!r}")
+    spec = spec_json(page)
+    assert_(spec["name"] == "local-behavior", f"unexpected default name: {spec['name']!r}")
+    assert_(spec["root"]["kind"] in {"sequence", "selector"}, f"root not composite: {spec['root']!r}")
+
+
+def test_builtin_library(page) -> None:
+    """Offline, the leaf library mirrors the server built-ins and is labelled built-in."""
+    assert_(page.locator("#library-source").text_content() == "built-in", "library source label wrong")
+    for ref in ("has_open_exit", "has_visible_characters", "has_visible_objects"):
+        assert_(page.locator("#condition-list .pill", has_text=ref).count() == 1, f"missing condition {ref}")
+    for ref in ("greet_first_character", "move_first_exit", "say", "take_first_item", "warn_first_character"):
+        assert_(page.locator("#action-list .pill", has_text=ref).count() == 1, f"missing action {ref}")
+    assert_("Connect to list" in (page.locator("#behavior-list").text_content() or ""),
+            "offline behavior list should prompt to connect")
+
+
+def test_add_child_then_set_ref(page) -> None:
+    """Adding a leaf flags the missing ref; choosing one clears the problem."""
+    before = node_count(page)
+    page.locator('#tree-root > .bt-node[data-path=""] > .bt-head .bt-add-btn[data-add="action"]').click()
+    assert_(node_count(page) == before + 1, "adding an action did not grow the tree")
+    assert_("requires a library ref" in problems_text(page), "empty leaf ref was not flagged")
+    page.select_option('.bt-node[data-path="2"] .node-ref', "move_first_exit")
+    assert_("Valid behavior JSON" in problems_text(page), f"valid leaf still flagged: {problems_text(page)!r}")
+    assert_(spec_json(page)["root"]["children"][2]["ref"] == "move_first_exit", "ref not written to spec")
+
+
+def test_delete_node(page) -> None:
+    """Deleting a child shrinks the tree and the spec."""
+    before = node_count(page)
+    root_children = len(spec_json(page)["root"]["children"])
+    page.locator('.bt-node[data-path="1"] > .bt-head .node-delete').click()
+    assert_(node_count(page) < before, "deleting a node did not shrink the tree")
+    assert_(len(spec_json(page)["root"]["children"]) == root_children - 1, "child not removed from spec")
+
+
+def test_kind_switch_composite_and_leaf(page) -> None:
+    """Switching the root kind and converting a leaf to a composite rewrites the spec."""
+    page.select_option('#tree-root > .bt-node[data-path=""] > .bt-head .node-kind', "sequence")
+    assert_(spec_json(page)["root"]["kind"] == "sequence", "root kind did not switch to sequence")
+    # The second child is the move_first_exit action leaf; promote it to a selector composite.
+    page.select_option('.bt-node[data-path="1"] .node-kind', "selector")
+    child = spec_json(page)["root"]["children"][1]
+    assert_(child["kind"] == "selector", "leaf did not become a selector")
+    assert_("ref" not in child and "children" in child, f"composite still carries leaf fields: {child!r}")
+
+
+def test_params_bad_json(page) -> None:
+    """Invalid params JSON is flagged and recovers when corrected."""
+    page.fill('.bt-node[data-path="0.0"] .node-params', "{not json")
+    assert_("invalid params JSON" in problems_text(page), "bad params JSON was not flagged")
+    assert_(page.locator('.bt-node[data-path="0.0"] .node-params.bad-json').count() == 1,
+            "bad params textarea missing error styling")
+    page.fill('.bt-node[data-path="0.0"] .node-params', "{}")
+    assert_("invalid params JSON" not in problems_text(page), "params problem did not clear")
+
+
+def test_say_requires_text(page) -> None:
+    """The say action requires non-empty text, mirroring server validation."""
+    page.select_option('.bt-node[data-path="1"] .node-ref', "say")
+    assert_("say requires a non-empty text" in problems_text(page), "empty say text was not flagged")
+    page.fill('.bt-node[data-path="1"] .node-params',
+              '{"text": "hello", "intent": "praise", "approach": "friendly"}')
+    assert_("say requires a non-empty text" not in problems_text(page), "say text problem did not clear")
+
+
+def test_name_required(page) -> None:
+    """An empty name is a validation error."""
+    page.fill("#behavior-name", "")
+    assert_("name is required" in problems_text(page), "empty name was not flagged")
+
+
+def test_reset_root_and_new(page) -> None:
+    """The root delete acts as a reset; New restores the default tree."""
+    page.locator('#tree-root > .bt-node[data-path=""] > .bt-head .node-delete').click()
+    assert_(node_count(page) == 1, "resetting the root left extra nodes")
+    assert_("has no children" in problems_text(page), "empty root composite was not flagged")
+    page.click("#btn-new")
+    assert_(spec_json(page)["name"] == "local-behavior", "New did not restore the default name")
+    assert_(node_count(page) >= 4, "New did not restore the default tree")
+
+
+def test_load_file_round_trip(page) -> None:
+    """Loading an example behavior file populates the name and tree."""
+    example = REPO_ROOT / "examples" / "behaviors" / "doorway-greeter.json"
+    page.set_input_files("#behavior-input", str(example))
+    page.wait_for_function("() => document.getElementById('behavior-name').value === 'doorway-greeter'")
+    spec = spec_json(page)
+    assert_(spec["name"] == "doorway-greeter", f"loaded name wrong: {spec['name']!r}")
+    assert_(spec["root"]["children"][0]["children"][1]["ref"] == "say", "loaded tree missing say leaf")
+    assert_("Valid behavior JSON" in problems_text(page), "loaded example did not validate")
+
+
+def test_client_menu_active(page) -> None:
+    """The shared client menu marks the behavior editor as the active page."""
+    page.locator("#btn-client-menu").click()
+    active = page.locator(".client-menu-item.active")
+    active.wait_for()
+    href = active.get_attribute("href") or ""
+    assert_(href.startswith("behavior-editor.html"), f"active menu item is {href!r}")
+    page.keyboard.press("Escape")
+
+
+TESTS = [
+    test_default_tree,
+    test_builtin_library,
+    test_add_child_then_set_ref,
+    test_delete_node,
+    test_kind_switch_composite_and_leaf,
+    test_params_bad_json,
+    test_say_requires_text,
+    test_name_required,
+    test_reset_root_and_new,
+    test_load_file_round_trip,
+    test_client_menu_active,
+]
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    failures = []
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        for test in TESTS:
+            page = fresh_page(browser)
+            try:
+                test(page)
+                print(f"{test.__name__}=ok")
+            except AssertionError as err:
+                failures.append(f"{test.__name__}: {err}")
+                print(f"{test.__name__}=FAIL {err}")
+            finally:
+                if test is TESTS[0]:
+                    page.screenshot(path=str(SCREENSHOT))
+                page.close()
+        browser.close()
+
+    if failures:
+        raise SystemExit("behavior editor regressions:\n  " + "\n  ".join(failures))
+    print(f"behavior_editor=ok ({len(TESTS)} checks)")
+    print(f"screenshot={SCREENSHOT}")
+
+
+if __name__ == "__main__":
+    main()

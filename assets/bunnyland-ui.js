@@ -46,6 +46,13 @@
       description: 'Create and validate script JSON blocks against a snapshot.',
       supportsServer: false,
     },
+    {
+      href: 'behavior-editor.html',
+      title: 'Behavior Editor',
+      label: 'Behavior trees',
+      description: 'Author behavior-tree JSON for behavioral controllers and register it live.',
+      supportsServer: true,
+    },
   ];
 
   let deployConfigPromise = null;
