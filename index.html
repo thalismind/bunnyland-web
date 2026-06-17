@@ -113,6 +113,18 @@
       background: rgba(137, 180, 250, 0.28);
     }
 
+    /* Discord highlight: mauve, so it reads as equal to "Play online" but distinct. */
+    .button-link.discord {
+      border-color: #cba6f7;
+      color: var(--bl-text-inverse);
+      background: rgba(203, 166, 247, 0.28);
+    }
+
+    .button-link.discord:hover {
+      border-color: #cba6f7;
+      background: rgba(203, 166, 247, 0.4);
+    }
+
     .hero-panel {
       display: flex;
       flex-direction: column;
@@ -309,6 +321,9 @@
       min-width: 0;
       white-space: pre-wrap;
       overflow-wrap: break-word;
+      /* Hanging indent so wrapped/continued lines (e.g. --server …) read as one command. */
+      padding-left: 2ch;
+      text-indent: -2ch;
       color: var(--bl-text);
       font-size: 13px;
       line-height: 1.5;
@@ -359,7 +374,7 @@
           <p class="lede">An open-source simulation server. Humans and LLM-driven characters share one living world and play it with the same commands.</p>
           <div class="quick-links" aria-label="Get started">
             <a class="button-link primary" href="toon-client.html">Play online</a>
-            <a id="discord-link" class="button-link" href="#" target="_blank" rel="noopener" style="display:none">Play in Discord</a>
+            <a id="discord-link" class="button-link discord" href="#" target="_blank" rel="noopener" style="display:none">Play in Discord</a>
             <a class="button-link" href="https://bunnyland.dev/guides/">Read the Guides</a>
           </div>
         </div>
