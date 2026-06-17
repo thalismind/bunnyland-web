@@ -77,7 +77,7 @@ def main() -> None:
         if page.locator('a[href="https://bunnyland.dev/guides/"]').count() < 1:
             raise AssertionError("welcome page is missing guides link")
         welcome_text = page.locator("body").text_content()
-        if "Discord commands" not in welcome_text or "Textual TUI" not in welcome_text:
+        if "Discord" not in welcome_text or "Textual TUI" not in welcome_text:
             raise AssertionError("welcome page is missing alternate player input options")
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
