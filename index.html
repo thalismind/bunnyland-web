@@ -296,7 +296,7 @@
 
     .cmd {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       margin-top: 8px;
       padding: 8px 10px;
@@ -307,10 +307,11 @@
     .cmd code {
       flex: 1;
       min-width: 0;
-      overflow-x: auto;
-      white-space: nowrap;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
       color: var(--bl-text);
       font-size: 13px;
+      line-height: 1.5;
     }
     .cmd-copy {
       flex: 0 0 auto;
@@ -386,11 +387,11 @@
         <div class="info-grid">
           <article class="info-card">
             <h3>Textual TUI</h3>
-            <div class="cmd"><code id="cmd-tui">uv run --all-extras bunnyland-tui --server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
+            <div class="cmd"><code id="cmd-tui">uv run --all-extras bunnyland-tui <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
           </article>
           <article class="info-card">
             <h3>Line REPL</h3>
-            <div class="cmd"><code id="cmd-repl">uv run --all-extras bunnyland-repl --server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
+            <div class="cmd"><code id="cmd-repl">uv run --all-extras bunnyland-repl <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
           </article>
         </div>
       </section>
@@ -491,7 +492,10 @@
     const base = new URL(serverUrl, location.href).href.replace(/\/+$/, '');
     const fill = (id, program) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = `${program} --server ${base}`;
+      if (!el) return;
+      // Display on two lines (program / --server …) but keep textContent single-line for copy.
+      el.textContent = '';
+      el.append(`${program} `, document.createElement('br'), `--server ${base}`);
     };
     fill('cmd-tui', 'uv run --all-extras bunnyland-tui');
     fill('cmd-repl', 'uv run --all-extras bunnyland-repl');
@@ -501,7 +505,7 @@
         const code = document.getElementById(btn.dataset.copy);
         if (!code) return;
         try {
-          await navigator.clipboard.writeText(code.textContent);
+          await navigator.clipboard.writeText(code.textContent.replace(/\s+/g, ' ').trim());
           const previous = btn.textContent;
           btn.textContent = 'Copied';
           setTimeout(() => { btn.textContent = previous; }, 1200);
