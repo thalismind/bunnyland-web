@@ -278,15 +278,6 @@
     }
 
     /* ── Target picker (overlays the visual world) ── */
-    #target-overlay {
-      position: absolute;
-      inset: 0;
-      z-index: 9000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(17, 17, 27, 0.6);
-    }
     .target-card {
       width: 300px;
       max-height: 75%;
@@ -304,22 +295,30 @@
       font-size: var(--bl-text-md);
       color: var(--bl-text);
     }
-    .target-list { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-    .target-item {
+    .target-card-footer { padding: 8px 12px; border-top: 1px solid var(--bl-border); display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* ── Action form overlay (one modal collecting an action's fields) ── */
+    #action-form-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 9000;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      background: rgba(17, 17, 27, 0.6);
+    }
+    .af-body { overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+    .af-field { display: flex; flex-direction: column; gap: 4px; }
+    .af-label { font-size: var(--bl-text-sm); color: var(--bl-text-muted); }
+    .af-input {
       padding: 6px 9px;
       border-radius: var(--bl-radius-sm);
+      border: 1px solid var(--bl-border-control);
       background: var(--bl-surface);
       color: var(--bl-text);
       font-size: var(--bl-text-sm);
-      cursor: pointer;
     }
-    .target-item:hover { background: var(--bl-surface-hover); }
-    .target-item .ti-icon { font-size: 18px; line-height: 1; }
-    .target-empty { padding: 12px; color: var(--bl-text-muted); font-size: var(--bl-text-sm); }
-    .target-card-footer { padding: 8px 12px; border-top: 1px solid var(--bl-border); display: flex; justify-content: flex-end; }
+    .af-error { color: var(--bl-danger, #e06c75); font-size: var(--bl-text-sm); min-height: 1em; }
 
     /* ── Loading splash overlay (brief title + bunny) ── */
     #loading-overlay {
@@ -1458,19 +1457,12 @@ class RoomClient {
 
   async _doAction(action) {
     if (!action) return;
-    const payload = {};
-    for (const argument of actionArguments(action)) {
-      if (!argument.key) continue;
-      if (argument.target_group) {
-        const choice = await this._pickTarget(action, argument);
-        if (!choice) return;                  // cancelled
-        payload[argument.key] = choice.value;
-      } else if (argument.required) {
-        const label = argument.title || argument.key;
-        const value = window.prompt(`${actionTitle(action)} — ${label}:`);
-        if (value == null || value === '') return;
-        payload[argument.key] = value;
-      }
+    const fields = this._actionFields(action);
+    let payload = {};
+    if (fields.length) {
+      const result = await this._actionForm(action, fields);
+      if (result == null) return;            // cancelled
+      payload = result;
     }
     const cost = actionCost(action);
     if (await this._postCommand(
@@ -1502,38 +1494,98 @@ class RoomClient {
     return ACTION_VERBS.map(legacyActionView);
   }
 
-  // Show a modal list of candidate targets; resolves to a choice or null if cancelled.
-  _pickTarget(action, argument = null) {
+  // Arguments worth prompting: every required argument plus any entity argument that has
+  // a target group (rendered as a dropdown of nearby candidates). Mirrors the terminal
+  // TUI's action form so both player clients prompt for the same fields.
+  _actionFields(action) {
+    const fields = [];
+    for (const argument of actionArguments(action)) {
+      if (!argument.key) continue;
+      const required = !!argument.required;
+      const targetGroup = argument.target_group;
+      if (!required && !targetGroup) continue;
+      fields.push({
+        key: argument.key,
+        label: argument.title || argument.key,
+        kind: argument.kind || 'string',
+        required,
+        candidates: targetGroup ? this._targetCandidates(targetGroup) : null,
+      });
+    }
+    return fields;
+  }
+
+  // One modal collecting all of an action's fields: a dropdown for target and boolean
+  // fields, a numeric input for numbers, a text input otherwise. Resolves to a payload
+  // object, or null if cancelled.
+  _actionForm(action, fields) {
     return new Promise((resolve) => {
+      // Only one action form may be open at a time; ignore a second request while one is
+      // still on screen.
+      if (document.getElementById('action-form-overlay')) { resolve(null); return; }
       const esc = BunnylandUI.escapeHtml;
-      const targetGroup = argument?.target_group || action.target?.kind;
-      const candidates = this._targetCandidates(targetGroup);
+      const fieldHtml = fields.map((field, i) => {
+        const label = `${esc(field.label)}${field.required ? ' *' : ''}`;
+        let control;
+        if (field.candidates) {
+          const options = ['<option value="">— choose —</option>'].concat(
+            field.candidates.map(c =>
+              `<option value="${esc(c.value)}">${esc(c.icon)} ${esc(c.label)}</option>`));
+          control = `<select class="af-input" data-i="${i}">${options.join('')}</select>`;
+        } else if (field.kind === 'boolean') {
+          control = `<select class="af-input" data-i="${i}">` +
+            `<option value="">— choose —</option>` +
+            `<option value="true">yes</option><option value="false">no</option></select>`;
+        } else {
+          const type = field.kind === 'number' ? 'number' : 'text';
+          control = `<input class="af-input" data-i="${i}" type="${type}">`;
+        }
+        return `<label class="af-field"><span class="af-label">${label}</span>${control}</label>`;
+      }).join('');
+
       const overlay = document.createElement('div');
-      overlay.id = 'target-overlay';
-      const rows = candidates.length
-        ? candidates.map((c, i) =>
-            `<div class="target-item" data-i="${i}">` +
-            `<span class="ti-icon">${esc(c.icon)}</span><span>${esc(c.label)}</span></div>`).join('')
-        : '<div class="target-empty">No valid targets nearby.</div>';
+      overlay.id = 'action-form-overlay';
       overlay.innerHTML =
         `<div class="target-card">` +
-        `<div class="target-card-header">${esc(actionTitle(action))} — choose a target</div>` +
-        `<div class="target-list">${rows}</div>` +
-        `<div class="target-card-footer"><button class="target-cancel">Cancel</button></div></div>`;
+        `<div class="target-card-header">${esc(actionTitle(action))}</div>` +
+        `<div class="af-body">${fieldHtml}<div class="af-error"></div></div>` +
+        `<div class="target-card-footer">` +
+        `<button class="af-cancel">Cancel</button>` +
+        `<button class="af-submit">Submit</button></div></div>`;
 
       const close = (value) => {
         document.removeEventListener('keydown', onKey);
         overlay.remove();
         resolve(value);
       };
-      const onKey = (e) => { if (e.key === 'Escape') close(null); };
+      const valueFor = (i) => {
+        const el = overlay.querySelector(`.af-input[data-i="${i}"]`);
+        const raw = (el?.value ?? '').trim();
+        return raw === '' ? null : raw;
+      };
+      const submit = () => {
+        const payload = {};
+        for (let i = 0; i < fields.length; i++) {
+          const value = valueFor(i);
+          if (fields[i].required && value == null) {
+            overlay.querySelector('.af-error').textContent = `${fields[i].label} is required.`;
+            return;
+          }
+          if (value != null) payload[fields[i].key] = value;
+        }
+        close(payload);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') close(null);
+        else if (e.key === 'Enter' && e.target.tagName === 'INPUT') submit();
+      };
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
-      overlay.querySelector('.target-cancel').addEventListener('click', () => close(null));
-      for (const el of overlay.querySelectorAll('.target-item')) {
-        el.addEventListener('click', () => close(candidates[+el.dataset.i]));
-      }
+      overlay.querySelector('.af-cancel').addEventListener('click', () => close(null));
+      overlay.querySelector('.af-submit').addEventListener('click', submit);
       document.addEventListener('keydown', onKey);
       document.getElementById('stage-wrapper').appendChild(overlay);
+      const first = overlay.querySelector('.af-input');
+      if (first) first.focus();
     });
   }
 

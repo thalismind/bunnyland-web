@@ -173,7 +173,10 @@ def main() -> None:
         shots.append(screenshot(page, "04-in-room-moved"))
 
         page.locator('.verb.ready[data-tool="move"]').click()
-        page.locator("#target-overlay .target-item").first.click()
+        # Move opens the unified action form; pick the first exit from its dropdown.
+        form_select = page.locator("#action-form-overlay select.af-input").first
+        form_select.select_option(index=1)
+        page.locator("#action-form-overlay .af-submit").click()
         moved = wait_for(
             page,
             "room movement through exit",
