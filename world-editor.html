@@ -230,6 +230,8 @@
 <datalist id="entity-options"></datalist>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-world.js"></script>
 <script>
 'use strict';
 
@@ -284,148 +286,12 @@ function makeEmptyWorld() {
   };
 }
 
-function parseSaveSnapshot(json) {
-  const entities = {};
-  for (const [id, fields] of Object.entries(json.entities || {})) {
-    entities[id] = {
-      id,
-      prefab: fields.prefab || 'entity',
-      created_epoch: fields.created_epoch || 0,
-      components: {},
-      relationships: {}
-    };
-  }
-  for (const [ctype, table] of Object.entries(json.components || {})) {
-    for (const [eid, fields] of Object.entries(table || {})) {
-      if (!entities[eid]) {
-        entities[eid] = { id: eid, prefab: 'entity', created_epoch: 0, components: {}, relationships: {} };
-      }
-      entities[eid].components[ctype] = fields || {};
-    }
-  }
-  for (const [rtype, table] of Object.entries(json.relationships || {})) {
-    for (const [eid, edges] of Object.entries(table || {})) {
-      if (!entities[eid]) {
-        entities[eid] = { id: eid, prefab: 'entity', created_epoch: 0, components: {}, relationships: {} };
-      }
-      entities[eid].relationships[rtype] = (edges || []).map(item => ({
-        target: item.target,
-        edge: item.edge || {}
-      }));
-    }
-  }
-  return {
-    metadata: json.metadata || { version: '1.0', epoch: 0 },
-    meta: json.bunnyland || {},
-    entities
-  };
-}
-
-function parseApiSnapshot(json) {
-  const entities = {};
-  for (const item of json.entities || []) {
-    entities[item.id] = parseApiEntity(item);
-  }
-  return {
-    metadata: { version: '1.0', epoch: json.world_epoch || 0 },
-    meta: json.metadata || {},
-    entities
-  };
-}
-
-function parseApiEntity(item) {
-  const relationships = {};
-  for (const [rtype, edges] of Object.entries(item.relationships || {})) {
-    relationships[rtype] = (edges || []).map(edge => ({
-      target: edge.target_id || edge.target,
-      edge: edge.edge || {}
-    }));
-  }
-  return {
-    id: item.id,
-    prefab: item.prefab || 'entity',
-    created_epoch: 0,
-    components: item.components || {},
-    relationships
-  };
-}
-
-function parseWorld(json) {
-  if (Array.isArray(json.entities)) return parseApiSnapshot(json);
-  return parseSaveSnapshot(json);
-}
-
-function exportWorld(world) {
-  const out = {
-    metadata: {
-      version: world.metadata?.version || '1.0',
-      epoch: Number(world.metadata?.epoch || 0)
-    },
-    bunnyland: {
-      schema_version: 1,
-      seed: '',
-      prompt: '',
-      generator: '',
-      plugins: [],
-      saved_at_epoch: Number(world.metadata?.epoch || 0),
-      saved_at: null,
-      ...(world.meta || {})
-    },
-    prefabs: { entity: { components: {} } },
-    entities: {},
-    components: {},
-    relationships: {},
-    relics: []
-  };
-  out.bunnyland.saved_at_epoch = Number(world.metadata?.epoch || out.bunnyland.saved_at_epoch || 0);
-  for (const entity of Object.values(world.entities)) {
-    out.entities[entity.id] = {
-      prefab: entity.prefab || 'entity',
-      created_epoch: Number(entity.created_epoch || 0)
-    };
-    for (const [ctype, fields] of Object.entries(entity.components || {})) {
-      if (!out.components[ctype]) out.components[ctype] = {};
-      out.components[ctype][entity.id] = fields || {};
-    }
-    for (const [rtype, edges] of Object.entries(entity.relationships || {})) {
-      const clean = (edges || []).filter(edge => edge.target);
-      if (!clean.length) continue;
-      if (!out.relationships[rtype]) out.relationships[rtype] = {};
-      out.relationships[rtype][entity.id] = clean.map(edge => ({
-        target: edge.target,
-        edge: edge.edge || {}
-      }));
-    }
-  }
-  return out;
-}
-
-function entityType(entity) {
-  const c = entity.components || {};
-  if (c.RoomComponent) return 'room';
-  if (c.CharacterComponent) return 'character';
-  if (c.DoorComponent) return 'door';
-  if (c.ContainerComponent) return 'container';
-  if (c.PortableComponent) return 'item';
-  if (c.WorldClockComponent) return 'clock';
-  return 'other';
-}
-
-function entityIcon(entity) {
-  const emoji = entity.components?.EditorDisplayComponent?.emoji;
-  if (emoji) return emoji;
-  return {
-    room: '🏠', character: '🐰', door: '🚪', container: '📦',
-    item: '✦', clock: '◷', other: '⬡'
-  }[entityType(entity)] || '⬡';
-}
-
-function entityName(entity) {
-  const c = entity.components || {};
-  if (c.RoomComponent?.title) return c.RoomComponent.title;
-  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
-  return entity.id;
-}
+const parseApiEntity = BunnylandWorld.parseApiEntity;
+const parseWorld = BunnylandWorld.parseWorld;
+const exportWorld = BunnylandWorld.exportWorld;
+const entityType = BunnylandWorld.entityType;
+const entityIcon = BunnylandWorld.entityIcon;
+const entityName = BunnylandWorld.entityDisplayName;
 
 function inferDirection(text) {
   const words = new Set(String(text || '').toLowerCase().replace(/[-_]/g, ' ').split(/\s+/));
@@ -448,21 +314,8 @@ function containModeForEntity(entity, fallback = 'room_content') {
   return fallback;
 }
 
-function componentNames(world) {
-  const names = new Set(COMMON_COMPONENTS);
-  for (const entity of Object.values(world.entities)) {
-    for (const name of Object.keys(entity.components || {})) names.add(name);
-  }
-  return [...names].sort();
-}
-
-function edgeNames(world) {
-  const names = new Set(COMMON_EDGES);
-  for (const entity of Object.values(world.entities)) {
-    for (const name of Object.keys(entity.relationships || {})) names.add(name);
-  }
-  return [...names].sort();
-}
+const componentNames = (world) => BunnylandWorld.componentNames(world, COMMON_COMPONENTS);
+const edgeNames = (world) => BunnylandWorld.edgeNames(world, COMMON_EDGES);
 
 function parseEntitySearch(query) {
   const filters = [];
@@ -581,12 +434,10 @@ class WorldEditor {
   }
 
   async _fetchSnapshot() {
-    const base = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+    const base = BunnylandApi.normalizeBase(document.getElementById('api-url').value);
     if (!base) return;
     try {
-      const res = await fetch(`${base}/world/snapshot`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      this.world = parseWorld(await res.json());
+      this.world = parseWorld(await BunnylandApi.sendJson(base, '/world/snapshot'));
       this._selectEntity(this._initialEntityId(), { sync: false });
       this.liveBase = base;
       this._renderAll();
@@ -625,16 +476,13 @@ class WorldEditor {
 
   async _sendAdmin(path, { method, body = null, status = null, prompt = true }) {
     if (!this.liveBase) throw new Error('Load a server snapshot first');
-    const headers = () => ({
-      'Content-Type': 'application/json',
-      ...(this.authHeader ? { Authorization: this.authHeader } : {})
+    const data = await BunnylandApi.sendAdmin(this.liveBase, path, {
+      method,
+      body,
+      prompt,
+      getAuth: () => this.authHeader,
+      setAuth: (auth) => { this.authHeader = auth; },
     });
-    let res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
-    if (res.status === 401 && prompt && this._promptBasicAuth()) {
-      res = await fetch(`${this.liveBase}${path}`, { method, headers: headers(), body });
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
     if (status) this._status(status, 'ok');
     return data;
   }
@@ -671,9 +519,7 @@ class WorldEditor {
       return;
     }
     try {
-      const res = await fetch(`${this.liveBase}/world/schema`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      const data = await BunnylandApi.sendJson(this.liveBase, '/world/schema');
       this.worldSchema = data;
       this._renderAll();
     } catch (err) {
@@ -688,9 +534,7 @@ class WorldEditor {
       return;
     }
     try {
-      const res = await fetch(`${this.liveBase}/world/library`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      const data = await BunnylandApi.sendJson(this.liveBase, '/world/library');
       this.libraryFragments = this._normalizeFragmentPayload(data, data.library_id || 'server');
       this._renderLibraryControls();
       if (prompt) this._status(`Loaded ${this.libraryFragments.length} library fragments`, 'ok');
@@ -795,15 +639,6 @@ class WorldEditor {
       button.title = 'Pause world ticks';
       status.textContent = this.runtimeRunning ? 'runtime: playing' : 'runtime: stopped';
     }
-  }
-
-  _promptBasicAuth() {
-    const username = window.prompt('Admin username');
-    if (!username) return false;
-    const password = window.prompt('Admin password');
-    if (password == null) return false;
-    this.authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-    return true;
   }
 
   _mergePatchResponse(data) {
@@ -1035,7 +870,7 @@ class WorldEditor {
   }
 
   _serverUrlForLinks() {
-    return this.liveBase || document.getElementById('api-url').value.trim().replace(/\/$/, '');
+    return this.liveBase || BunnylandApi.normalizeBase(document.getElementById('api-url').value);
   }
 
   _inspectorHref(entityId) {
@@ -2390,18 +2225,8 @@ class WorldEditor {
 
 window.app = new WorldEditor();
 
-async function readConfig() {
-  try {
-    const res = await fetch('config.json', { cache: 'no-store' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (_err) {
-    return null;
-  }
-}
-
 function parseEditorDeepLink() {
-  let server = new URLSearchParams(location.search).get('server');
+  let server = BunnylandApi.serverFromUrl();
   let hash = location.hash.replace(/^#/, '');
   const qi = hash.indexOf('?');
   if (qi >= 0) {
@@ -2414,7 +2239,7 @@ function parseEditorDeepLink() {
 }
 
 (async function boot() {
-  const cfg = await readConfig();
+  const cfg = await BunnylandUI.loadConfig();
   const dl = parseEditorDeepLink();
   const server = dl.server || (cfg && typeof cfg.serverUrl === 'string' ? cfg.serverUrl : null);
   if (server) document.getElementById('api-url').value = server;

@@ -487,78 +487,19 @@
 
 <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-world.js"></script>
 <script>
 'use strict';
 
 BunnylandUI.initClientMenu({ showOnFirstLoad: true });
 
-// ── Snapshot parsing ─────────────────────────────────────────────────────────
+// ── Shared ECS helpers ───────────────────────────────────────────────────────
 
-function parseSnapshot(json) {
-  const entities = {};
-  for (const id of Object.keys(json.entities || {})) {
-    entities[id] = { id, components: {}, relationships: {} };
-  }
-  for (const [ctype, table] of Object.entries(json.components || {})) {
-    for (const [eid, fields] of Object.entries(table)) {
-      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
-      entities[eid].components[ctype] = fields;
-    }
-  }
-  for (const [rtype, table] of Object.entries(json.relationships || {})) {
-    for (const [eid, edges] of Object.entries(table)) {
-      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
-      entities[eid].relationships[rtype] = edges;
-    }
-  }
-  return {
-    entities,
-    meta: json.bunnyland || {},
-    epoch: json.metadata?.epoch || 0,
-  };
-}
-
-// Parse the live server format: entities array, relationships use target_id.
-function parseApiSnapshot(data) {
-  const entities = {};
-  for (const e of data.entities || []) {
-    const rels = {};
-    for (const [rtype, edges] of Object.entries(e.relationships || {})) {
-      rels[rtype] = edges.map(({ target_id, edge }) => ({ target: target_id, edge }));
-    }
-    entities[e.id] = { id: e.id, components: e.components || {}, relationships: rels };
-  }
-  return {
-    entities,
-    meta: data.metadata || {},
-    epoch: data.world_epoch || 0,
-  };
-}
-
-function entityType(entity) {
-  const c = entity.components;
-  if (c.RegionComponent) return 'region';
-  if (c.RoomComponent) return 'room';
-  if (c.CharacterComponent) return 'character';
-  if (c.DoorComponent) return 'door';
-  if (c.QuestComponent) return 'quest';
-  if (c.QuestObjectiveComponent) return 'objective';
-  if (c.QuestRewardComponent) return 'reward';
-  if (c.ContainerComponent) return 'container';
-  if (c.PortableComponent) return 'item';
-  return 'other';
-}
-
-function entityDisplayName(entity) {
-  const c = entity.components;
-  if (c.RegionComponent) return c.RegionComponent.name || entity.id;
-  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
-  if (c.QuestComponent) return c.QuestComponent.title || c.QuestComponent.quest_id || entity.id;
-  if (c.QuestObjectiveComponent) return c.QuestObjectiveComponent.description || entity.id;
-  if (c.QuestRewardComponent) return c.QuestRewardComponent.description || entity.id;
-  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
-  return entity.id.slice(0, 24);
-}
+const parseSnapshot = BunnylandWorld.parseSnapshot;
+const parseApiSnapshot = BunnylandWorld.parseApiSnapshot;
+const entityType = BunnylandWorld.entityType;
+const entityDisplayName = (entity) => BunnylandWorld.entityDisplayName(entity, { maxFallback: 24 });
 
 function entitySubtitle(entity) {
   const c = entity.components;
@@ -634,66 +575,8 @@ function regionCharacteristics(entity) {
   return [scale.filter(Boolean).join(' · '), ...environment].filter(Boolean);
 }
 
-// A character's controller is a separate entity reached by the ControlledBy edge; its
-// component type says who is driving it: an LLM, a Discord player, or nobody (suspended).
-const CONTROL_STYLE = {
-  llm:        { icon: '🤖', label: 'LLM',        color: '#89b4fa' },
-  discord:    { icon: '🎮', label: 'Discord',    color: '#cba6f7' },
-  mcp:        { icon: '🔌', label: 'MCP',        color: '#94e2d5' },
-  behavioral: { icon: '🌳', label: 'Behavior',   color: '#a6e3a1' },
-  scripted:   { icon: '📜', label: 'Script',     color: '#f9e2af' },
-  web:        { icon: '⌨', label: 'Web',        color: '#74c7ec' },
-  suspended:  { icon: '💤', label: 'Suspended',  color: '#6c7086' },
-};
-
-// Returns { kind, icon, label, color, detail } for a controller entity.
-function controllerInfo(controller) {
-  if (!controller) return null;
-  const c = controller.components || {};
-  if (c.LLMControllerComponent) {
-    const m = c.LLMControllerComponent;
-    return { kind: 'llm', ...CONTROL_STYLE.llm,
-             detail: [m.profile_name, m.model].filter(Boolean).join(' / ') };
-  }
-  if (c.DiscordControllerComponent) {
-    const d = c.DiscordControllerComponent;
-    return { kind: 'discord', ...CONTROL_STYLE.discord,
-             detail: d.discord_user_id ? `user ${d.discord_user_id}` : '' };
-  }
-  if (c.MCPControllerComponent) {
-    const m = c.MCPControllerComponent;
-    return { kind: 'mcp', ...CONTROL_STYLE.mcp,
-             detail: [m.label, m.agent_id].filter(Boolean).join(' / ') };
-  }
-  if (c.BehaviorControllerComponent) {
-    const b = c.BehaviorControllerComponent;
-    return { kind: 'behavioral', ...CONTROL_STYLE.behavioral, detail: b.behavior_name || '' };
-  }
-  if (c.ScriptedControllerComponent) {
-    const s = c.ScriptedControllerComponent;
-    return { kind: 'scripted', ...CONTROL_STYLE.scripted, detail: s.script_name || '' };
-  }
-  if (c.WebControllerComponent) {
-    const w = c.WebControllerComponent;
-    return { kind: 'web', ...CONTROL_STYLE.web,
-             detail: [w.label, w.client_id].filter(Boolean).join(' / ') };
-  }
-  if (c.SuspendedControllerComponent) {
-    const s = c.SuspendedControllerComponent;
-    return { kind: 'suspended', ...CONTROL_STYLE.suspended, detail: s.reason || '' };
-  }
-  return null;
-}
-
-// Returns { kind, icon, label, color, detail } for whoever controls this entity, or null
-// if it has no controller (most non-character entities).
-function controlInfo(entity, world) {
-  const edges = entity.relationships?.ControlledBy;
-  if (!edges?.length) return null;
-  const controller = world.entities[edges[0].target];
-  if (!controller) return null;
-  return controllerInfo(controller);
-}
+const controllerInfo = BunnylandWorld.controllerInfo;
+const controlInfo = BunnylandWorld.controlInfo;
 
 // How long after an ActorMovedEvent (in world-epoch units) a character still counts as
 // "recently moved". Approximate by design — it just needs to fade out as the graph
@@ -1548,7 +1431,7 @@ class BunnylandInspector {
     this._movedAt = {};
     this._eventsPrimed = false;
     this._clearEvents();
-    this._apiBase = url.replace(/\/$/, '');
+    this._apiBase = BunnylandApi.normalizeBase(url);
 
     // The /world/updates stream is admin-gated and a WebSocket handshake can't carry a JS
     // Authorization header, so it depends on the browser's cached HTTP credentials. A failed
@@ -1556,9 +1439,9 @@ class BunnylandInspector {
     // 401 triggers the native login dialog, and the browser then reuses those credentials on
     // the WebSocket handshake (and every later admin request).
     await this._ensureLogin();
-    if (this._apiBase !== url.replace(/\/$/, '')) return; // a newer connect superseded us
+    if (this._apiBase !== BunnylandApi.normalizeBase(url)) return; // a newer connect superseded us
 
-    const wsUrl = this._apiBase.replace(/^http/, 'ws') + '/world/updates';
+    const wsUrl = BunnylandApi.socketUrl(this._apiBase);
     const ws = new WebSocket(wsUrl);
     this._ws = ws;
 
@@ -1629,9 +1512,7 @@ class BunnylandInspector {
 
   async _refreshFromApi() {
     try {
-      const res = await fetch(`${this._apiBase}/world/snapshot`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await BunnylandApi.sendJson(this._apiBase, '/world/snapshot');
       this._applyWorld(parseApiSnapshot(data), { resetView: false });
       this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
       if (this._authHeader) this._refreshRuntime({ prompt: false });
@@ -1646,30 +1527,15 @@ class BunnylandInspector {
     el.textContent = text;
   }
 
-  _adminHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      ...(this._authHeader ? { Authorization: this._authHeader } : {})
-    };
-  }
-
   async _sendAdmin(path, { method, body = null, prompt = true } = {}) {
     if (!this._apiBase) throw new Error('Connect to a live server first');
-    let res = await fetch(`${this._apiBase}${path}`, {
+    return BunnylandApi.sendAdmin(this._apiBase, path, {
       method,
-      headers: this._adminHeaders(),
-      body
+      body,
+      prompt,
+      getAuth: () => this._authHeader,
+      setAuth: (auth) => { this._authHeader = auth; },
     });
-    if (res.status === 401 && prompt && this._promptBasicAuth()) {
-      res = await fetch(`${this._apiBase}${path}`, {
-        method,
-        headers: this._adminHeaders(),
-        body
-      });
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    return data;
   }
 
   async _refreshRuntime({ prompt = false } = {}) {
@@ -1819,15 +1685,6 @@ class BunnylandInspector {
     }
   }
 
-  _promptBasicAuth() {
-    const username = window.prompt('Admin username');
-    if (!username) return false;
-    const password = window.prompt('Admin password');
-    if (password == null) return false;
-    this._authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-    return true;
-  }
-
   _applyRuntime(data) {
     if (data.world_epoch != null && this.world) this.world.epoch = data.world_epoch;
     this._setRuntime(data.paused, data.running);
@@ -1939,9 +1796,7 @@ class BunnylandInspector {
   async _primeEvents() {
     if (!this._apiBase) return;
     try {
-      const res = await fetch(`${this._apiBase}/world/events/recent`);
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await BunnylandApi.sendJson(this._apiBase, '/world/events/recent');
       for (const msg of (data.events || [])) this._appendEvent(msg.data || msg);
     } catch (_) { /* feed just stays empty */ }
   }
@@ -2708,22 +2563,10 @@ class BunnylandInspector {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 window.app = new BunnylandInspector();
 
-// Optional deploy-specific settings from config.json next to index.html:
-//   { "serverUrl": "http://host:port", "autoConnect": true }
-async function readConfig() {
-  try {
-    const res = await fetch('config.json', { cache: 'no-store' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (_) {
-    return null; // not served over http, or unparseable
-  }
-}
-
 // Deep link: ?server=<url> in the query string, #<tab>/<entity> in the hash.
 // (a server= embedded in the hash is also accepted, for links pasted as #tab/entity?server=…)
 function parseDeepLink() {
-  let server = new URLSearchParams(location.search).get('server');
+  let server = BunnylandApi.serverFromUrl();
   let hash = location.hash.replace(/^#/, '');
   const qi = hash.indexOf('?');
   if (qi >= 0) {
@@ -2735,7 +2578,7 @@ function parseDeepLink() {
 }
 
 (async function boot() {
-  const cfg = await readConfig();
+  const cfg = await BunnylandUI.loadConfig();
   const dl = parseDeepLink();
 
   // The URL's server wins over config; otherwise fall back to config's serverUrl.

@@ -421,6 +421,7 @@
 </div>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
 <script>
 'use strict';
 
@@ -781,27 +782,16 @@ class RoomClient {
   }
 
   _restoreServerParam() {
-    const server = new URLSearchParams(location.search).get('server');
-    if (server) {
-      document.getElementById('api-url').value = server;
-      this.connect(server);
-    }
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
   }
 
   async _loadConfig() {
     // Match the other web clients: pick up the deploy-specific server URL and auto-connect
     // from config.json. A ?server= param (handled by _restoreServerParam) still wins.
-    try {
-      const res = await fetch('config.json', { cache: 'no-store' });
-      if (!res.ok) return;
-      const config = await res.json();
-      if (config.serverUrl && !this.connected) {
-        document.getElementById('api-url').value = config.serverUrl;
-      }
-      if (config.autoConnect && !this.connected) this.connect(config.serverUrl);
-    } catch (_err) {
-      // Static local usage works without config.json.
-    }
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => this.connected,
+      connect: (server) => this.connect(server),
+    });
   }
 
   // ── Connection ───────────────────────────────────────────────────────────────
@@ -831,7 +821,7 @@ class RoomClient {
     if (!url) return;
     this._hideLoadingOverlayImmediately();
     this.disconnect();
-    this.apiBase = url.replace(/\/$/, '');
+    this.apiBase = BunnylandApi.normalizeBase(url);
     this.connected = true;
     // The player surface polls the ungated per-room projections; it never opens the
     // admin-only /world/updates stream or reads the full snapshot.
@@ -878,9 +868,7 @@ class RoomClient {
   async _refreshCharacterList() {
     // The claim lobby: ids and names of every character, with no per-character state. This
     // is the player-facing replacement for the admin-gated snapshot's character roster.
-    const res = await fetch(`${this.apiBase}/world/characters`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const parsed = parseCharacterList(await res.json());
+    const parsed = parseCharacterList(await BunnylandApi.sendJson(this.apiBase, '/world/characters'));
     this.characterList = parsed.characters;
     this.epoch = parsed.epoch;
     this._refreshPlayerOptions();
@@ -893,9 +881,9 @@ class RoomClient {
       return null;
     }
     try {
-      const res = await fetch(`${this.apiBase}/world/character/${encodeURIComponent(this.playerId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const projection = parseCharacterProjection(await res.json());
+      const projection = parseCharacterProjection(
+        await BunnylandApi.sendJson(this.apiBase, `/world/character/${encodeURIComponent(this.playerId)}`)
+      );
       this.characterProjection = projection?.characterId === this.playerId ? projection : null;
       if (this.followPlayer && this.characterProjection?.room?.id) {
         this.viewRoomId = this.characterProjection.room.id;
@@ -917,9 +905,9 @@ class RoomClient {
       return null;
     }
     try {
-      const res = await fetch(`${this.apiBase}/world/room/${encodeURIComponent(roomId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const projection = parseRoomProjection(await res.json());
+      const projection = parseRoomProjection(
+        await BunnylandApi.sendJson(this.apiBase, `/world/room/${encodeURIComponent(roomId)}`)
+      );
       this.roomProjection = projection?.room?.id === roomId ? projection : null;
       if (render) this.render();
       return this.roomProjection;
@@ -938,9 +926,9 @@ class RoomClient {
       return null;
     }
     try {
-      const res = await fetch(`${this.apiBase}/world/character/${encodeURIComponent(this.playerId)}/commands`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const projection = parseQueuedCommands(await res.json());
+      const projection = parseQueuedCommands(
+        await BunnylandApi.sendJson(this.apiBase, `/world/character/${encodeURIComponent(this.playerId)}/commands`)
+      );
       this.queuedCommands = projection?.characterId === this.playerId ? projection.commands : null;
       if (render) this.render();
       return this.queuedCommands;
@@ -955,9 +943,7 @@ class RoomClient {
   async _refreshRecentEvents() {
     if (!this.apiBase) return;
     try {
-      const res = await fetch(`${this.apiBase}/world/events/recent`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await BunnylandApi.sendJson(this.apiBase, '/world/events/recent');
       this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
       this.eventsPrimed = true;
     } catch (err) {
@@ -972,10 +958,7 @@ class RoomClient {
   }
 
   _syncUrl() {
-    const url = new URL(location.href);
-    if (this.apiBase) url.searchParams.set('server', this.apiBase);
-    else url.searchParams.delete('server');
-    history.replaceState(null, '', url);
+    BunnylandApi.setServerInUrl(this.apiBase);
   }
 
   // ── World queries (player-facing projections only) ──────────────────────────
@@ -1202,9 +1185,8 @@ class RoomClient {
     if (!this.apiBase || !playerId) return null;
     try {
       const clientId = await this._clientIdValue();
-      const res = await fetch(`${this.apiBase}/world/controllers/web/claim`, {
+      const data = await BunnylandApi.sendJson(this.apiBase, '/world/controllers/web/claim', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...this._claimSettings(),
           character_id: playerId,
@@ -1212,8 +1194,6 @@ class RoomClient {
           label: 'toon',
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       const control = {
         characterId: data.character_id,
         controllerId: data.controller_id,
@@ -1238,17 +1218,14 @@ class RoomClient {
     if (!this.apiBase || !this.playerId || !this.control) return;
     try {
       const clientId = await this._clientIdValue();
-      const res = await fetch(`${this.apiBase}/world/controllers/web/fallback`, {
+      const data = await BunnylandApi.sendJson(this.apiBase, '/world/controllers/web/fallback', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...this._claimSettings(),
           character_id: this.playerId,
           client_id: clientId,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       this.control = {
         characterId: data.character_id,
         controllerId: data.controller_id,
@@ -1361,9 +1338,8 @@ class RoomClient {
     const control = this._playerControl() || await this._claimPlayer();
     if (!this.apiBase || !control) return false;
     try {
-      const res = await fetch(`${this.apiBase}/world/commands`, {
+      await BunnylandApi.sendJson(this.apiBase, '/world/commands', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           character_id: this.playerId,
           controller_id: control.controllerId,
@@ -1375,7 +1351,7 @@ class RoomClient {
           on_insufficient_points: 'queue',
         }),
       });
-      return res.ok;
+      return true;
     } catch (err) {
       console.warn('Could not submit Bunnyland command', err);
       return false;

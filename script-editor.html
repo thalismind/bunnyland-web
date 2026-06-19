@@ -178,6 +178,7 @@
 </div>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-world.js"></script>
 <script>
 'use strict';
 
@@ -197,29 +198,7 @@ const DEFAULT_SCRIPT = {
   blocks: []
 };
 
-function parseSnapshot(json) {
-  const entities = {};
-  for (const id of Object.keys(json.entities || {})) {
-    entities[id] = { id, components: {}, relationships: {} };
-  }
-  for (const [ctype, table] of Object.entries(json.components || {})) {
-    for (const [eid, fields] of Object.entries(table)) {
-      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
-      entities[eid].components[ctype] = fields;
-    }
-  }
-  for (const [rtype, table] of Object.entries(json.relationships || {})) {
-    for (const [eid, edges] of Object.entries(table)) {
-      if (!entities[eid]) entities[eid] = { id: eid, components: {}, relationships: {} };
-      entities[eid].relationships[rtype] = edges;
-    }
-  }
-  return {
-    entities,
-    meta: json.bunnyland || {},
-    epoch: json.metadata?.epoch || json.bunnyland?.saved_at_epoch || 0,
-  };
-}
+const parseSnapshot = BunnylandWorld.parseSnapshot;
 
 function esc(s) {
   return BunnylandUI.escapeHtml(s);
@@ -247,35 +226,9 @@ function parseJsonArray(text, fallback) {
   return parsed;
 }
 
-function entityType(entity) {
-  const c = entity.components;
-  if (c.RoomComponent) return 'room';
-  if (c.CharacterComponent) return 'character';
-  if (c.DoorComponent) return 'door';
-  if (c.ContainerComponent) return 'container';
-  if (c.PortableComponent) return 'item';
-  return 'other';
-}
-
-function entityIcon(entity) {
-  const emoji = entity.components.EditorDisplayComponent?.emoji;
-  if (emoji) return emoji;
-  return {
-    room: '🏠',
-    character: '🐰',
-    door: '🚪',
-    container: '📦',
-    item: '✦',
-    other: '⬡',
-  }[entityType(entity)];
-}
-
-function entityDisplayName(entity) {
-  const c = entity.components;
-  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
-  if (c.IdentityComponent?.name) return c.IdentityComponent.name;
-  return entity.id;
-}
+const entityType = BunnylandWorld.entityType;
+const entityIcon = BunnylandWorld.entityIcon;
+const entityDisplayName = BunnylandWorld.entityDisplayName;
 
 function entitySubtitle(entity, world) {
   const c = entity.components;
@@ -292,25 +245,11 @@ function entitySubtitle(entity, world) {
 }
 
 function controlKind(entity, world) {
-  const edge = entity.relationships.ControlledBy?.[0];
-  if (!edge) return '';
-  const controller = world.entities[edge.target];
-  if (!controller) return 'unknown';
-  const c = controller.components;
-  if (c.LLMControllerComponent) return 'llm';
-  if (c.DiscordControllerComponent) return 'discord';
-  if (c.SuspendedControllerComponent) return 'suspended';
-  return 'unknown';
+  return BunnylandWorld.controlInfo(entity, world)?.kind || '';
 }
 
 function componentNamesFromWorld(world) {
-  const names = new Set(COMMON_COMPONENTS);
-  if (world) {
-    for (const entity of Object.values(world.entities)) {
-      for (const name of Object.keys(entity.components)) names.add(name);
-    }
-  }
-  return [...names].sort();
+  return BunnylandWorld.componentNames(world, COMMON_COMPONENTS);
 }
 
 function makeDefaultBlock(index) {

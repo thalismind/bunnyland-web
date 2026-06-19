@@ -211,6 +211,8 @@
 </div>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-world.js"></script>
 <script>
 'use strict';
 
@@ -219,13 +221,12 @@ BunnylandUI.initClientMenu();
 const esc = BunnylandUI.escapeHtml;
 
 function entityName(entity) {
-  return entity.name || entity.components?.RoomComponent?.title || entity.id;
+  return BunnylandWorld.entityDisplayName(entity);
 }
 
 function entityKind(entity) {
-  if (entity.components?.RoomComponent) return 'room';
-  if (entity.components?.CharacterComponent) return 'character';
-  return entity.kind || Object.keys(entity.components || {})[0] || 'entity';
+  const type = BunnylandWorld.entityType(entity);
+  return type !== 'other' ? type : (entity.kind || Object.keys(entity.components || {})[0] || 'entity');
 }
 
 function generatorUsesSeed(generator) {
@@ -260,36 +261,23 @@ class WorldGeneratorApp {
   }
 
   async _loadConfig() {
-    try {
-      const res = await fetch('config.json', { cache: 'no-store' });
-      if (!res.ok) return;
-      const config = await res.json();
-      if (config.serverUrl && !this.base) {
-        document.getElementById('api-url').value = config.serverUrl;
-      }
-      if (config.autoConnect && !this.base) this.connect(config.serverUrl);
-    } catch (_err) {
-      // Static local usage works without config.json.
-    }
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => Boolean(this.base),
+      connect: (server) => this.connect(server),
+    });
   }
 
   _readUrl() {
-    const server = new URLSearchParams(location.search).get('server');
-    if (!server) return;
-    document.getElementById('api-url').value = server;
-    this.connect(server);
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
   }
 
   _syncUrl() {
-    const url = new URL(location.href);
-    if (this.base) url.searchParams.set('server', this.base);
-    else url.searchParams.delete('server');
-    history.replaceState(null, '', url);
+    BunnylandApi.setServerInUrl(this.base);
   }
 
   async connect(url) {
     this.disconnect({ sync: false });
-    this.base = url.replace(/\/$/, '');
+    this.base = BunnylandApi.normalizeBase(url);
     if (!this.base) return;
     this._setStatus('connecting');
     try {
@@ -325,7 +313,7 @@ class WorldGeneratorApp {
 
   _openSocket() {
     if (this.ws) this.ws.close();
-    const ws = new WebSocket(this.base.replace(/^http/, 'ws') + '/world/updates');
+    const ws = new WebSocket(BunnylandApi.socketUrl(this.base));
     this.ws = ws;
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
@@ -360,31 +348,15 @@ class WorldGeneratorApp {
     ws.onerror = () => this._setStatus('socket error', 'err');
   }
 
-  _headers() {
-    return {
-      'Content-Type': 'application/json',
-      ...(this.authHeader ? { Authorization: this.authHeader } : {})
-    };
-  }
-
   async _send(path, { method = 'GET', body = null, admin = false, prompt = true } = {}) {
-    const headers = admin ? this._headers() : { 'Content-Type': 'application/json' };
-    let res = await fetch(`${this.base}${path}`, { method, headers, body });
-    if (admin && res.status === 401 && prompt && this._promptBasicAuth()) {
-      res = await fetch(`${this.base}${path}`, { method, headers: this._headers(), body });
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    return data;
-  }
-
-  _promptBasicAuth() {
-    const username = window.prompt('Admin username');
-    if (!username) return false;
-    const password = window.prompt('Admin password');
-    if (password == null) return false;
-    this.authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-    return true;
+    if (!admin) return BunnylandApi.sendJson(this.base, path, { method, body });
+    return BunnylandApi.sendAdmin(this.base, path, {
+      method,
+      body,
+      prompt,
+      getAuth: () => this.authHeader,
+      setAuth: (auth) => { this.authHeader = auth; },
+    });
   }
 
   async refresh() {

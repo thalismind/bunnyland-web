@@ -188,6 +188,7 @@
 </div>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
 <script>
 'use strict';
 
@@ -603,53 +604,32 @@ class BehaviorEditor {
   // --- server connectivity --------------------------------------------------
 
   async _loadConfig() {
-    const config = await BunnylandUI.loadConfig();
-    if (config.serverUrl && !this.base) document.getElementById('api-url').value = config.serverUrl;
-    if (config.autoConnect && !this.base) this.connect(config.serverUrl);
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => Boolean(this.base),
+      connect: (server) => this.connect(server),
+    });
   }
 
   _readUrl() {
-    const server = new URLSearchParams(location.search).get('server');
-    if (!server) return;
-    document.getElementById('api-url').value = server;
-    this.connect(server);
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
   }
 
   _syncUrl() {
-    const url = new URL(location.href);
-    if (this.base) url.searchParams.set('server', this.base);
-    else url.searchParams.delete('server');
-    history.replaceState(null, '', url);
-  }
-
-  _headers() {
-    return {
-      'Content-Type': 'application/json',
-      ...(this.authHeader ? { Authorization: this.authHeader } : {}),
-    };
+    BunnylandApi.setServerInUrl(this.base);
   }
 
   async _send(path, { method = 'GET', body = null, prompt = true } = {}) {
-    let res = await fetch(`${this.base}${path}`, { method, headers: this._headers(), body });
-    if (res.status === 401 && prompt && this._promptBasicAuth()) {
-      res = await fetch(`${this.base}${path}`, { method, headers: this._headers(), body });
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    return data;
-  }
-
-  _promptBasicAuth() {
-    const username = window.prompt('Admin username');
-    if (!username) return false;
-    const password = window.prompt('Admin password');
-    if (password == null) return false;
-    this.authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-    return true;
+    return BunnylandApi.sendAdmin(this.base, path, {
+      method,
+      body,
+      prompt,
+      getAuth: () => this.authHeader,
+      setAuth: (auth) => { this.authHeader = auth; },
+    });
   }
 
   async connect(url) {
-    this.base = (url || '').replace(/\/$/, '');
+    this.base = BunnylandApi.normalizeBase(url);
     if (!this.base) return;
     this._setApiStatus('connecting');
     try {
