@@ -33,6 +33,9 @@ similar to Chrome's memory snapshot tools.
 6. Open `/behavior-editor.html` to author behavior-tree JSON for behavioral controllers, and
    optionally connect to a live server to register it.
 
+7. Open `/trace-analyzer.html` to inspect JSON or JSONL trace artifacts produced by the
+   release regression tests.
+
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
 recursive room → character → container drilldown; `seed-world.json` is a real server save.
 

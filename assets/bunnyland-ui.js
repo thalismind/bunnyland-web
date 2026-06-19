@@ -151,6 +151,20 @@
     setTheme(theme);
   }
 
+  function themeOptions() {
+    return THEME_OPTIONS.map(option => ({ ...option }));
+  }
+
+  function bindThemeSelect(select) {
+    if (!select) return null;
+    select.innerHTML = THEME_OPTIONS.map(option => `
+      <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
+    `).join('');
+    select.value = currentTheme();
+    select.addEventListener('change', () => setTheme(select.value));
+    return { setValue: (value) => { select.value = normalizeTheme(value); setTheme(select.value); } };
+  }
+
   function storageGet(key) {
     try {
       return localStorage.getItem(key);
@@ -391,6 +405,7 @@
 
   window.BunnylandUI = {
     bindSearchDropdown,
+    bindThemeSelect,
     cloneJson,
     escapeHtml,
     currentTheme,
@@ -399,6 +414,7 @@
     loadConfig,
     normalizeTheme,
     setTheme,
+    themeOptions,
   };
 
   initTheme();

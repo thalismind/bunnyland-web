@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland trace analyzer."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def span(
+    name: str,
+    span_id: str,
+    *,
+    parent_span_id: str | None = None,
+    start_ms: int = 0,
+    end_ms: int = 10,
+    service: str = "bunnyland-server",
+    status: str = "UNSET",
+) -> dict:
+    return {
+        "name": name,
+        "trace_id": "11111111111111111111111111111111",
+        "span_id": span_id,
+        "parent_span_id": parent_span_id,
+        "start_time_unix_nano": 1_750_000_000_000_000_000 + start_ms * 1_000_000,
+        "end_time_unix_nano": 1_750_000_000_000_000_000 + end_ms * 1_000_000,
+        "attributes": {"command.type": name, "world.epoch": start_ms},
+        "events": [
+            {
+                "name": "checked",
+                "timestamp_unix_nano": 1_750_000_000_000_000_000 + start_ms * 1_000_000,
+                "attributes": {"ok": status != "ERROR"},
+            }
+        ],
+        "status": {"code": f"StatusCode.{status}", "description": ""},
+        "resource": {"service.name": service},
+    }
+
+
+def write_fixtures(tmp: Path) -> tuple[Path, Path]:
+    spans = [
+        span("release.multiclient", "aaaaaaaaaaaaaaaa", start_ms=0, end_ms=50, service="release-runner"),
+        span("claim.character", "bbbbbbbbbbbbbbbb", parent_span_id="aaaaaaaaaaaaaaaa", start_ms=4, end_ms=16),
+        span(
+            "move",
+            "cccccccccccccccc",
+            parent_span_id="aaaaaaaaaaaaaaaa",
+            start_ms=20,
+            end_ms=44,
+            status="ERROR",
+        ),
+    ]
+    jsonl = tmp / "release-trace.jsonl"
+    jsonl.write_text("\n".join(json.dumps(item) for item in spans), encoding="utf-8")
+    array_json = tmp / "release-trace.json"
+    array_json.write_text(json.dumps(spans), encoding="utf-8")
+    return jsonl, array_json
+
+
+def load_trace(page, path: Path) -> None:
+    page.goto(f"{BASE_URL}/trace-analyzer.html", wait_until="domcontentloaded")
+    page.locator("#trace-file").set_input_files(str(path))
+    expect(page.locator("#trace-title")).to_contain_text("release-runner: release.multiclient")
+    expect(page.locator("#stat-spans")).to_have_text("3")
+    expect(page.locator("#stat-services")).to_have_text("2")
+    expect(page.locator("#stat-errors")).to_have_text("1")
+    expect(page.locator("#span-rows .span-row")).to_have_count(3)
+    expect(page.locator("#detail-pane")).to_contain_text("Span attributes")
+
+
+def test_jsonl_trace(page, jsonl: Path) -> None:
+    load_trace(page, jsonl)
+    page.locator("#filter-text").fill("move")
+    expect(page.locator("#span-rows .span-row")).to_have_count(1)
+    expect(page.locator("#span-rows")).to_contain_text("move")
+    page.locator("#span-rows .span-row").click()
+    expect(page.locator("#detail-pane")).to_contain_text("Status: ERROR")
+    page.locator("#filter-text").fill("")
+    page.locator("#filter-service").select_option("release-runner")
+    expect(page.locator("#span-rows .span-row")).to_have_count(1)
+
+
+def test_json_trace(page, json_file: Path) -> None:
+    load_trace(page, json_file)
+    page.locator("#theme-select").select_option("anime-light")
+    theme = page.evaluate(
+        "() => ({ current: BunnylandUI.currentTheme(), anime: document.documentElement.classList.contains('bl-theme-anime-light') })"
+    )
+    if theme != {"current": "anime-light", "anime": True}:
+        raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
+    if page.locator(".client-menu-item").count() != 0:
+        raise AssertionError("trace analyzer should not render the shared client menu")
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="bunnyland-trace-analyzer-") as tmp_dir:
+        jsonl, json_file = write_fixtures(Path(tmp_dir))
+        with sync_playwright() as playwright:
+            browser = launch_browser(playwright)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            test_jsonl_trace(page, jsonl)
+            test_json_trace(page, json_file)
+            page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-trace-analyzer.png"))
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()

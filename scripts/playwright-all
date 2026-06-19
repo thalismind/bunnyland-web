@@ -39,3 +39,4 @@ scripts/playwright-discord-link
 scripts/playwright-toon-action-form
 scripts/playwright-web-tui
 scripts/playwright-web-repl
+scripts/playwright-trace-analyzer

@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bunnyland Trace Analyzer</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    body {
+      background: var(--bl-bg-deep);
+    }
+
+    #toolbar input[type=file] { max-width: 280px; }
+    #trace-select { width: min(560px, 42vw); }
+    #theme-select { width: 210px; }
+
+    #main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      background: var(--bl-bg-deep);
+    }
+
+    #trace-pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--bl-border);
+      overflow: hidden;
+    }
+
+    #trace-content {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #detail-pane {
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      background: var(--bl-bg-strong);
+      padding: 12px;
+    }
+
+    #drop-zone {
+      margin: 12px;
+      padding: 18px;
+      border: 1px dashed var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      background: var(--bl-bg-strong);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.55;
+    }
+    #drop-zone.active {
+      border-color: var(--bl-accent);
+      background: var(--bl-accent-wash);
+    }
+
+    #trace-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+      gap: 14px;
+      align-items: end;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--bl-border);
+      background: var(--bl-bg-strong);
+    }
+    .trace-title {
+      min-width: 0;
+      color: var(--bl-text);
+      font-size: 22px;
+      font-weight: bold;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .trace-subtitle {
+      margin-top: 5px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .summary-stat {
+      min-width: 70px;
+      text-align: right;
+    }
+    .summary-stat strong {
+      display: block;
+      color: var(--bl-text);
+      font-size: 18px;
+      line-height: 1.15;
+    }
+    .summary-stat span {
+      display: block;
+      margin-top: 4px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    #filters {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 180px 130px auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--bl-border);
+      background: var(--bl-bg);
+    }
+    #filters input, #filters select { width: 100%; }
+
+    #overview {
+      position: relative;
+      height: 88px;
+      margin: 10px 14px;
+      border: 1px solid var(--bl-border-control);
+      background: #050609;
+      overflow: hidden;
+    }
+    .axis {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+    }
+    #overview-axis {
+      padding: 0 14px 2px;
+    }
+    .axis span:not(:first-child) {
+      border-left: 1px solid var(--bl-border-control);
+      padding-left: 6px;
+    }
+    .overview-bar {
+      position: absolute;
+      height: 7px;
+      min-width: 2px;
+      border-radius: 2px;
+      background: var(--bl-accent);
+      opacity: 0.76;
+    }
+    .overview-bar.error { background: var(--bl-error); }
+    .overview-bar.root { background: var(--bl-accent-strong); opacity: 0.9; }
+    .timeline-grid {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      pointer-events: none;
+    }
+    .timeline-grid span {
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #span-table {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-top: 1px solid var(--bl-border);
+      overflow: hidden;
+    }
+    .span-header,
+    .span-row {
+      display: grid;
+      grid-template-columns: 360px minmax(260px, 1fr);
+    }
+    .span-header {
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--bl-border);
+      background: var(--bl-bg-strong);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      font-weight: bold;
+    }
+    .span-header > div {
+      padding: 8px 10px;
+      border-right: 1px solid var(--bl-border);
+    }
+    .span-rows {
+      min-height: 0;
+      overflow: auto;
+    }
+    .span-row {
+      min-height: 28px;
+      border-bottom: 1px solid var(--bl-border-muted);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      cursor: pointer;
+    }
+    .span-row:hover {
+      background: var(--bl-bg-subtle);
+    }
+    .span-row.selected {
+      background: var(--bl-accent-wash);
+    }
+    .span-row.error .span-name {
+      color: var(--bl-error);
+    }
+    .span-label {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-right: 1px solid var(--bl-border);
+      overflow: hidden;
+    }
+    .span-service {
+      color: var(--bl-text);
+      font-weight: bold;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .span-name {
+      color: var(--bl-text-soft);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .span-count {
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      white-space: nowrap;
+    }
+    .span-timeline {
+      position: relative;
+      min-width: 0;
+      padding: 5px 8px;
+      overflow: hidden;
+    }
+    .span-duration {
+      position: absolute;
+      top: 8px;
+      height: 10px;
+      min-width: 2px;
+      border-radius: 2px;
+      background: var(--bl-accent);
+    }
+    .span-duration.error {
+      background: var(--bl-error);
+    }
+    .span-duration.root {
+      background: var(--bl-accent-strong);
+    }
+    .duration-label {
+      position: relative;
+      z-index: 1;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+      text-shadow: var(--bl-shadow-text);
+      white-space: nowrap;
+    }
+
+    .detail-empty {
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+      line-height: 1.5;
+    }
+    .detail-title {
+      color: var(--bl-text);
+      font-size: 17px;
+      font-weight: bold;
+      line-height: 1.35;
+    }
+    .detail-meta {
+      margin-top: 8px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.7;
+    }
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 12px 0;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--bl-border);
+    }
+    .detail-actions button {
+      color: var(--bl-text-inverse);
+      border-color: var(--bl-accent);
+      background: var(--bl-accent-wash-strong);
+    }
+    .detail-section {
+      margin-top: 14px;
+      border-top: 1px solid var(--bl-border-muted);
+      padding-top: 10px;
+    }
+    .detail-section h2 {
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-md);
+      line-height: 1.35;
+    }
+    .kv-table {
+      width: 100%;
+      margin-top: 8px;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: var(--bl-text-sm);
+    }
+    .kv-table th,
+    .kv-table td {
+      padding: 5px 6px;
+      border-bottom: 1px solid var(--bl-border-muted);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    .kv-table th {
+      width: 42%;
+      color: var(--bl-text-muted);
+      font-weight: normal;
+    }
+    .kv-table td {
+      color: var(--bl-text-soft);
+    }
+    .stub {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 980px) {
+      #main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);
+      }
+      #trace-pane {
+        border-right: 0;
+        border-bottom: 1px solid var(--bl-border);
+      }
+      #trace-summary {
+        grid-template-columns: 1fr 1fr;
+      }
+      #filters {
+        grid-template-columns: 1fr 1fr;
+      }
+      .span-header,
+      .span-row {
+        grid-template-columns: 280px minmax(240px, 1fr);
+      }
+      .toolbar-row {
+        flex-wrap: wrap;
+      }
+      #trace-select,
+      #theme-select {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="toolbar">
+  <div class="toolbar-row">
+    <span style="color: var(--bl-text);">Bunnyland Trace Analyzer</span>
+    <span class="toolbar-sep">|</span>
+    <label for="trace-file">File:</label>
+    <input id="trace-file" type="file" accept=".json,.jsonl,application/json">
+    <span class="toolbar-sep">|</span>
+    <label for="trace-select">Trace:</label>
+    <select id="trace-select" disabled><option value="">No trace loaded</option></select>
+    <span class="toolbar-sep">|</span>
+    <span class="stub">Tempo live connection: v2</span>
+    <button id="tempo-connect" type="button" disabled>Connect Tempo</button>
+    <span class="push"></span>
+    <label for="theme-select">Theme:</label>
+    <select id="theme-select"></select>
+  </div>
+</div>
+
+<div id="main" class="app-grid">
+  <section id="trace-pane" aria-label="Trace view">
+    <div id="drop-zone">
+      Load a release regression trace artifact as JSONL or JSON. Drag a file here or use the file picker.
+    </div>
+
+    <section id="trace-content" class="hidden">
+      <div id="trace-summary">
+        <div>
+          <div id="trace-title" class="trace-title">No trace loaded</div>
+          <div id="trace-subtitle" class="trace-subtitle"></div>
+        </div>
+        <div class="summary-stat"><strong id="stat-duration">0us</strong><span>Duration</span></div>
+        <div class="summary-stat"><strong id="stat-spans">0</strong><span>Spans</span></div>
+        <div class="summary-stat"><strong id="stat-services">0</strong><span>Services</span></div>
+        <div class="summary-stat"><strong id="stat-errors">0</strong><span>Errors</span></div>
+      </div>
+
+      <div id="filters">
+        <input id="filter-text" type="text" placeholder="Filter spans by service, operation, attribute, or id" spellcheck="false">
+        <select id="filter-service"><option value="">All services</option></select>
+        <select id="filter-status">
+          <option value="">All statuses</option>
+          <option value="UNSET">Unset</option>
+          <option value="OK">OK</option>
+          <option value="ERROR">Error</option>
+        </select>
+        <button id="clear-filters" type="button">Clear</button>
+      </div>
+
+      <div id="overview-axis" class="axis"></div>
+      <div id="overview" aria-label="Trace overview"></div>
+
+      <div id="span-table">
+        <div class="span-header">
+          <div>Service &amp; operation</div>
+          <div id="timeline-axis" class="axis"></div>
+        </div>
+        <div id="span-rows" class="span-rows"></div>
+      </div>
+    </section>
+  </section>
+
+  <aside id="detail-pane" aria-label="Span details">
+    <div class="detail-empty">Select a span to inspect attributes, resources, events, and ids.</div>
+  </aside>
+</div>
+
+<script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-trace.js"></script>
+<script>
+'use strict';
+
+BunnylandUI.bindThemeSelect(document.getElementById('theme-select'));
+
+const {
+  escapeHtml,
+} = BunnylandUI;
+const {
+  filterSpans,
+  formatDate,
+  formatDuration,
+  formatOffset,
+  parseTraceText,
+  traceTitle,
+} = BunnylandTrace;
+
+const app = {
+  fileName: '',
+  traces: [],
+  selectedTraceId: '',
+  selectedSpanId: '',
+};
+window.traceAnalyzer = app;
+
+const els = {
+  file: document.getElementById('trace-file'),
+  traceSelect: document.getElementById('trace-select'),
+  dropZone: document.getElementById('drop-zone'),
+  content: document.getElementById('trace-content'),
+  title: document.getElementById('trace-title'),
+  subtitle: document.getElementById('trace-subtitle'),
+  duration: document.getElementById('stat-duration'),
+  spans: document.getElementById('stat-spans'),
+  services: document.getElementById('stat-services'),
+  errors: document.getElementById('stat-errors'),
+  filterText: document.getElementById('filter-text'),
+  filterService: document.getElementById('filter-service'),
+  filterStatus: document.getElementById('filter-status'),
+  clearFilters: document.getElementById('clear-filters'),
+  overviewAxis: document.getElementById('overview-axis'),
+  overview: document.getElementById('overview'),
+  timelineAxis: document.getElementById('timeline-axis'),
+  rows: document.getElementById('span-rows'),
+  detail: document.getElementById('detail-pane'),
+};
+
+function selectedTrace() {
+  return app.traces.find(trace => trace.traceId === app.selectedTraceId) || null;
+}
+
+async function loadFile(file) {
+  const text = await file.text();
+  const parsed = parseTraceText(text, file.name);
+  app.fileName = parsed.filename;
+  app.traces = parsed.traces;
+  app.selectedTraceId = app.traces[0]?.traceId || '';
+  app.selectedSpanId = app.traces[0]?.root?.spanId || '';
+  renderTraceOptions();
+  render();
+}
+
+function renderTraceOptions() {
+  els.traceSelect.disabled = app.traces.length === 0;
+  els.traceSelect.innerHTML = app.traces.length
+    ? app.traces.map(trace => `
+      <option value="${escapeHtml(trace.traceId)}">
+        ${escapeHtml(shortId(trace.traceId))} · ${escapeHtml(traceTitle(trace))} · ${trace.spans.length} spans
+      </option>
+    `).join('')
+    : '<option value="">No trace loaded</option>';
+  els.traceSelect.value = app.selectedTraceId;
+}
+
+function render() {
+  const trace = selectedTrace();
+  els.content.classList.toggle('hidden', !trace);
+  if (!trace) return;
+  renderSummary(trace);
+  renderFilters(trace);
+  renderAxis(trace);
+  const spans = filterSpans(trace, currentFilters());
+  renderOverview(trace, spans);
+  renderRows(trace, spans);
+  renderDetail(trace);
+}
+
+function currentFilters() {
+  return {
+    text: els.filterText.value,
+    service: els.filterService.value,
+    status: els.filterStatus.value,
+  };
+}
+
+function renderSummary(trace) {
+  els.title.textContent = traceTitle(trace);
+  els.subtitle.textContent = `${formatDate(trace.startNs)} · ${app.fileName || 'loaded trace'} · ${trace.traceId}`;
+  els.duration.textContent = formatDuration(trace.durationNs);
+  els.spans.textContent = String(trace.spans.length);
+  els.services.textContent = String(trace.services.length);
+  els.errors.textContent = String(trace.errorCount);
+}
+
+function renderFilters(trace) {
+  const current = els.filterService.value;
+  els.filterService.innerHTML = '<option value="">All services</option>' + trace.services.map(service =>
+    `<option value="${escapeHtml(service)}">${escapeHtml(service)}</option>`
+  ).join('');
+  if (trace.services.includes(current)) els.filterService.value = current;
+}
+
+function renderAxis(trace) {
+  const labels = [0, 0.25, 0.5, 0.75, 1].map(p => formatDuration(trace.durationNs * p));
+  const html = labels.map(label => `<span>${escapeHtml(label)}</span>`).join('');
+  els.overviewAxis.innerHTML = html;
+  els.timelineAxis.innerHTML = html;
+}
+
+function renderOverview(trace, spans) {
+  const maxRows = 7;
+  els.overview.innerHTML = '<div class="timeline-grid"><span></span><span></span><span></span><span></span></div>' +
+    spans.slice(0, 80).map((span, index) => {
+      const bar = barStyle(span, trace);
+      const row = index % maxRows;
+      const klass = spanClass(span, trace);
+      return `<div class="overview-bar ${klass}" title="${escapeHtml(span.service)}: ${escapeHtml(span.name)}" style="${bar}; top:${8 + row * 10}px"></div>`;
+    }).join('');
+}
+
+function renderRows(trace, spans) {
+  if (!spans.length) {
+    els.rows.innerHTML = '<div class="detail-empty" style="padding:12px">No spans match the current filters.</div>';
+    return;
+  }
+  els.rows.innerHTML = spans.map(span => {
+    const indent = Math.min(span.depth * 18, 180);
+    return `
+      <div class="span-row ${spanClass(span, trace)} ${span.spanId === app.selectedSpanId ? 'selected' : ''}" data-span-id="${escapeHtml(span.spanId)}">
+        <div class="span-label" style="padding-left:${8 + indent}px">
+          <span class="span-service">${escapeHtml(span.service)}</span>
+          <span class="span-name">${escapeHtml(span.name)}</span>
+          <span class="span-count">${span.children.length ? escapeHtml(String(span.children.length)) : ''}</span>
+        </div>
+        <div class="span-timeline">
+          <div class="span-duration ${spanClass(span, trace)}" style="${barStyle(span, trace)}"></div>
+          <span class="duration-label" style="margin-left:${Math.min(92, Math.max(0, barLeft(span, trace)))}%">${escapeHtml(formatDuration(span.durationNs))}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderDetail(trace) {
+  const span = trace.spans.find(item => item.spanId === app.selectedSpanId) || trace.root;
+  if (!span) {
+    els.detail.innerHTML = '<div class="detail-empty">Select a span to inspect attributes, resources, events, and ids.</div>';
+    return;
+  }
+  app.selectedSpanId = span.spanId;
+  els.detail.innerHTML = `
+    <div class="detail-title">${escapeHtml(span.service)}: ${escapeHtml(span.name)}</div>
+    <div class="detail-meta">
+      Duration: <strong>${escapeHtml(formatDuration(span.durationNs))}</strong><br>
+      Start: <strong>${escapeHtml(formatOffset(span, trace))}</strong> (${escapeHtml(formatDate(span.startNs))})<br>
+      Child count: <strong>${span.children.length}</strong><br>
+      Kind: <strong>${escapeHtml(span.kind || 'unset')}</strong><br>
+      Status: <strong>${escapeHtml(statusLabel(span))}</strong>
+    </div>
+    <div class="detail-actions">
+      <button type="button" data-copy="${escapeHtml(trace.traceId)}">Trace ID</button>
+      <button type="button" data-copy="${escapeHtml(span.spanId)}">Span ID</button>
+      <button type="button" data-copy="${escapeHtml(JSON.stringify(span.raw, null, 2))}">Span JSON</button>
+    </div>
+    ${section('Span attributes', span.attributes)}
+    ${section('Resource attributes', span.resource)}
+    ${eventsSection(span.events)}
+    ${section('IDs', {
+      trace_id: trace.traceId,
+      span_id: span.spanId,
+      parent_span_id: span.parentSpanId || '',
+    })}
+  `;
+}
+
+function section(title, obj) {
+  const entries = Object.entries(obj || {});
+  return `
+    <section class="detail-section">
+      <h2>${escapeHtml(title)}</h2>
+      ${entries.length ? kvTable(entries) : '<div class="detail-empty">None.</div>'}
+    </section>
+  `;
+}
+
+function eventsSection(events) {
+  const entries = (events || []).map((event, index) => [
+    `${index + 1}. ${event.name || 'event'}`,
+    `${event.timestamp_unix_nano ? formatDate(Number(event.timestamp_unix_nano)) : ''} ${JSON.stringify(event.attributes || {})}`,
+  ]);
+  return `
+    <section class="detail-section">
+      <h2>Events</h2>
+      ${entries.length ? kvTable(entries) : '<div class="detail-empty">None.</div>'}
+    </section>
+  `;
+}
+
+function kvTable(entries) {
+  return `
+    <table class="kv-table">
+      <tbody>
+        ${entries.map(([key, value]) => `
+          <tr><th>${escapeHtml(key)}</th><td>${escapeHtml(formatValue(value))}</td></tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function formatValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function spanClass(span, trace) {
+  const classes = [];
+  if (span.status.code === 'ERROR') classes.push('error');
+  if (span.spanId === trace.root?.spanId) classes.push('root');
+  return classes.join(' ');
+}
+
+function statusLabel(span) {
+  return [span.status.code, span.status.description].filter(Boolean).join(' - ');
+}
+
+function barStyle(span, trace) {
+  return `left:${barLeft(span, trace)}%; width:${barWidth(span, trace)}%`;
+}
+
+function barLeft(span, trace) {
+  if (!trace.durationNs) return 0;
+  return clamp(((span.startNs - trace.startNs) / trace.durationNs) * 100, 0, 100);
+}
+
+function barWidth(span, trace) {
+  if (!trace.durationNs) return 0.5;
+  return clamp((span.durationNs / trace.durationNs) * 100, 0.5, 100);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function shortId(value) {
+  return String(value || '').length > 18 ? `${value.slice(0, 16)}...` : String(value || '');
+}
+
+els.file.addEventListener('change', () => {
+  const file = els.file.files?.[0];
+  if (file) loadFile(file).catch(showError);
+});
+els.traceSelect.addEventListener('change', () => {
+  app.selectedTraceId = els.traceSelect.value;
+  app.selectedSpanId = selectedTrace()?.root?.spanId || '';
+  render();
+});
+els.filterText.addEventListener('input', render);
+els.filterService.addEventListener('change', render);
+els.filterStatus.addEventListener('change', render);
+els.clearFilters.addEventListener('click', () => {
+  els.filterText.value = '';
+  els.filterService.value = '';
+  els.filterStatus.value = '';
+  render();
+});
+els.rows.addEventListener('click', (event) => {
+  const row = event.target.closest('.span-row');
+  if (!row) return;
+  app.selectedSpanId = row.dataset.spanId;
+  render();
+});
+els.detail.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-copy]');
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.dataset.copy);
+    const label = button.textContent;
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = label; }, 1000);
+  } catch (_err) {
+    // Clipboard can be unavailable in local files or non-secure contexts.
+  }
+});
+for (const eventName of ['dragenter', 'dragover']) {
+  els.dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    els.dropZone.classList.add('active');
+  });
+}
+for (const eventName of ['dragleave', 'drop']) {
+  els.dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    els.dropZone.classList.remove('active');
+  });
+}
+els.dropZone.addEventListener('drop', (event) => {
+  const file = event.dataTransfer?.files?.[0];
+  if (file) loadFile(file).catch(showError);
+});
+
+function showError(err) {
+  els.content.classList.add('hidden');
+  els.dropZone.textContent = `Could not load trace: ${err.message || err}`;
+}
+</script>
+</body>
+</html>
