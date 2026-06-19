@@ -188,6 +188,21 @@
     #pt-summary .pt.fp { color: var(--bl-info); }
     #pt-summary .pt-empty { color: var(--bl-text-muted); }
 
+    #action-filter-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    #action-filter {
+      width: 100%;
+      min-width: 0;
+    }
+    #action-filter-clear {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
     .verb-list { display: flex; flex-direction: column; gap: 4px; }
     .verb {
       display: flex;
@@ -428,6 +443,7 @@ BunnylandUI.initClientMenu();
 const {
   KIND_ICON,
   actionArguments,
+  actionCommandType,
   actionCost,
   actionLane,
   actionTitle,
@@ -613,6 +629,7 @@ class RoomClient {
     this.viewRoomId = null;
     this.followPlayer = true;
     this.debugBounds = false;
+    this.actionFilter = '';
     this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
@@ -652,6 +669,16 @@ class RoomClient {
     document.getElementById('debug-bounds').addEventListener('change', (e) => {
       this.debugBounds = e.target.checked;
       this.render();
+    });
+    document.getElementById('actions-body').addEventListener('input', (e) => {
+      if (e.target.id !== 'action-filter') return;
+      this.actionFilter = e.target.value.trim();
+      this._renderActions();
+    });
+    document.getElementById('actions-body').addEventListener('click', (e) => {
+      if (e.target.id !== 'action-filter-clear') return;
+      this.actionFilter = '';
+      this._renderActions();
     });
 
     const stage = document.getElementById('stage');
@@ -1348,6 +1375,15 @@ class RoomClient {
     return ACTION_VERBS.map(legacyActionView);
   }
 
+  _filteredActions() {
+    const query = this.actionFilter.trim().toLowerCase();
+    if (!query) return this._availableActions();
+    return this._availableActions().filter(action =>
+      actionTitle(action).toLowerCase().includes(query) ||
+      actionTool(action).toLowerCase().includes(query) ||
+      actionCommandType(action).toLowerCase().includes(query));
+  }
+
   // Arguments worth prompting: every required argument plus any entity argument that has
   // a target group (rendered as a dropdown of nearby candidates). Mirrors the terminal
   // TUI's action form so both player clients prompt for the same fields.
@@ -1451,17 +1487,23 @@ class RoomClient {
     const pts = this._playerPoints();
     const hasPlayer = !!this.playerId && pts.has;
     const esc = BunnylandUI.escapeHtml;
+    const filterWasFocused = document.activeElement?.id === 'action-filter';
 
     const summary = hasPlayer
       ? `<span class="pt ap">⚡ ${fmtPoints(pts.ap)} / ${fmtPoints(pts.apMax)} AP</span>` +
         `<span class="pt fp">🔹 ${fmtPoints(pts.fp)} / ${fmtPoints(pts.fpMax)} FP</span>`
       : '<span class="pt-empty">Select a player to see their actions.</span>';
 
-    let html = `<div id="pt-summary">${summary}</div>`;
+    let html = `<div id="pt-summary">${summary}</div>` +
+      `<div id="action-filter-row">` +
+      `<input id="action-filter" type="text" value="${esc(this.actionFilter)}" placeholder="Search actions" spellcheck="false">` +
+      `<button id="action-filter-clear" type="button">Clear</button>` +
+      `</div>`;
     for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
       html += `<div class="action-section-title">${title}</div><div class="verb-list">`;
-      html += this._availableActions().filter(action => actionLane(action) === lane)
-        .map(action => this._verbRowHtml(action, pts, hasPlayer, esc)).join('');
+      const rows = this._filteredActions().filter(action => actionLane(action) === lane)
+        .map((action) => this._verbRowHtml(action, pts, hasPlayer, esc)).join('');
+      html += rows || '<div class="queued-empty">No matching actions.</div>';
       html += '</div>';
     }
     html += this._queuedActionsHtml(this._playerQueuedCommands(), esc);
@@ -1471,6 +1513,11 @@ class RoomClient {
     for (const el of body.querySelectorAll('.verb.ready[data-tool]')) {
       const action = this._availableActions().find(item => actionTool(item) === el.dataset.tool);
       el.addEventListener('click', () => this._doAction(action));
+    }
+    const filter = document.getElementById('action-filter');
+    if (filter && filterWasFocused) {
+      filter.focus();
+      filter.setSelectionRange(filter.value.length, filter.value.length);
     }
   }
 

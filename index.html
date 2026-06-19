@@ -182,7 +182,7 @@
     }
 
     .info-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .client-grid {
@@ -380,6 +380,7 @@
           <p class="lede">An open-source simulation server. Humans and LLM-driven characters share one living world and play it with the same commands.</p>
           <div class="quick-links" aria-label="Get started">
             <a class="button-link primary" href="toon-client.html">Play online</a>
+            <a class="button-link" href="web-tui.html">Open Web TUI</a>
             <a class="button-link" href="web-repl.html">Open Web REPL</a>
             <a id="discord-link" class="button-link discord" href="#" target="_blank" rel="noopener" style="display:none">Play in Discord</a>
             <a class="button-link" href="https://bunnyland.dev/guides/">Read the Guides</a>
@@ -391,6 +392,7 @@
             <p><strong>Three ways to play:</strong></p>
             <ul class="play-list">
               <li><a href="toon-client.html">Toon Client</a> — a room-by-room view in your browser.</li>
+              <li><a href="web-tui.html">Web TUI</a> — the terminal TUI layout in your browser.</li>
               <li><a href="web-repl.html">Web REPL</a> — typed commands in your browser.</li>
               <li><span id="discord-entry"><strong>Discord</strong></span> — typed commands in a chat channel.</li>
               <li><strong>Terminal</strong> — the Textual TUI or the line REPL (below).</li>
@@ -405,9 +407,15 @@
             <p class="eyebrow">Typed play</p>
             <h2 id="terminal-title">Play with commands.</h2>
           </div>
-          <p>Use the browser REPL for typed play without installing anything, or run the terminal clients from a checkout.</p>
+          <p>Use the browser clients without installing anything, or run the terminal clients from a checkout.</p>
         </div>
         <div class="info-grid">
+          <article class="info-card">
+            <h3>Web TUI</h3>
+            <p>A browser version of the terminal TUI: pick a player, filter actions, choose targets, and watch room activity.</p>
+            <a class="button-link primary" href="web-tui.html">Open Web TUI</a>
+            <a class="button-link" href="https://bunnyland.dev/guides/">Read Player Guides</a>
+          </article>
           <article class="info-card">
             <h3>Web REPL</h3>
             <p>A browser command line with player claiming, clickable visible names, command history, and live action suggestions.</p>

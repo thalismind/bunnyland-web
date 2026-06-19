@@ -149,6 +149,20 @@ def connect_and_select(page) -> None:
     expect(page.locator('.verb.ready[data-tool="say"]')).to_be_visible(timeout=15000)
 
 
+def check_action_search_and_indicators(page) -> None:
+    expect(page.locator("#pt-summary")).to_contain_text("5 / 5 AP")
+    expect(page.locator("#pt-summary")).to_contain_text("3 / 3 FP")
+    expect(page.locator("#actions-body")).to_contain_text("⌖ target")
+    expect(page.locator("#actions-body")).to_contain_text("1 AP")
+    expect(page.locator("#actions-body")).to_contain_text("1 FP")
+
+    page.locator("#action-filter").fill("ell")
+    expect(page.locator('.verb.ready[data-tool="tell"]')).to_be_visible()
+    expect(page.locator('.verb.ready[data-tool="say"]')).to_have_count(0)
+    page.locator("#action-filter-clear").click()
+    expect(page.locator('.verb.ready[data-tool="say"]')).to_be_visible()
+
+
 def check_say_text_field(page, posted: list[dict]) -> None:
     page.locator('.verb.ready[data-tool="say"]').click()
     overlay = page.locator("#action-form-overlay")
@@ -208,6 +222,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        check_action_search_and_indicators(page)
         check_say_text_field(page, posted)
         check_tell_dropdown_and_text(page, posted)
         check_single_form_at_a_time(page)

@@ -78,6 +78,7 @@ def main() -> None:
             "Welcome",
             "Bunnyland.dev",
             "Toon Client",
+            "Web TUI",
             "Web REPL",
             "World Generator",
             "Inspector",
@@ -93,6 +94,9 @@ def main() -> None:
         toon_href = page.locator('.client-menu-item[href^="toon-client.html"]').get_attribute("href")
         if not toon_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in toon_href:
             raise AssertionError(f"toon client menu link did not preserve server URL: {toon_href!r}")
+        tui_href = page.locator('.client-menu-item[href^="web-tui.html"]').get_attribute("href")
+        if not tui_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in tui_href:
+            raise AssertionError(f"web tui menu link did not preserve server URL: {tui_href!r}")
         repl_href = page.locator('.client-menu-item[href^="web-repl.html"]').get_attribute("href")
         if not repl_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in repl_href:
             raise AssertionError(f"web repl menu link did not preserve server URL: {repl_href!r}")

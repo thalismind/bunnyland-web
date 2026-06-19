@@ -40,6 +40,13 @@
       supportsServer: true,
     },
     {
+      href: 'web-tui.html',
+      title: 'Web TUI',
+      label: 'Player action menu',
+      description: 'Claim a character and play from the terminal TUI-style browser client.',
+      supportsServer: true,
+    },
+    {
       href: 'web-repl.html',
       title: 'Web REPL',
       label: 'Typed play',

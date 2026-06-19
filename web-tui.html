@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Web TUI</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    #api-url { width: 190px; }
+    #player-select, #claim-fallback, #claim-timeout { font-size: var(--bl-text-sm); }
+    #claim-timeout { width: 56px; }
+
+    #main {
+      display: grid;
+      grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+      background: var(--bl-bg-deep);
+    }
+
+    #world-pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(120px, auto) auto minmax(72px, auto) auto minmax(96px, 1fr);
+      border-right: 1px solid var(--bl-border);
+      overflow: hidden;
+    }
+
+    #actions-pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bl-bg-strong);
+    }
+
+    .pane-title {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--bl-border);
+      color: var(--bl-accent);
+      font-size: var(--bl-text-md);
+      font-weight: bold;
+    }
+    #doors-title, #activity-title, #queued-title { border-top: 1px solid var(--bl-border); }
+
+    .option-list {
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .option {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 8px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      color: var(--bl-text);
+      font-size: var(--bl-text-sm);
+      text-align: left;
+    }
+    button.option { width: 100%; cursor: pointer; }
+    button.option:hover:not(:disabled) { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
+    .option:disabled, .option.disabled { opacity: 0.45; cursor: default; }
+    .option-main {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .option-meta {
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+      white-space: nowrap;
+    }
+    .option.selected { border-color: var(--bl-accent); background: var(--bl-bg-subtle); }
+    .empty {
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+      line-height: 1.45;
+      padding: 4px;
+    }
+
+    #action-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--bl-border);
+    }
+    #points-line {
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+    }
+    #points-line .ap { color: var(--bl-warn); }
+    #points-line .fp { color: var(--bl-info); }
+    #action-filter-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+    }
+    #action-filter { width: 100%; min-width: 0; }
+
+    #verbs {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px 12px;
+    }
+    .action-section-title {
+      margin: 10px 0 6px;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .action-section-title:first-child { margin-top: 0; }
+    .verb-list { display: flex; flex-direction: column; gap: 5px; }
+    .verb-cost {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .cost {
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      padding: 0 4px;
+      font-size: var(--bl-text-xs);
+    }
+    .cost.ap { color: var(--bl-warn); }
+    .cost.fp { color: var(--bl-info); }
+    .cost.free { color: var(--bl-text-dim); }
+    .target-mark { color: var(--bl-text-dim); font-size: var(--bl-text-xs); }
+
+    #queued {
+      max-height: 28vh;
+      border-top: 1px solid var(--bl-border);
+      overflow-y: auto;
+      padding: 8px 12px;
+    }
+
+    #action-form-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: var(--bl-overlay);
+    }
+    .form-card {
+      width: min(520px, 100%);
+      border: 2px solid var(--bl-accent);
+      border-radius: var(--bl-radius-md);
+      background: var(--bl-bg-strong);
+      box-shadow: var(--bl-shadow-popover);
+    }
+    .form-title {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--bl-border);
+      color: var(--bl-text);
+      font-weight: bold;
+    }
+    .form-body {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+    }
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+    }
+    .form-error {
+      min-height: 16px;
+      color: var(--bl-error);
+      font-size: var(--bl-text-sm);
+    }
+    .form-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--bl-border);
+    }
+
+    @media (max-width: 860px) {
+      #main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(340px, 45vh); }
+      #world-pane { border-right: 0; border-bottom: 1px solid var(--bl-border); }
+      .toolbar-row { flex-wrap: wrap; }
+      .client-menu-button { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+<div id="toolbar">
+  <div class="toolbar-row">
+    <span style="color: var(--bl-text);">🐰 Bunnyland Web TUI</span>
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="/api/" spellcheck="false">
+    <button id="btn-connect">Connect Live</button>
+    <span id="api-status">○ Offline</span>
+    <span class="toolbar-sep">|</span>
+    <label for="player-select">Player:</label>
+    <select id="player-select"><option value="">- none -</option></select>
+    <label for="claim-fallback">Fallback:</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspend</option>
+      <option value="llm">LLM</option>
+    </select>
+    <label for="claim-timeout">Timeout:</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+</div>
+
+<div id="main" class="app-grid">
+  <section id="world-pane" aria-label="World view">
+    <div id="room-title" class="pane-title">Room</div>
+    <div id="members" class="option-list"></div>
+    <div id="doors-title" class="pane-title">Doors</div>
+    <div id="doors" class="option-list"></div>
+    <div id="activity-title" class="pane-title">Activity</div>
+    <div id="activity" class="option-list"></div>
+  </section>
+  <aside id="actions-pane" aria-label="Actions">
+    <div id="action-controls">
+      <div id="points-line">Pick a player to see their actions.</div>
+      <div id="action-filter-row">
+        <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
+        <button id="action-filter-clear" type="button">Clear</button>
+      </div>
+    </div>
+    <div id="verbs"></div>
+    <div id="queued"></div>
+  </aside>
+</div>
+
+<script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-play.js"></script>
+<script>
+'use strict';
+
+BunnylandUI.initClientMenu();
+
+const {
+  actionArguments,
+  actionCommandType,
+  actionCost,
+  actionLane,
+  actionTitle,
+  actionTool,
+  claimWebController,
+  drainNarratedEvents,
+  entityIcon,
+  fetchCharacterList,
+  fetchCharacterProjection,
+  fetchQueuedCommands,
+  fetchRecentEvents,
+  formatPoints,
+  queuedCommandLabel,
+  submitCommand,
+  updateWebControllerFallback,
+} = BunnylandPlay;
+
+const POLL_INTERVAL_MS = 2000;
+const ACTIVITY_LIMIT = 8;
+const CLIENT_ID_KEY = 'bunnyland.webTui.clientId';
+
+function randomClientId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return `web-tui-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function persistentClientId() {
+  try {
+    let clientId = localStorage.getItem(CLIENT_ID_KEY);
+    if (!clientId) {
+      clientId = randomClientId();
+      localStorage.setItem(CLIENT_ID_KEY, clientId);
+    }
+    return clientId;
+  } catch (_err) {
+    return randomClientId();
+  }
+}
+
+class WebTui {
+  constructor() {
+    this.apiBase = null;
+    this.connected = false;
+    this.characters = [];
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    this.selectedId = '';
+    this.actionFilter = '';
+    this.activityLines = [];
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
+    this.clientId = persistentClientId();
+    this._pollTimer = null;
+
+    this._bindUi();
+    this.render();
+    this._restoreServerParam();
+    this._loadConfig();
+  }
+
+  _bindUi() {
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this.connected) this.disconnect();
+      else this.connect(document.getElementById('api-url').value.trim());
+    });
+    document.getElementById('player-select').addEventListener('change', (e) => {
+      if (e.target.value) this.selectPlayer(e.target.value);
+      else this._dropPlayer();
+    });
+    document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('action-filter').addEventListener('input', (e) => {
+      this.actionFilter = e.target.value.trim();
+      this._renderActions();
+    });
+    document.getElementById('action-filter-clear').addEventListener('click', () => {
+      this.actionFilter = '';
+      document.getElementById('action-filter').value = '';
+      this._renderActions();
+    });
+  }
+
+  _restoreServerParam() {
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
+  }
+
+  async _loadConfig() {
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => this.connected,
+      connect: (server) => this.connect(server),
+    });
+  }
+
+  connect(url) {
+    if (!url) return;
+    this.disconnect();
+    this.apiBase = BunnylandApi.normalizeBase(url);
+    this.connected = true;
+    this._setStatus('live', '● Connected');
+    document.getElementById('btn-connect').textContent = 'Disconnect';
+    BunnylandApi.setServerInUrl(this.apiBase);
+    this.refresh();
+    this._pollTimer = setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+  }
+
+  disconnect() {
+    clearInterval(this._pollTimer);
+    this._pollTimer = null;
+    this.connected = false;
+    this.characters = [];
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    this.selectedId = '';
+    this.activityLines = [];
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
+    this._setStatus('', '○ Offline');
+    document.getElementById('btn-connect').textContent = 'Connect Live';
+    document.getElementById('player-select').innerHTML = '<option value="">- none -</option>';
+    if (this.apiBase) BunnylandApi.setServerInUrl('');
+    this.render();
+  }
+
+  async refresh() {
+    if (!this.connected || !this.apiBase) return;
+    try {
+      const list = await fetchCharacterList(this.apiBase);
+      this.characters = list.characters || [];
+      if (this.playerId && !this.characters.some(c => c.id === this.playerId)) this._dropPlayer();
+      if (this.playerId) {
+        this.projection = await fetchCharacterProjection(this.apiBase, this.playerId);
+        const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
+        this.queuedCommands = queued?.commands || [];
+        if (this.projection?.controller) {
+          this.control = {
+            characterId: this.playerId,
+            controllerId: this.projection.controller.controller_id,
+            generation: Number(this.projection.controller.generation || 0),
+          };
+        }
+      }
+      const events = await fetchRecentEvents(this.apiBase);
+      this._drainEvents(events.events || [], { prime: !this.eventsPrimed });
+      this.eventsPrimed = true;
+      this._setStatus('live', `● Connected · epoch ${this.projection?.worldEpoch || list.epoch || 0}s`);
+      this.render();
+    } catch (err) {
+      this._setStatus('err', `⚠ ${err.message || err}`);
+    }
+  }
+
+  async selectPlayer(id) {
+    this.playerId = id;
+    this.selectedId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = await this._claimPlayer(id);
+    await this.refresh();
+  }
+
+  _dropPlayer() {
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    this.selectedId = '';
+    this.render();
+  }
+
+  async _claimPlayer(characterId) {
+    if (!this.apiBase || !characterId) return null;
+    const data = await claimWebController(this.apiBase, {
+      character_id: characterId,
+      client_id: this.clientId,
+      label: 'web-tui',
+      fallback_controller: document.getElementById('claim-fallback').value,
+      timeout_seconds: Number(document.getElementById('claim-timeout').value || 30) * 60,
+    });
+    return {
+      characterId,
+      controllerId: data.controller_id,
+      generation: Number(data.controller_generation || 0),
+    };
+  }
+
+  async _updateClaimFallback() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const data = await updateWebControllerFallback(this.apiBase, {
+        character_id: this.playerId,
+        controller_id: this.control.controllerId,
+        controller_generation: this.control.generation,
+        fallback_controller: document.getElementById('claim-fallback').value,
+        timeout_seconds: Number(document.getElementById('claim-timeout').value || 30) * 60,
+      });
+      this.control.generation = Number(data.controller_generation || this.control.generation);
+    } catch (err) {
+      this._setStatus('err', `⚠ ${err.message || err}`);
+    }
+  }
+
+  _setStatus(kind, text) {
+    const status = document.getElementById('api-status');
+    status.className = kind;
+    status.textContent = text;
+  }
+
+  _currentRoom() {
+    return this.projection?.room || null;
+  }
+
+  _roomOf(entityId) {
+    return entityId && entityId === this.playerId ? this.projection?.room?.id || null : null;
+  }
+
+  _nameFor(entityId) {
+    if (entityId === this.playerId) return this.characters.find(c => c.id === entityId)?.name || entityId;
+    const target = this._allTargets().find(item => item.value === entityId);
+    return target?.label || this.characters.find(c => c.id === entityId)?.name || null;
+  }
+
+  _allTargets() {
+    const groups = this.projection?.targetGroups || {};
+    return Object.values(groups).flat();
+  }
+
+  _drainEvents(messages, { prime = false } = {}) {
+    const drained = drainNarratedEvents(messages, {
+      seenIds: this.seenEventIds,
+      playerId: this.playerId,
+      roomOf: (id) => this._roomOf(id),
+      nameFor: (id) => this._nameFor(id),
+    });
+    this.seenEventIds = drained.seenIds;
+    if (prime) return;
+    this.activityLines.push(...drained.lines);
+    this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+  }
+
+  _availableActions() {
+    return this.projection?.actions?.length ? this.projection.actions : [];
+  }
+
+  _filteredActions() {
+    const query = this.actionFilter.trim().toLowerCase();
+    if (!query) return this._availableActions();
+    return this._availableActions().filter(action =>
+      actionTitle(action).toLowerCase().includes(query) ||
+      actionTool(action).toLowerCase().includes(query) ||
+      actionCommandType(action).toLowerCase().includes(query));
+  }
+
+  _targetCandidates(group) {
+    return this.projection?.targetGroups?.[group] || [];
+  }
+
+  _actionFields(action) {
+    return actionArguments(action)
+      .filter(arg => arg.key && (arg.required || arg.target_group))
+      .map(arg => ({
+        key: arg.key,
+        label: arg.title || arg.key,
+        kind: arg.kind || 'string',
+        required: Boolean(arg.required),
+        candidates: arg.target_group ? this._targetCandidates(arg.target_group) : null,
+      }));
+  }
+
+  async _doAction(action) {
+    if (!this.playerId || !this.control || !action) return;
+    const fields = this._actionFields(action);
+    const payload = fields.length ? await this._actionForm(action, fields) : {};
+    if (payload == null) return;
+    const cost = actionCost(action);
+    await submitCommand(this.apiBase, {
+      character_id: this.playerId,
+      controller_id: this.control.controllerId,
+      controller_generation: this.control.generation,
+      command_type: actionCommandType(action),
+      payload,
+      cost,
+      lane: actionLane(action),
+      on_insufficient_points: 'queue',
+    });
+    await this.refresh();
+  }
+
+  _actionForm(action, fields) {
+    return new Promise((resolve) => {
+      if (document.getElementById('action-form-overlay')) { resolve(null); return; }
+      const esc = BunnylandUI.escapeHtml;
+      const overlay = document.createElement('div');
+      overlay.id = 'action-form-overlay';
+      const fieldHtml = fields.map((field, index) => {
+        const label = `${esc(field.label)}${field.required ? ' *' : ''}`;
+        let control;
+        if (field.candidates) {
+          const options = ['<option value="">— choose —</option>'].concat(
+            field.candidates.map(c => `<option value="${esc(c.value)}">${esc(c.icon)} ${esc(c.label)}</option>`)
+          );
+          control = `<select class="form-input" data-index="${index}">${options.join('')}</select>`;
+        } else if (field.kind === 'boolean') {
+          control = `<select class="form-input" data-index="${index}"><option value="">— choose —</option><option value="true">yes</option><option value="false">no</option></select>`;
+        } else {
+          control = `<input class="form-input" data-index="${index}" type="${field.kind === 'number' ? 'number' : 'text'}">`;
+        }
+        return `<label class="form-field"><span>${label}</span>${control}</label>`;
+      }).join('');
+      overlay.innerHTML = `<div class="form-card">` +
+        `<div class="form-title">${esc(actionTitle(action))}</div>` +
+        `<div class="form-body">${fieldHtml}<div class="form-error"></div></div>` +
+        `<div class="form-buttons"><button class="form-cancel" type="button">Cancel</button><button class="form-submit" type="button">Submit</button></div>` +
+        `</div>`;
+
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        resolve(value);
+      };
+      const submit = () => {
+        const payload = {};
+        for (let i = 0; i < fields.length; i++) {
+          const raw = overlay.querySelector(`.form-input[data-index="${i}"]`)?.value.trim() || '';
+          if (fields[i].required && !raw) {
+            overlay.querySelector('.form-error').textContent = `${fields[i].label} is required.`;
+            return;
+          }
+          if (raw) payload[fields[i].key] = raw;
+        }
+        close(payload);
+      };
+      const onKey = (event) => {
+        if (event.key === 'Escape') close(null);
+        else if (event.key === 'Enter' && event.target.classList.contains('form-input')) submit();
+      };
+
+      overlay.addEventListener('click', (event) => { if (event.target === overlay) close(null); });
+      overlay.querySelector('.form-cancel').addEventListener('click', () => close(null));
+      overlay.querySelector('.form-submit').addEventListener('click', submit);
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+      overlay.querySelector('.form-input')?.focus();
+    });
+  }
+
+  render() {
+    this._syncPlayers();
+    this._renderWorld();
+    this._renderActions();
+  }
+
+  _syncPlayers() {
+    const select = document.getElementById('player-select');
+    const current = select.value;
+    select.innerHTML = '<option value="">- none -</option>' + this.characters
+      .map(c => `<option value="${BunnylandUI.escapeHtml(c.id)}">${BunnylandUI.escapeHtml(c.name)}</option>`)
+      .join('');
+    select.value = this.playerId || current || '';
+  }
+
+  _renderWorld() {
+    const esc = BunnylandUI.escapeHtml;
+    const room = this._currentRoom();
+    document.getElementById('room-title').textContent = room?.title || 'Room';
+
+    const members = room?.entities || [];
+    document.getElementById('members').innerHTML = members.length ? members
+      .filter(entity => entity.kind !== 'room')
+      .map(entity => {
+        const selected = entity.id === this.selectedId ? ' selected' : '';
+        const me = entity.id === this.playerId ? ' ← you' : '';
+        return `<button class="option${selected}" type="button" data-entity="${esc(entity.id)}">` +
+          `<span class="option-main">${esc(entityIcon(entity))} ${esc(entity.name || entity.id)}${me}</span>` +
+          `<span class="option-meta">${esc(entity.kind || '')}</span></button>`;
+      }).join('') : '<div class="empty">Pick a player to see their room.</div>';
+
+    document.querySelectorAll('#members .option[data-entity]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.selectedId = button.dataset.entity;
+        this._renderWorld();
+      });
+    });
+
+    const exits = room?.exits || [];
+    document.getElementById('doors').innerHTML = exits.length ? exits
+      .map(exit => `<div class="option disabled"><span class="option-main">🚪 ${esc(exit.direction || exit.label || exit.id)}</span><span class="option-meta">${exit.locked ? 'locked' : ''}</span></div>`)
+      .join('') : '<div class="empty">No visible exits.</div>';
+
+    document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
+      .map(line => `<div class="option disabled ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${esc(line.text)}</span></div>`)
+      .join('') : '<div class="empty">No recent activity.</div>';
+  }
+
+  _renderActions() {
+    const pts = this.projection?.points || {};
+    const hasPlayer = Boolean(this.playerId && this.projection);
+    document.getElementById('points-line').innerHTML = hasPlayer
+      ? `<span class="ap">⚡ ${formatPoints(pts.action)} / ${formatPoints(pts.action_max)} AP</span>   ` +
+        `<span class="fp">🔹 ${formatPoints(pts.focus)} / ${formatPoints(pts.focus_max)} FP</span>`
+      : 'Pick a player to see their actions.';
+
+    const esc = BunnylandUI.escapeHtml;
+    const actions = this._filteredActions();
+    const html = [['Room actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
+      const rows = actions.map((action, index) => ({ action, index }))
+        .filter(item => actionLane(item.action) === lane)
+        .map(item => this._verbRowHtml(item.action, item.index, hasPlayer, pts, esc))
+        .join('');
+      return `<div class="action-section-title">${title}</div><div class="verb-list">${rows || '<div class="empty">No matching actions.</div>'}</div>`;
+    }).join('');
+    document.getElementById('verbs').innerHTML = html;
+    document.querySelectorAll('#verbs .option[data-action-index]').forEach(button => {
+      const action = actions[Number(button.dataset.actionIndex)];
+      button.addEventListener('click', () => this._doAction(action));
+    });
+
+    document.getElementById('queued').innerHTML = '<div class="action-section-title">Queued actions</div>' +
+      (this.queuedCommands.length
+        ? this.queuedCommands.map(command => `<div class="option disabled"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span></div>`).join('')
+        : '<div class="empty">No queued actions.</div>');
+  }
+
+  _verbRowHtml(action, index, hasPlayer, pts, esc) {
+    const cost = actionCost(action);
+    const affordable = hasPlayer && Number(pts.action || 0) >= cost.action && Number(pts.focus || 0) >= cost.focus;
+    const ready = hasPlayer && affordable;
+    const costHtml = cost.action || cost.focus
+      ? `${cost.action ? `<span class="cost ap">${cost.action} AP</span>` : ''}${cost.focus ? `<span class="cost fp">${cost.focus} FP</span>` : ''}`
+      : '<span class="cost free">free</span>';
+    const target = actionArguments(action).some(arg => arg.target_group)
+      ? '<span class="target-mark">⌖ target</span>'
+      : '';
+    return `<button class="option${ready ? '' : ' disabled'}" type="button" ${ready ? `data-action-index="${index}"` : 'disabled'}>` +
+      `<span class="option-main">${esc(actionTitle(action))}</span>` +
+      `<span class="verb-cost">${target}${costHtml}</span></button>`;
+  }
+}
+
+window.app = new WebTui();
+</script>
+</body>
+</html>

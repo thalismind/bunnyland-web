@@ -37,4 +37,5 @@ scripts/playwright-world-editor
 scripts/playwright-behavior-editor
 scripts/playwright-discord-link
 scripts/playwright-toon-action-form
+scripts/playwright-web-tui
 scripts/playwright-web-repl

@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland Web TUI."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+
+CHARACTER = "character:1"
+OTHER = "character:2"
+ROOM = "room:1"
+EXIT = "room:2"
+
+CHARACTER_LIST = {
+    "world_epoch": 8,
+    "characters": [{"character_id": CHARACTER, "name": "Bun", "kind": "character"}],
+}
+
+CHARACTER_PROJECTION = {
+    "character_id": CHARACTER,
+    "world_epoch": 8,
+    "character_name": "Bun",
+    "room": {
+        "id": ROOM,
+        "title": "Parlor",
+        "exits": [{"id": EXIT, "direction": "north", "label": "Hallway"}],
+        "entities": [
+            {"id": CHARACTER, "name": "Bun", "kind": "character", "is_character": True},
+            {"id": OTHER, "name": "Marlow", "kind": "character", "is_character": True},
+        ],
+    },
+    "inventory": [{"id": "item:1", "label": "a brass key", "kind": "item"}],
+    "points": {"action": 5, "action_max": 5, "focus": 3, "focus_max": 3},
+    "controller": {"controller_id": "web:tui", "generation": 4},
+    "target_groups": {
+        "characters": [{"id": OTHER, "label": "Marlow", "kind": "character"}],
+        "exits": [{"id": EXIT, "label": "north", "kind": "exit"}],
+        "inventory": [{"id": "item:1", "label": "a brass key", "kind": "item"}],
+    },
+    "actions": [
+        {
+            "command_type": "move",
+            "tool_name": "move",
+            "title": "Move",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 0},
+            "arguments": [
+                {
+                    "key": "exit_id",
+                    "title": "exit",
+                    "kind": "entity",
+                    "required": True,
+                    "target_group": "exits",
+                },
+            ],
+        },
+        {
+            "command_type": "tell",
+            "tool_name": "tell",
+            "title": "Tell",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 1},
+            "arguments": [
+                {
+                    "key": "target_id",
+                    "title": "target",
+                    "kind": "entity",
+                    "required": True,
+                    "target_group": "characters",
+                },
+                {"key": "text", "title": "text", "kind": "string", "required": True},
+            ],
+        },
+        {
+            "command_type": "remember",
+            "tool_name": "remember",
+            "title": "Remember",
+            "lane": "focus",
+            "cost": {"action": 0, "focus": 1},
+            "arguments": [
+                {"key": "query", "title": "query", "kind": "string", "required": True},
+            ],
+        },
+    ],
+}
+
+QUEUED = {"character_id": CHARACTER, "world_epoch": 8, "commands": []}
+EVENTS = {"events": []}
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def json_route(body):
+    def handler(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    return handler
+
+
+def install_routes(page, posted: list[dict]) -> None:
+    def command_handler(route):
+        posted.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+    def claim_handler(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "character_id": CHARACTER,
+                    "controller_id": "web:tui",
+                    "controller_generation": 4,
+                }
+            ),
+        )
+
+    page.route("**/world/events/recent", json_route(EVENTS))
+    page.route("**/world/characters", json_route(CHARACTER_LIST))
+    page.route("**/world/character/*/commands", json_route(QUEUED))
+    page.route("**/world/character/*", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/controllers/web/claim", claim_handler)
+    page.route("**/world/controllers/web/fallback", claim_handler)
+    page.route("**/world/commands", command_handler)
+
+
+def connect_and_select(page) -> None:
+    page.goto(f"{BASE_URL}/web-tui.html", wait_until="domcontentloaded")
+    page.locator("#api-url").fill("/api")
+    page.locator("#btn-connect").click()
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
+    page.locator("#player-select").select_option(CHARACTER)
+    page.wait_for_function(
+        """(id) => (
+            window.app?.projection?.characterId === id
+            && window.app.projection.actions?.length > 0
+        )""",
+        arg=CHARACTER,
+        timeout=15000,
+    )
+    expect(page.locator("#room-title")).to_contain_text("Parlor")
+    expect(page.locator("#points-line")).to_contain_text("5 / 5 AP")
+    expect(page.locator("#points-line")).to_contain_text("3 / 3 FP")
+    expect(page.locator("#verbs")).to_contain_text("⌖ target")
+    expect(page.locator("#verbs")).to_contain_text("1 AP")
+    expect(page.locator("#verbs")).to_contain_text("1 FP")
+
+
+def filter_actions(page) -> None:
+    page.locator("#action-filter").fill("ell")
+    expect(page.locator("#verbs")).to_contain_text("Tell")
+    expect(page.locator("#verbs")).not_to_contain_text("Move")
+    page.locator("#action-filter-clear").click()
+    expect(page.locator("#verbs")).to_contain_text("Remember")
+
+
+def submit_tell(page, posted: list[dict]) -> None:
+    page.locator("#action-filter").fill("tell")
+    page.locator("#verbs .option").filter(has_text="Tell").click()
+    page.locator("#action-form-overlay select.form-input").select_option(OTHER)
+    page.locator("#action-form-overlay input.form-input").fill("psst")
+    page.locator("#action-form-overlay .form-submit").click()
+    page.wait_for_function("() => !document.querySelector('#action-form-overlay')")
+    if not posted:
+        raise AssertionError("Web TUI did not post a command")
+    expected = {
+        "character_id": CHARACTER,
+        "controller_id": "web:tui",
+        "controller_generation": 4,
+        "command_type": "tell",
+        "payload": {"target_id": OTHER, "text": "psst"},
+        "cost": {"action": 1, "focus": 1},
+        "lane": "world",
+        "on_insufficient_points": "queue",
+    }
+    if posted[-1] != expected:
+        raise AssertionError(f"unexpected command body: {posted[-1]!r}")
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        posted: list[dict] = []
+        install_routes(page, posted)
+
+        connect_and_select(page)
+        filter_actions(page)
+        submit_tell(page, posted)
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-tui.png"))
+        browser.close()
+
+    print("web_tui=ok")
+
+
+if __name__ == "__main__":
+    main()

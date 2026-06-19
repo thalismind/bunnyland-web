@@ -120,6 +120,10 @@
     return String(action?.tool_name || action?.command_type || 'action');
   }
 
+  function actionCommandType(action) {
+    return String(action?.command_type || actionTool(action));
+  }
+
   function actionCost(action) {
     const cost = action?.cost || {};
     return { action: Number(cost.action || 0), focus: Number(cost.focus || 0) };
@@ -131,6 +135,38 @@
 
   function actionArguments(action) {
     return Array.isArray(action?.arguments) ? action.arguments : [];
+  }
+
+  function formatPoints(value) {
+    return Number.isInteger(Number(value)) ? String(Number(value)) : Number(value || 0).toFixed(1);
+  }
+
+  function queuedCommandCost(command) {
+    const cost = command?.cost || {};
+    const parts = [];
+    if (cost.action) parts.push(`${cost.action} AP`);
+    if (cost.focus) parts.push(`${cost.focus} FP`);
+    return parts.length ? parts.join(' + ') : 'free';
+  }
+
+  function queuedCommandDetail(command) {
+    const payload = command?.payload || {};
+    return Object.entries(payload)
+      .filter(([, value]) => value != null && value !== '')
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
+  }
+
+  function queuedCommandLabel(command, actions = []) {
+    const match = actions.find(action => action.command_type === command?.command_type);
+    const name = match ? actionTitle(match) : String(command?.command_type || 'command').replaceAll('-', ' ');
+    const lane = command?.lane ? ` [${command.lane}]` : '';
+    const details = [queuedCommandCost(command), queuedCommandDetail(command)].filter(Boolean);
+    return `${name}${lane}${details.length ? ` - ${details.join(' · ')}` : ''}`;
+  }
+
+  async function fetchRecentEvents(base) {
+    return BunnylandApi.sendJson(base, '/world/events/recent');
   }
 
   async function fetchCharacterList(base) {
@@ -176,9 +212,96 @@
     });
   }
 
+  const UNNARRATED_EVENT_TYPES = new Set([
+    'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
+    'CommandExecutedEvent', 'CommandExpiredEvent',
+    'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
+    'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
+    'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
+    'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
+  ]);
+
+  const EVENT_BASE_KEYS = new Set([
+    'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
+    'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
+  ]);
+
+  function humanizeEventType(eventType) {
+    const name = String(eventType || 'Event').replace(/Event$/, '');
+    return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+  }
+
+  function perceivesEvent(event, { playerId = '', roomOf = () => null } = {}) {
+    const visibility = event?.visibility;
+    if (visibility === 'public') return true;
+    if (visibility === 'room') return Boolean(playerId) && event.room_id === roomOf(playerId);
+    if (visibility === 'directed') {
+      return Boolean(playerId) && (
+        event.actor_id === playerId || (event.target_ids || []).includes(playerId)
+      );
+    }
+    if (visibility === 'private') return Boolean(playerId) && event.actor_id === playerId;
+    return false;
+  }
+
+  function renderEventLine(data, { playerId = '', nameFor = () => null } = {}) {
+    const event = data?.event || {};
+    const eventType = String(data?.event_type || 'Event');
+    if (eventType === 'ActorMovedEvent' && playerId &&
+        event.actor_id === playerId && event.arrival_summary) {
+      return { text: String(event.arrival_summary), kind: 'event' };
+    }
+    const actor = event.actor_id ? nameFor(event.actor_id) : null;
+    const details = [];
+    for (const [key, value] of Object.entries(event)) {
+      if (EVENT_BASE_KEYS.has(key) || value == null || value === '' ||
+          (Array.isArray(value) && !value.length)) continue;
+      if (key.endsWith('_ids') && Array.isArray(value)) {
+        const names = value.map(item => nameFor(String(item))).filter(Boolean);
+        if (names.length) details.push(names.join(', '));
+      } else if (key.endsWith('_id')) {
+        const name = nameFor(String(value));
+        if (name) details.push(name);
+      } else {
+        details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
+      }
+    }
+    const label = humanizeEventType(eventType);
+    return {
+      text: `${actor ? `${actor}: ` : ''}${label}${details.length ? ` - ${details.join('; ')}` : ''}`,
+      kind: eventType === 'CommandRejectedEvent' ? 'rejection' : 'event',
+    };
+  }
+
+  function drainNarratedEvents(messages, {
+    seenIds = new Set(),
+    playerId = '',
+    roomOf = () => null,
+    nameFor = () => null,
+  } = {}) {
+    const current = new Set(seenIds);
+    const lines = [];
+    for (const message of messages || []) {
+      const data = message.data || message;
+      const event = data.event || {};
+      const eventId = event.event_id;
+      if (!eventId) continue;
+      current.add(eventId);
+      if (seenIds.has(eventId)) continue;
+      const eventType = data.event_type || 'Event';
+      if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
+      const own = playerId && event.actor_id === playerId;
+      if (own || perceivesEvent(event, { playerId, roomOf })) {
+        lines.push(renderEventLine(data, { playerId, nameFor }));
+      }
+    }
+    return { lines, seenIds: current };
+  }
+
   window.BunnylandPlay = {
     KIND_ICON,
     actionArguments,
+    actionCommandType,
     actionCost,
     actionLane,
     actionTitle,
@@ -190,11 +313,18 @@
     fetchCharacterList,
     fetchCharacterProjection,
     fetchQueuedCommands,
+    fetchRecentEvents,
     fetchRoomProjection,
+    formatPoints,
+    drainNarratedEvents,
+    humanizeEventType,
+    perceivesEvent,
     parseCharacterList,
     parseCharacterProjection,
     parseQueuedCommands,
     parseRoomProjection,
+    queuedCommandLabel,
+    renderEventLine,
     submitCommand,
     targetIcon,
     updateWebControllerFallback,
