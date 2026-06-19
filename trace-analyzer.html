@@ -451,6 +451,7 @@ const {
   formatDuration,
   formatOffset,
   formatRelative,
+  normalizeId,
   parseTraceText,
   traceTitle,
 } = BunnylandTrace;
@@ -837,7 +838,7 @@ async function tempoFetch(path) {
 }
 
 function toSummary(entry) {
-  const traceId = String(entry.traceID || entry.traceId || '').trim();
+  const traceId = normalizeId(entry.traceID || entry.traceId, 32);
   return {
     traceId,
     startNs: Number(entry.startTimeUnixNano || 0),

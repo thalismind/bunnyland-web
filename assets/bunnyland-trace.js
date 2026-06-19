@@ -147,6 +147,7 @@
     const raw = String(value || '').trim();
     if (!raw) return '';
     if (new RegExp(`^[0-9a-fA-F]{${hexLength}}$`).test(raw)) return raw.toLowerCase();
+    if (new RegExp(`^[0-9a-fA-F]{1,${hexLength - 1}}$`).test(raw)) return raw.toLowerCase().padStart(hexLength, '0');
     const decoded = base64ToHex(raw);
     return decoded.length === hexLength ? decoded : raw;
   }
@@ -285,6 +286,7 @@
     formatDuration,
     formatOffset,
     formatRelative,
+    normalizeId,
     parseTraceText,
     traceTitle,
   };

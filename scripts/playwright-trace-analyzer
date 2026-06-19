@@ -84,7 +84,7 @@ def tempo_search_payload() -> dict:
     return {
         "traces": [
             {
-                "traceID": "22222222222222222222222222222222",
+                "traceID": "454a36f2e9b401741b5469f4209d8ae",
                 "rootServiceName": "bunnyland",
                 "rootTraceName": "game.loop.iteration",
                 "startTimeUnixNano": "1750000000000000000",
@@ -113,7 +113,7 @@ def tempo_trace_payload(trace_id: str) -> dict:
         root_name = "game.loop.iteration"
         child_name = "controller.run_once"
         start_ns = 1_750_000_000_000_000_000
-        trace_id_json = "IiIiIiIiIiIiIiIiIiIiIg=="
+        trace_id_json = "BFSjby6bQBdBtUafQgnYrg=="
     return {
         "resourceSpans": [
             {
