@@ -26,11 +26,11 @@
       supportsServer: false,
     },
     {
-      href: 'inspector.html',
-      title: 'Inspector',
-      label: 'Graph client',
-      description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
-      supportsServer: true,
+      href: 'https://bunnyland.dev/',
+      title: 'Bunnyland.dev',
+      label: 'Website',
+      description: 'Project homepage, feature overview, guides, and public docs.',
+      supportsServer: false,
     },
     {
       href: 'toon-client.html',
@@ -40,17 +40,24 @@
       supportsServer: true,
     },
     {
-      href: 'world-editor.html',
-      title: 'World Editor',
-      label: 'Admin editor',
-      description: 'Edit entities, components, relationships, fragments, and live snapshots.',
-      supportsServer: true,
-    },
-    {
       href: 'world-generator.html',
       title: 'World Generator',
       label: 'Admin generator',
       description: 'Generate or replace a live world using enabled server generators.',
+      supportsServer: true,
+    },
+    {
+      href: 'inspector.html',
+      title: 'Inspector',
+      label: 'Graph client',
+      description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
+      supportsServer: true,
+    },
+    {
+      href: 'world-editor.html',
+      title: 'World Editor',
+      label: 'Admin editor',
+      description: 'Edit entities, components, relationships, fragments, and live snapshots.',
       supportsServer: true,
     },
     {
@@ -166,7 +173,13 @@
       const server = currentServerValue();
       if (server) url.searchParams.set('server', server);
     }
+    if (url.origin !== location.origin) return url.toString();
     return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
+  }
+
+  function clientTargetAttrs(item) {
+    const url = new URL(item.href, location.href);
+    return url.origin === location.origin ? '' : ' target="_blank" rel="noopener"';
   }
 
   function ensureClientMenu() {
@@ -199,7 +212,7 @@
           ${CLIENT_MENU_ITEMS.map((item) => {
             const active = item.href === current || (current === '' && item.href === 'index.html');
             return `
-              <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}">
+              <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}"${clientTargetAttrs(item)}>
                 <span class="client-menu-item-main">
                   <span class="client-menu-item-title">${escapeHtml(item.title)}</span>
                   <span class="client-menu-item-desc">${escapeHtml(item.description)}</span>

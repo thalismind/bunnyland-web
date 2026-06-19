@@ -71,6 +71,24 @@ def main() -> None:
         page.wait_for_timeout(200)
         if not page.locator("#client-menu-dialog:not(.hidden)").is_visible():
             raise AssertionError("client menu did not open on first inspector load")
+        menu_titles = page.locator(".client-menu-item-title").evaluate_all(
+            "(els) => els.map((el) => el.textContent.trim())"
+        )
+        expected_titles = [
+            "Welcome",
+            "Bunnyland.dev",
+            "Toon Client",
+            "World Generator",
+            "Inspector",
+            "World Editor",
+            "Script Editor",
+            "Behavior Editor",
+        ]
+        if menu_titles != expected_titles:
+            raise AssertionError(f"unexpected client menu order: {menu_titles!r}")
+        website_link = page.locator('.client-menu-item[href="https://bunnyland.dev/"]')
+        if website_link.get_attribute("target") != "_blank" or website_link.get_attribute("rel") != "noopener":
+            raise AssertionError("bunnyland.dev menu link should open as an external link")
         toon_href = page.locator('.client-menu-item[href^="toon-client.html"]').get_attribute("href")
         if not toon_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in toon_href:
             raise AssertionError(f"toon client menu link did not preserve server URL: {toon_href!r}")
