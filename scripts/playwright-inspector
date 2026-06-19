@@ -83,23 +83,37 @@ def main() -> None:
             () => {
               const root = document.documentElement;
               const readBg = () => getComputedStyle(root).getPropertyValue('--bl-bg').trim();
-              const darkBefore = root.classList.contains('bl-theme-dark');
+              const darkBefore = root.classList.contains('bl-theme-purple-blue-dark');
               const darkBg = readBg();
-              BunnylandUI.setTheme('light');
-              const lightApplied = root.classList.contains('bl-theme-light') && !root.classList.contains('bl-theme-dark');
+              BunnylandUI.setTheme('anime-light');
+              const lightApplied = root.classList.contains('bl-theme-anime-light') && !root.classList.contains('bl-theme-purple-blue-dark');
               const lightBg = readBg();
               BunnylandUI.setTheme('dark');
               return {
                 darkBefore,
                 lightApplied,
                 bgChanged: darkBg !== lightBg,
-                restored: root.classList.contains('bl-theme-dark') && !root.classList.contains('bl-theme-light'),
+                restored: root.classList.contains('bl-theme-purple-blue-dark') && !root.classList.contains('bl-theme-anime-light'),
               };
             }
             """
         )
         if not all(theme_contract.values()):
             raise AssertionError(f"theme class contract failed: {theme_contract!r}")
+        page.locator("#btn-client-menu").click()
+        page.locator("#client-menu-theme-select").select_option("earth-light")
+        menu_theme = page.evaluate(
+            """
+            () => ({
+              current: BunnylandUI.currentTheme(),
+              earth: document.documentElement.classList.contains('bl-theme-earth-light'),
+              selectValue: document.getElementById('client-menu-theme-select')?.value,
+            })
+            """
+        )
+        if menu_theme != {"current": "earth-light", "earth": True, "selectValue": "earth-light"}:
+            raise AssertionError(f"theme selector did not apply earth-light: {menu_theme!r}")
+        page.keyboard.press("Escape")
 
         page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")
         lobby_contract = page.evaluate(

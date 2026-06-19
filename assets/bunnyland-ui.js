@@ -3,6 +3,19 @@
 
   const THEME_KEY = 'bunnyland.theme';
   const THEME_CLASS_PREFIX = 'bl-theme-';
+  const DEFAULT_THEME = 'purple-blue-dark';
+  const THEME_ALIASES = {
+    dark: 'purple-blue-dark',
+    light: 'purple-blue-light',
+  };
+  const THEME_OPTIONS = [
+    { value: 'purple-blue-dark', label: 'Purple / Blue Dark' },
+    { value: 'purple-blue-light', label: 'Purple / Blue Light' },
+    { value: 'anime-dark', label: 'Anime Pink / Cyan Dark' },
+    { value: 'anime-light', label: 'Anime Pink / Cyan Light' },
+    { value: 'earth-dark', label: 'Earth Green / Gold Dark' },
+    { value: 'earth-light', label: 'Earth Green / Gold Light' },
+  ];
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   const CLIENT_MENU_ITEMS = [
     {
@@ -82,8 +95,18 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function normalizeTheme(name) {
+    const raw = String(name || DEFAULT_THEME).trim();
+    const theme = THEME_ALIASES[raw] || raw;
+    return THEME_OPTIONS.some(option => option.value === theme) ? theme : DEFAULT_THEME;
+  }
+
+  function currentTheme() {
+    return normalizeTheme(document.documentElement.dataset.theme);
+  }
+
   function setTheme(name) {
-    const theme = name || 'dark';
+    const theme = normalizeTheme(name);
     const root = document.documentElement;
     for (const className of [...root.classList]) {
       if (className.startsWith(THEME_CLASS_PREFIX)) root.classList.remove(className);
@@ -98,7 +121,7 @@
   }
 
   function initTheme() {
-    let theme = 'dark';
+    let theme = DEFAULT_THEME;
     try {
       theme = localStorage.getItem(THEME_KEY) || theme;
     } catch (_err) {
@@ -162,6 +185,7 @@
 
   function renderClientMenu(dialog, discordUrl = '') {
     const current = currentPageName();
+    const theme = currentTheme();
     dialog.innerHTML = `
       <div class="client-menu-card">
         <div class="client-menu-header">
@@ -185,13 +209,25 @@
             `;
           }).join('')}
         </div>
-        ${discordUrl ? `
-          <div class="client-menu-footer">
+        <div class="client-menu-footer">
+          <label class="client-menu-theme" for="client-menu-theme-select">
+            <span>Theme</span>
+            <select id="client-menu-theme-select">
+              ${THEME_OPTIONS.map(option => `
+                <option value="${escapeHtml(option.value)}" ${option.value === theme ? 'selected' : ''}>${escapeHtml(option.label)}</option>
+              `).join('')}
+            </select>
+          </label>
+          ${discordUrl ? `
             <a class="client-menu-discord" href="${escapeHtml(discordUrl)}" target="_blank" rel="noopener">Join the Discord</a>
-          </div>
-        ` : ''}
+          ` : ''}
+        </div>
       </div>
     `;
+    dialog.querySelector('#client-menu-theme-select')?.addEventListener('change', (event) => {
+      setTheme(event.target.value);
+      renderClientMenu(dialog, discordUrl);
+    });
   }
 
   function openClientMenu() {
@@ -330,9 +366,11 @@
     bindSearchDropdown,
     cloneJson,
     escapeHtml,
+    currentTheme,
     initClientMenu,
     initTheme,
     loadConfig,
+    normalizeTheme,
     setTheme,
   };
 
