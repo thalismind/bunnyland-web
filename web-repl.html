@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Web REPL</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    #api-url { width: 190px; }
+    #player-select, #claim-fallback, #claim-timeout { font-size: var(--bl-text-sm); }
+    #claim-timeout { width: 56px; }
+
+    #main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      background: var(--bl-bg-deep);
+    }
+
+    #terminal-pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--bl-border);
+      background: var(--bl-bg-deep);
+    }
+
+    #repl-log {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 14px;
+      font-size: var(--bl-text-md);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .log-row {
+      margin-bottom: 8px;
+      color: var(--bl-text-soft);
+    }
+    .log-row.command { color: var(--bl-accent); }
+    .log-row.ok { color: var(--bl-ok); }
+    .log-row.error { color: var(--bl-error); }
+    .log-row.event { color: var(--bl-text); }
+    .log-row.rejection { color: var(--bl-warn); }
+
+    .entity-link {
+      border: 0;
+      padding: 0;
+      color: var(--bl-accent-strong);
+      background: transparent;
+      text-decoration: underline;
+      font-size: inherit;
+      white-space: normal;
+    }
+    .entity-link:hover { background: transparent; color: var(--bl-accent); }
+
+    #prompt-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--bl-border);
+      background: var(--bl-bg-strong);
+    }
+    #prompt-label { color: var(--bl-accent); }
+    #repl-input {
+      width: 100%;
+      font-size: 14px;
+      padding: 7px 9px;
+      background: var(--bl-bg);
+    }
+
+    #side-pane {
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px;
+      background: var(--bl-bg-strong);
+    }
+
+    .side-section { margin-bottom: 16px; }
+    .side-title {
+      margin-bottom: 7px;
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .side-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .side-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 6px 8px;
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+    }
+    .side-row strong {
+      color: var(--bl-text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .side-row span { color: var(--bl-text-dim); }
+    .side-empty {
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+      line-height: 1.45;
+    }
+    .help-chip {
+      display: inline-block;
+      margin: 0 4px 5px 0;
+      padding: 3px 6px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text-soft);
+      background: var(--bl-surface);
+      font-size: var(--bl-text-xs);
+    }
+
+    @media (max-width: 860px) {
+      #main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+      #terminal-pane { border-right: 0; border-bottom: 1px solid var(--bl-border); }
+      #side-pane { max-height: 32vh; }
+      .toolbar-row { flex-wrap: wrap; }
+      .client-menu-button { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+<div id="toolbar">
+  <div class="toolbar-row">
+    <span style="color: var(--bl-text);">🐰 Bunnyland Web REPL</span>
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="/api/" spellcheck="false">
+    <button id="btn-connect">Connect Live</button>
+    <span id="api-status">○ Offline</span>
+    <span class="toolbar-sep">|</span>
+    <label for="player-select">Player:</label>
+    <select id="player-select"><option value="">- none -</option></select>
+    <label for="claim-fallback">Fallback:</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspend</option>
+      <option value="llm">LLM</option>
+    </select>
+    <label for="claim-timeout">Timeout:</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+</div>
+
+<div id="main" class="app-grid">
+  <section id="terminal-pane" aria-label="REPL transcript">
+    <div id="repl-log"></div>
+    <form id="prompt-row" autocomplete="off">
+      <span id="prompt-label">&gt;</span>
+      <input id="repl-input" type="text" spellcheck="false" list="repl-completions" aria-label="Command">
+      <datalist id="repl-completions"></datalist>
+      <button id="btn-send" type="submit">Send</button>
+    </form>
+  </section>
+  <aside id="side-pane" aria-label="Current context">
+    <div class="side-section">
+      <div class="side-title">Status</div>
+      <div id="side-status" class="side-empty">Connect to a running server.</div>
+    </div>
+    <div class="side-section">
+      <div class="side-title">Actions</div>
+      <div id="side-actions" class="side-empty">Pick a player to load available actions.</div>
+    </div>
+    <div class="side-section">
+      <div class="side-title">Targets</div>
+      <div id="side-targets" class="side-empty">Visible target names appear here.</div>
+    </div>
+    <div class="side-section">
+      <div class="side-title">Quick Commands</div>
+      <div>
+        <span class="help-chip">help</span>
+        <span class="help-chip">who</span>
+        <span class="help-chip">play &lt;name&gt;</span>
+        <span class="help-chip">look</span>
+        <span class="help-chip">inventory</span>
+        <span class="help-chip">points</span>
+        <span class="help-chip">queued</span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-play.js"></script>
+<script>
+'use strict';
+
+BunnylandUI.initClientMenu();
+
+const {
+  actionArguments,
+  actionCost,
+  actionLane,
+  actionTitle,
+  actionTool,
+  claimWebController,
+  fetchCharacterList,
+  fetchCharacterProjection,
+  fetchQueuedCommands,
+  submitCommand,
+  updateWebControllerFallback,
+} = BunnylandPlay;
+
+const POLL_INTERVAL_MS = 2000;
+const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
+const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'clear'];
+const UNNARRATED_EVENT_TYPES = new Set([
+  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
+  'CommandExecutedEvent', 'CommandExpiredEvent',
+  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
+  'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
+  'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
+  'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
+]);
+const EVENT_BASE_KEYS = new Set([
+  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
+  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
+]);
+
+const fmtPoints = (n) => (Number.isInteger(Number(n)) ? String(Number(n)) : Number(n || 0).toFixed(1));
+
+function randomClientId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return `web-repl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function persistentClientId() {
+  try {
+    let clientId = localStorage.getItem(CLIENT_ID_KEY);
+    if (!clientId) {
+      clientId = randomClientId();
+      localStorage.setItem(CLIENT_ID_KEY, clientId);
+    }
+    return clientId;
+  } catch (_err) {
+    return randomClientId();
+  }
+}
+
+function humanizeEventType(eventType) {
+  const name = String(eventType || 'Event').replace(/Event$/, '');
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+}
+
+function splitArgs(rest) {
+  const tokens = rest.trim().split(/\s+/).filter(Boolean);
+  const args = {};
+  let current = '';
+  for (const token of tokens) {
+    if (token.includes('=')) {
+      const [key, ...parts] = token.split('=');
+      args[key] = parts.join('=');
+      current = key;
+    } else if (current) {
+      args[current] = `${args[current]} ${token}`.trim();
+    }
+  }
+  return args;
+}
+
+class WebRepl {
+  constructor() {
+    this.apiBase = null;
+    this.connected = false;
+    this.characters = [];
+    this.epoch = 0;
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
+    this.history = [];
+    this.historyIndex = 0;
+    this.clientId = persistentClientId();
+    this._pollTimer = null;
+
+    this._bindUi();
+    this._restoreServerParam();
+    this._loadConfig();
+    this._write('Type help for commands. Connect, then choose a player or use play <name>.', '');
+    this.render();
+  }
+
+  _bindUi() {
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this.connected) this.disconnect();
+      else this.connect(document.getElementById('api-url').value.trim());
+    });
+    document.getElementById('player-select').addEventListener('change', (e) => {
+      if (e.target.value) this.selectPlayer(e.target.value);
+      else this._dropPlayer();
+    });
+    document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('prompt-row').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.dispatchInput();
+    });
+    document.getElementById('repl-input').addEventListener('keydown', (e) => this._inputKey(e));
+    document.getElementById('repl-input').addEventListener('input', () => this._updateCompletions());
+    document.getElementById('repl-log').addEventListener('click', (e) => {
+      const button = e.target.closest('.entity-link');
+      if (!button) return;
+      const input = document.getElementById('repl-input');
+      input.value = `${input.value}${input.value && !input.value.endsWith(' ') ? ' ' : ''}${button.dataset.insert}`;
+      input.focus();
+      this._updateCompletions();
+    });
+  }
+
+  _restoreServerParam() {
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
+  }
+
+  async _loadConfig() {
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => this.connected,
+      connect: (server) => this.connect(server),
+    });
+  }
+
+  connect(url) {
+    if (!url) return;
+    this.disconnect();
+    this.apiBase = BunnylandApi.normalizeBase(url);
+    this.connected = true;
+    this._setStatus('live', '● Connected');
+    document.getElementById('btn-connect').textContent = 'Disconnect';
+    BunnylandApi.setServerInUrl(this.apiBase);
+    this.refresh({ announce: true });
+    this._pollTimer = setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+  }
+
+  disconnect() {
+    clearInterval(this._pollTimer);
+    this._pollTimer = null;
+    this.connected = false;
+    this.characters = [];
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    this.seenEventIds = new Set();
+    this.eventsPrimed = false;
+    this._setStatus('', '○ Offline');
+    document.getElementById('btn-connect').textContent = 'Connect Live';
+    BunnylandApi.setServerInUrl('');
+    this.render();
+  }
+
+  async refresh({ announce = false } = {}) {
+    if (!this.apiBase) return;
+    try {
+      const lobby = await fetchCharacterList(this.apiBase);
+      this.characters = lobby.characters;
+      this.epoch = lobby.epoch;
+      this._refreshPlayerOptions();
+      if (this.playerId && !this.characters.some(c => c.id === this.playerId)) this._dropPlayer();
+      if (this.playerId) {
+        const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
+        this.projection = projection?.characterId === this.playerId ? projection : null;
+        const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
+        this.queuedCommands = queued?.characterId === this.playerId ? queued.commands : [];
+      }
+      await this._refreshRecentEvents();
+      this._setStatus('live', `● Live · epoch ${this.epoch}s`);
+      if (announce) this._write('Connected.', 'ok');
+      this.render();
+    } catch (err) {
+      this._setStatus('error', `⚠ ${err.message}`);
+      if (announce) this._write(`Connection failed: ${err.message}`, 'error');
+    }
+  }
+
+  _setStatus(cls, text) {
+    const el = document.getElementById('api-status');
+    el.className = cls;
+    el.textContent = text;
+  }
+
+  _refreshPlayerOptions() {
+    const select = document.getElementById('player-select');
+    const current = this.playerId;
+    const rows = this.characters.slice().sort((a, b) => a.name.localeCompare(b.name));
+    select.innerHTML = '<option value="">- none -</option>' +
+      rows.map(c => `<option value="${BunnylandUI.escapeHtml(c.id)}">${BunnylandUI.escapeHtml(c.name)}</option>`).join('');
+    select.value = rows.some(c => c.id === current) ? current : '';
+  }
+
+  _dropPlayer() {
+    this.playerId = '';
+    this.projection = null;
+    this.queuedCommands = [];
+    this.control = null;
+    document.getElementById('player-select').value = '';
+    this.render();
+  }
+
+  async selectPlayer(nameOrId) {
+    if (!this.connected) {
+      this._write('Connect to a server first.', 'error');
+      return;
+    }
+    const chosen = this._resolveCharacter(nameOrId);
+    if (!chosen) {
+      this._write(`No such player: ${nameOrId}. Try who.`, 'error');
+      return;
+    }
+    this.playerId = chosen.id;
+    document.getElementById('player-select').value = chosen.id;
+    const control = await this._claimPlayer();
+    if (!control) {
+      this._write(`Could not claim ${chosen.name}.`, 'error');
+      return;
+    }
+    await this.refresh();
+    this._write(`You are now ${chosen.name}.`, 'ok');
+  }
+
+  _resolveCharacter(nameOrId) {
+    const exactId = this.characters.find(c => c.id === nameOrId);
+    if (exactId) return exactId;
+    const query = String(nameOrId || '').trim().toLowerCase();
+    if (!query) return null;
+    return this.characters.find(c => c.name.toLowerCase() === query) ||
+      this.characters.slice()
+        .sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name))
+        .find(c => c.name.toLowerCase().startsWith(query)) || null;
+  }
+
+  _claimSettings() {
+    const fallback = document.getElementById('claim-fallback').value;
+    const rawMinutes = Number(document.getElementById('claim-timeout').value);
+    const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : 30;
+    return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
+  }
+
+  async _claimPlayer() {
+    if (!this.apiBase || !this.playerId) return null;
+    try {
+      const data = await claimWebController(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: this.playerId,
+        client_id: this.clientId,
+        label: 'web-repl',
+      });
+      this.control = {
+        characterId: data.character_id || this.playerId,
+        controllerId: data.controller_id,
+        generation: data.controller_generation ?? data.generation ?? 0,
+      };
+      return this.control;
+    } catch (err) {
+      console.warn('Could not claim Bunnyland web REPL controller', err);
+      return null;
+    }
+  }
+
+  async _updateClaimFallback() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const data = await updateWebControllerFallback(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: this.playerId,
+        client_id: this.clientId,
+      });
+      this.control = {
+        characterId: data.character_id || this.playerId,
+        controllerId: data.controller_id,
+        generation: data.controller_generation ?? data.generation ?? 0,
+      };
+    } catch (err) {
+      console.warn('Could not update Bunnyland web REPL fallback', err);
+    }
+  }
+
+  _playerControl() {
+    if (this.control?.characterId === this.playerId) {
+      return { controllerId: this.control.controllerId, generation: this.control.generation };
+    }
+    const projected = this.projection?.controller;
+    if (this.projection?.characterId === this.playerId && projected) {
+      return { controllerId: projected.controller_id, generation: projected.generation };
+    }
+    return null;
+  }
+
+  async dispatchInput() {
+    const input = document.getElementById('repl-input');
+    const line = input.value.trim();
+    if (!line) return;
+    input.value = '';
+    this.history.push(line);
+    this.historyIndex = this.history.length;
+    this._write(`> ${line}`, 'command');
+    await this.dispatch(line);
+    this._updateCompletions();
+  }
+
+  async dispatch(line) {
+    const [verb, ...restParts] = line.trim().split(/\s+/);
+    const rest = restParts.join(' ');
+    if (verb === 'help') return this._writeHelp(rest);
+    if (verb === 'who') return this._writePlayers();
+    if (verb === 'look') return this._writeLook();
+    if (verb === 'inventory' || verb === 'inv') return this._writeInventory();
+    if (verb === 'points') return this._writePoints();
+    if (verb === 'queued') return this._writeQueued();
+    if (verb === 'refresh') {
+      await this.refresh();
+      return this._write('Refreshed.', 'ok');
+    }
+    if (verb === 'clear') {
+      document.getElementById('repl-log').innerHTML = '';
+      return;
+    }
+    if (verb === 'play') {
+      if (!rest) return this._write('Usage: play <player name>', 'error');
+      return this.selectPlayer(rest);
+    }
+    return this._act(line);
+  }
+
+  _writeHelp(topic) {
+    const action = topic ? this._actionByName(topic) : null;
+    if (action) {
+      const keys = actionArguments(action).map(arg => arg.key).filter(Boolean).join(', ') || '(none)';
+      this._write(`${actionTool(action)} - ${actionTitle(action)}\n  parameters: ${keys}`);
+      return;
+    }
+    const commands = this._actions().map(actionTool).sort().join(', ') || '(load a player first)';
+    this._write(
+      `Commands: ${commands}\n` +
+      `Meta: ${META_COMMANDS.join(', ')}\n` +
+      `Forms: move direction=north, take item_id=a brass key, go north, take brass key, say hello.`
+    );
+  }
+
+  _writePlayers() {
+    if (!this.characters.length) {
+      this._write('No players.');
+      return;
+    }
+    const parts = [];
+    for (const character of this.characters) {
+      parts.push(this._link(character.name, character.name) + (character.id === this.playerId ? ' (you)' : ''));
+    }
+    this._writeHtml(parts.join('<br>'));
+  }
+
+  _writeLook() {
+    if (!this.projection?.room?.id) {
+      this._write('No room.');
+      return;
+    }
+    const room = this.projection.room;
+    const rows = [`<strong>${BunnylandUI.escapeHtml(room.title || room.id)}</strong>`];
+    for (const entity of room.entities || []) {
+      rows.push(`  ${this._link(entity.name || entity.id, entity.name || entity.id)}${entity.id === this.playerId ? ' (you)' : ''}`);
+    }
+    if ((room.exits || []).length) {
+      const exits = room.exits.map(exit => this._link(exit.direction ? `${exit.direction} -> ${exit.label || exit.id}` : (exit.label || exit.id), exit.direction || exit.label || exit.id));
+      rows.push(`  exits: ${exits.join(', ')}`);
+    }
+    if ((this.projection.inventory || []).length) {
+      rows.push(`  carrying: ${this.projection.inventory.map(item => this._link(item.label || item.name || item.id, item.label || item.name || item.id)).join(', ')}`);
+    }
+    this._writeHtml(rows.join('<br>'));
+  }
+
+  _writeInventory() {
+    const inventory = this.projection?.inventory || [];
+    if (!this.playerId) return this._write('Pick a player first: play <name>.', 'error');
+    if (!inventory.length) return this._write("You aren't carrying anything.");
+    this._writeHtml(inventory.map(item => {
+      const label = item.label || item.name || item.id;
+      const kind = item.kind ? ` (${BunnylandUI.escapeHtml(item.kind)})` : '';
+      return `  ${this._link(label, label)}${kind}`;
+    }).join('<br>'));
+  }
+
+  _writePoints() {
+    if (!this.playerId) {
+      this._write('Pick a player first: play <name>.', 'error');
+      return;
+    }
+    const pts = this.projection?.points || {};
+    this._write(`AP ${fmtPoints(pts.action)}/${fmtPoints(pts.action_max)}   FP ${fmtPoints(pts.focus)}/${fmtPoints(pts.focus_max)}`);
+  }
+
+  _writeQueued() {
+    if (!this.playerId) return this._write('Pick a player first: play <name>.', 'error');
+    if (!this.queuedCommands.length) return this._write('No queued actions.');
+    this._write(this.queuedCommands.map(command => {
+      const payload = Object.entries(command.payload || {}).map(([k, v]) => `${k}=${v}`).join(' ');
+      return `${command.command_type}${payload ? ` ${payload}` : ''}`;
+    }).join('\n'));
+  }
+
+  async _act(line) {
+    const parsed = this._parseAction(line);
+    if (!parsed) {
+      const verb = line.split(/\s+/, 1)[0];
+      this._write(`I don't understand '${verb}'. Type help.`, 'error');
+      return;
+    }
+    if (!this.playerId) {
+      this._write('Pick a player first: play <name>.', 'error');
+      return;
+    }
+    const action = this._actionByName(parsed.tool);
+    if (!action) {
+      this._write(`I don't understand '${parsed.tool}'. Type help.`, 'error');
+      return;
+    }
+    const payload = this._resolvePayload(action, parsed.arguments);
+    if (payload.error) {
+      this._write(payload.error, 'error');
+      return;
+    }
+    const control = this._playerControl() || await this._claimPlayer();
+    if (!control) {
+      this._write('Could not claim a web controller for this player.', 'error');
+      return;
+    }
+    const cost = actionCost(action);
+    try {
+      await submitCommand(this.apiBase, {
+        character_id: this.playerId,
+        controller_id: control.controllerId,
+        controller_generation: control.generation,
+        command_type: action.command_type || actionTool(action),
+        payload: payload.value,
+        cost: { action: cost.action, focus: cost.focus },
+        lane: actionLane(action),
+        on_insufficient_points: 'queue',
+      });
+      const detail = Object.entries(payload.value).map(([key, value]) => `${key}=${value}`).join(' ');
+      this._write(`» ${action.command_type || actionTool(action)}${detail ? ` ${detail}` : ''}`, 'ok');
+      await this.refresh();
+    } catch (err) {
+      this._write(`Command failed: ${err.message}`, 'error');
+    }
+  }
+
+  _parseAction(line) {
+    const [command, ...restParts] = line.trim().split(/\s+/);
+    const rest = restParts.join(' ');
+    if (command === 'go') {
+      const action = this._actionByName('move');
+      if (!action || !rest) return null;
+      const args = actionArguments(action);
+      const key = args.find(arg => arg.key === 'direction')?.key ||
+        args.find(arg => arg.target_group === 'exits')?.key ||
+        args.find(arg => arg.kind === 'entity')?.key || 'direction';
+      return { tool: actionTool(action), arguments: { [key]: rest } };
+    }
+    const action = this._actionByName(command);
+    if (!action) return null;
+    if (!rest) return { tool: actionTool(action), arguments: {} };
+    if (/\S+=/.test(rest)) return { tool: actionTool(action), arguments: splitArgs(rest) };
+
+    const args = actionArguments(action).filter(arg => arg.key);
+    const required = args.filter(arg => arg.required);
+    const fields = required.length ? required : args;
+    if (fields.length === 1) return { tool: actionTool(action), arguments: { [fields[0].key]: rest } };
+
+    const entityArg = fields.find(arg => this._isReferenceArg(arg));
+    const textArg = fields.find(arg => !this._isReferenceArg(arg) && (arg.kind || 'string') === 'string');
+    if (entityArg && textArg) {
+      const match = this._targetPrefix(rest, this._candidatesForArg(entityArg));
+      if (match) {
+        return {
+          tool: actionTool(action),
+          arguments: { [entityArg.key]: match.raw, [textArg.key]: match.remaining },
+        };
+      }
+    }
+    return null;
+  }
+
+  _actions() {
+    return this.projection?.actions || [];
+  }
+
+  _actionByName(name) {
+    return this._actions().find(action =>
+      actionTool(action) === name || action.command_type === name || action.title === name);
+  }
+
+  _isReferenceArg(arg) {
+    return arg?.kind === 'entity' || Boolean(arg?.target_group) || String(arg?.key || '').endsWith('_id');
+  }
+
+  _resolvePayload(action, rawArgs) {
+    const out = {};
+    for (const arg of actionArguments(action)) {
+      if (!arg.key) continue;
+      const raw = rawArgs[arg.key];
+      if ((raw == null || raw === '') && arg.required) {
+        return { error: `${arg.title || arg.key} is required.` };
+      }
+      if (raw == null || raw === '') continue;
+      if (this._isReferenceArg(arg)) {
+        const resolved = this._resolveName(raw, this._candidatesForArg(arg));
+        if (!resolved) {
+          const hints = this._suggestNames(raw, this._candidatesForArg(arg));
+          const suffix = hints.length ? ` Did you mean: ${hints.join(', ')}?` : '';
+          return { error: `I don't see '${raw}' (${arg.key.replace(/_id$/, '').replaceAll('_', ' ')}) here.${suffix}` };
+        }
+        out[arg.key] = resolved.value;
+      } else {
+        out[arg.key] = raw;
+      }
+    }
+    for (const [key, value] of Object.entries(rawArgs)) {
+      if (!(key in out) && !actionArguments(action).some(arg => arg.key === key)) out[key] = value;
+    }
+    return { value: out };
+  }
+
+  _candidatesForArg(arg) {
+    if (arg.target_group && this.projection?.targetGroups?.[arg.target_group]) {
+      return this.projection.targetGroups[arg.target_group];
+    }
+    return this._allTargets();
+  }
+
+  _allTargets() {
+    const targets = [];
+    const seen = new Set();
+    const add = (value, label, kind = '') => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      targets.push({ value, label: label || value, kind });
+    };
+    for (const group of Object.values(this.projection?.targetGroups || {})) {
+      for (const item of group) add(item.value, item.label, item.kind);
+    }
+    for (const entity of this.projection?.room?.entities || []) add(entity.id, entity.name || entity.id, entity.kind);
+    for (const exit of this.projection?.room?.exits || []) add(exit.id, exit.direction || exit.label || exit.id, 'exit');
+    for (const item of this.projection?.inventory || []) add(item.id, item.label || item.name || item.id, item.kind);
+    return targets;
+  }
+
+  _resolveName(value, candidates) {
+    if (candidates.some(c => c.value === value)) return candidates.find(c => c.value === value);
+    const query = String(value || '').trim().toLowerCase();
+    if (!query) return null;
+    const normalize = (text) => String(text || '').trim().toLowerCase().replace(/^(a|an|the)\s+/, '');
+    return candidates.find(c => String(c.label).toLowerCase() === query || normalize(c.label) === query) ||
+      candidates.slice()
+        .sort((a, b) => String(a.label).length - String(b.label).length || String(a.label).localeCompare(String(b.label)))
+        .find(c => String(c.label).toLowerCase().startsWith(query) || normalize(c.label).startsWith(query)) || null;
+  }
+
+  _suggestNames(value, candidates) {
+    const query = String(value || '').trim().toLowerCase();
+    if (!query) return [];
+    return candidates
+      .map(c => String(c.label))
+      .filter(label => label.toLowerCase().includes(query.slice(0, 3)))
+      .slice(0, 3);
+  }
+
+  _targetPrefix(rest, candidates) {
+    const lower = rest.toLowerCase();
+    const sorted = candidates.slice().sort((a, b) => String(b.label).length - String(a.label).length);
+    for (const candidate of sorted) {
+      const label = String(candidate.label);
+      if (lower === label.toLowerCase()) return { raw: label, remaining: '' };
+      if (lower.startsWith(`${label.toLowerCase()} `)) {
+        return { raw: label, remaining: rest.slice(label.length).trim() };
+      }
+    }
+    const [first, ...restParts] = rest.split(/\s+/);
+    if (first) return { raw: first, remaining: restParts.join(' ') };
+    return null;
+  }
+
+  async _refreshRecentEvents() {
+    if (!this.apiBase) return;
+    try {
+      const data = await BunnylandApi.sendJson(this.apiBase, '/world/events/recent');
+      this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
+      this.eventsPrimed = true;
+    } catch (err) {
+      console.warn('Could not refresh Bunnyland web REPL events', err);
+    }
+  }
+
+  _perceivesEvent(event) {
+    const visibility = event.visibility;
+    if (visibility === 'public') return true;
+    if (visibility === 'room') return Boolean(this.playerId) && event.room_id === this.projection?.room?.id;
+    if (visibility === 'directed') {
+      return Boolean(this.playerId) && (
+        event.actor_id === this.playerId || (event.target_ids || []).includes(this.playerId)
+      );
+    }
+    if (visibility === 'private') return Boolean(this.playerId) && event.actor_id === this.playerId;
+    return false;
+  }
+
+  _drainEvents(messages, { prime = false } = {}) {
+    const current = new Set(this.seenEventIds);
+    const lines = [];
+    for (const message of messages || []) {
+      const data = message.data || message;
+      const event = data.event || {};
+      const eventId = event.event_id;
+      if (!eventId) continue;
+      current.add(eventId);
+      if (this.seenEventIds.has(eventId)) continue;
+      const eventType = data.event_type || 'Event';
+      if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
+      const own = this.playerId && event.actor_id === this.playerId;
+      if (own || this._perceivesEvent(event)) lines.push(this._renderEventLine(data));
+    }
+    this.seenEventIds = current;
+    if (prime) return;
+    for (const line of lines) this._write(line.text, line.kind || 'event');
+  }
+
+  _renderEventLine(data) {
+    const event = data.event || {};
+    const eventType = String(data.event_type || 'Event');
+    if (eventType === 'ActorMovedEvent' && this.playerId &&
+        event.actor_id === this.playerId && event.arrival_summary) {
+      return { text: String(event.arrival_summary), kind: 'event' };
+    }
+    const actor = event.actor_id ? this._nameFor(event.actor_id) : null;
+    const details = [];
+    for (const [key, value] of Object.entries(event)) {
+      if (EVENT_BASE_KEYS.has(key) || value == null || value === '' ||
+          (Array.isArray(value) && !value.length)) continue;
+      if (key.endsWith('_ids') && Array.isArray(value)) {
+        const names = value.map(item => this._nameFor(String(item))).filter(Boolean);
+        if (names.length) details.push(names.join(', '));
+      } else if (key.endsWith('_id')) {
+        const name = this._nameFor(String(value));
+        if (name) details.push(name);
+      } else {
+        details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
+      }
+    }
+    const label = humanizeEventType(eventType);
+    return {
+      text: `${actor ? `${actor}: ` : ''}${label}${details.length ? ` - ${details.join('; ')}` : ''}`,
+      kind: eventType === 'CommandRejectedEvent' ? 'rejection' : 'event',
+    };
+  }
+
+  _nameFor(entityId) {
+    if (entityId === this.playerId) {
+      return this.characters.find(c => c.id === entityId)?.name || entityId;
+    }
+    const target = this._allTargets().find(item => item.value === entityId);
+    return target?.label || this.characters.find(c => c.id === entityId)?.name || null;
+  }
+
+  _write(text, kind = '') {
+    const row = document.createElement('div');
+    row.className = `log-row ${kind}`.trim();
+    row.textContent = text;
+    document.getElementById('repl-log').appendChild(row);
+    row.scrollIntoView({ block: 'end' });
+  }
+
+  _writeHtml(html, kind = '') {
+    const row = document.createElement('div');
+    row.className = `log-row ${kind}`.trim();
+    row.innerHTML = html;
+    document.getElementById('repl-log').appendChild(row);
+    row.scrollIntoView({ block: 'end' });
+  }
+
+  _link(label, insert) {
+    return `<button class="entity-link" type="button" data-insert="${BunnylandUI.escapeHtml(insert)}">${BunnylandUI.escapeHtml(label)}</button>`;
+  }
+
+  _inputKey(e) {
+    const input = e.currentTarget;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (this.historyIndex > 0) this.historyIndex -= 1;
+      input.value = this.history[this.historyIndex] || '';
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (this.historyIndex < this.history.length) this.historyIndex += 1;
+      input.value = this.history[this.historyIndex] || '';
+    } else if (e.key === 'Tab') {
+      const options = this._completionOptions(input.value);
+      if (options.length === 1) {
+        e.preventDefault();
+        input.value = options[0];
+      }
+    }
+  }
+
+  _updateCompletions() {
+    const input = document.getElementById('repl-input');
+    const list = document.getElementById('repl-completions');
+    list.innerHTML = this._completionOptions(input.value)
+      .slice(0, 12)
+      .map(value => `<option value="${BunnylandUI.escapeHtml(value)}"></option>`)
+      .join('');
+  }
+
+  _completionOptions(line) {
+    const words = [...META_COMMANDS, ...this._actions().map(actionTool)];
+    if (!line.includes(' ')) return [...new Set(words)].sort().filter(word => word.startsWith(line));
+    const [command, ...restParts] = line.split(/\s+/);
+    const rest = restParts.join(' ');
+    if (command === 'help') return this._actions().map(actionTool).filter(word => word.startsWith(rest)).map(word => `help ${word}`);
+    if (command === 'play') return this.characters.map(c => c.name).filter(name => name.startsWith(rest)).map(name => `play ${name}`);
+    const action = this._actionByName(command);
+    if (!action) return [];
+    const current = line.split(/\s+/).at(-1);
+    if (current.includes('=')) {
+      const [key, prefix] = current.split('=');
+      const arg = actionArguments(action).find(item => item.key === key);
+      const base = line.slice(0, line.length - current.length) + `${key}=`;
+      if (arg && this._isReferenceArg(arg)) {
+        return this._candidatesForArg(arg)
+          .map(item => item.label)
+          .filter(label => label.startsWith(prefix))
+          .map(label => base + label);
+      }
+      if (arg?.kind === 'boolean') {
+        return ['false', 'true'].filter(value => value.startsWith(prefix)).map(value => base + value);
+      }
+    }
+    const base = line.slice(0, line.length - current.length);
+    return actionArguments(action)
+      .map(arg => arg.key)
+      .filter(key => key && key.startsWith(current))
+      .map(key => `${base}${key}=`);
+  }
+
+  render() {
+    const status = document.getElementById('side-status');
+    const actions = document.getElementById('side-actions');
+    const targets = document.getElementById('side-targets');
+    const player = this.characters.find(c => c.id === this.playerId);
+    const pts = this.projection?.points || {};
+    status.innerHTML = player
+      ? `<div class="side-row"><strong>${BunnylandUI.escapeHtml(player.name)}</strong><span>epoch ${this.epoch}s</span></div>` +
+        `<div class="side-row"><strong>AP ${fmtPoints(pts.action)}/${fmtPoints(pts.action_max)}</strong><span>FP ${fmtPoints(pts.focus)}/${fmtPoints(pts.focus_max)}</span></div>`
+      : `<div class="side-empty">${this.connected ? 'Pick a player.' : 'Connect to a running server.'}</div>`;
+
+    const actionRows = this._actions().map(action => {
+      const cost = actionCost(action);
+      const parts = [];
+      if (cost.action) parts.push(`${cost.action} AP`);
+      if (cost.focus) parts.push(`${cost.focus} FP`);
+      return `<div class="side-row"><strong>${BunnylandUI.escapeHtml(actionTool(action))}</strong><span>${BunnylandUI.escapeHtml(parts.join(' + ') || 'free')}</span></div>`;
+    }).join('');
+    actions.innerHTML = actionRows || '<div class="side-empty">Pick a player to load available actions.</div>';
+
+    const targetRows = this._allTargets().slice(0, 24).map(target =>
+      `<div class="side-row"><strong>${BunnylandUI.escapeHtml(target.label)}</strong><span>${BunnylandUI.escapeHtml(target.kind || target.value)}</span></div>`
+    ).join('');
+    targets.innerHTML = targetRows || '<div class="side-empty">Visible target names appear here.</div>';
+    this._updateCompletions();
+  }
+}
+
+window.app = new WebRepl();
+</script>
+</body>
+</html>

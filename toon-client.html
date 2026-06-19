@@ -419,124 +419,26 @@
 
 <script src="assets/bunnyland-ui.js"></script>
 <script src="assets/bunnyland-api.js"></script>
+<script src="assets/bunnyland-play.js"></script>
 <script>
 'use strict';
 
 BunnylandUI.initClientMenu();
 
-// ── Entity-model helpers (shared shapes with the Inspector) ────────────────────
-
-// Live server format: entities are an array, relationship edges use target_id.
-function parseCharacterList(data) {
-  return {
-    epoch: data?.world_epoch || 0,
-    characters: (data?.characters || []).map(c => ({
-      id: c.character_id,
-      name: c.name || c.character_id,
-      kind: c.kind || 'character',
-      suspended: Boolean(c.suspended),
-    })),
-  };
-}
-
-function parseCharacterProjection(data) {
-  if (!data || typeof data !== 'object' || !data.character_id) return null;
-  const targetGroups = {};
-  for (const [kind, targets] of Object.entries(data.target_groups || {})) {
-    targetGroups[kind] = (targets || []).map(target => ({
-      value: target.id,
-      label: target.label || target.id,
-      icon: targetIcon(target.kind),
-    }));
-  }
-  return {
-    characterId: data.character_id,
-    worldEpoch: data.world_epoch || 0,
-    room: data.room || {},
-    inventory: data.inventory || [],
-    points: data.points || {},
-    controller: data.controller || null,
-    targetGroups,
-    actions: data.actions || [],
-  };
-}
-
-function parseRoomProjection(data) {
-  const room = data?.room;
-  if (!room || !room.id) return null;
-  return {
-    worldEpoch: data.world_epoch || 0,
-    room: {
-      id: room.id,
-      name: room.title || room.id,
-      kind: 'room',
-      isCharacter: false,
-      defaultStart: Boolean(room.default_start),
-      sprite: room.sprite || {},
-      exits: (room.exits || []).map(exit => ({
-        id: exit.id,
-        direction: exit.direction || '',
-        label: exit.label || exit.id,
-        locked: Boolean(exit.locked),
-      })),
-    },
-    entities: (room.entities || []).map(entity => ({
-      id: entity.id,
-      name: entity.name || entity.id,
-      kind: entity.kind || 'other',
-      isCharacter: Boolean(entity.is_character),
-      sprite: entity.sprite || {},
-    })),
-  };
-}
-
-function parseQueuedCommands(data) {
-  if (!data || typeof data !== 'object' || !data.character_id) return null;
-  return {
-    characterId: data.character_id,
-    worldEpoch: data.world_epoch || 0,
-    commands: data.commands || [],
-  };
-}
-
-const KIND_ICON = {
-  room: '🏠', character: '🐰', container: '📦', item: '✦',
-  door: '🚪', food: '🍎', water: '💧', chair: '🪑', table: '🪵',
-  bed: '🛏', art: '🖼', window: '🪟', other: '⬡',
-};
-
-function entityType(entity) {
-  if (entity?.kind) return entity.kind;
-  if (entity?.isCharacter) return 'character';
-  const c = entity?.components || {};
-  if (c.RoomComponent) return 'room';
-  if (c.CharacterComponent) return 'character';
-  if (c.DoorComponent) return 'door';
-  if (c.ContainerComponent) return 'container';
-  if (c.PortableComponent) return 'item';
-  return 'other';
-}
-
-// A custom EditorDisplayComponent.emoji wins; else fall back to kind iconography.
-function entityIcon(entity) {
-  const emoji = entity?.sprite?.emoji || entity?.components?.EditorDisplayComponent?.emoji;
-  if (emoji) return emoji;
-  const kind = entity?.kind || entity?.components?.IdentityComponent?.kind;
-  return KIND_ICON[kind] || KIND_ICON[entityType(entity)] || KIND_ICON.other;
-}
-
-function targetIcon(kind) {
-  if (kind === 'exit') return KIND_ICON.door;
-  if (kind === 'object') return KIND_ICON.other;
-  return KIND_ICON[kind] || KIND_ICON.other;
-}
-
-function entityName(entity) {
-  if (entity?.name) return entity.name;
-  const c = entity?.components || {};
-  if (c.RoomComponent) return c.RoomComponent.title || entity.id;
-  return c.IdentityComponent?.name || entity.id.slice(0, 16);
-}
+const {
+  KIND_ICON,
+  actionArguments,
+  actionCost,
+  actionLane,
+  actionTitle,
+  actionTool,
+  entityIcon,
+  entityName,
+  parseCharacterList,
+  parseCharacterProjection,
+  parseQueuedCommands,
+  parseRoomProjection,
+} = BunnylandPlay;
 
 // Compass direction → unit edge offset, mirroring the Inspector's room layout.
 const DIR_EDGE = {
@@ -628,27 +530,6 @@ function legacyActionView(verb) {
     cost: { action: verb.ap, focus: verb.fp },
     arguments: args,
   };
-}
-
-function actionTitle(action) {
-  return String(action?.title || action?.tool_name || action?.command_type || 'Action');
-}
-
-function actionTool(action) {
-  return String(action?.tool_name || action?.command_type || 'action');
-}
-
-function actionCost(action) {
-  const cost = action?.cost || {};
-  return { action: Number(cost.action || 0), focus: Number(cost.focus || 0) };
-}
-
-function actionLane(action) {
-  return String(action?.lane || 'world');
-}
-
-function actionArguments(action) {
-  return Array.isArray(action?.arguments) ? action.arguments : [];
 }
 
 function randomClientId() {

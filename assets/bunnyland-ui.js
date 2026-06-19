@@ -40,6 +40,13 @@
       supportsServer: true,
     },
     {
+      href: 'web-repl.html',
+      title: 'Web REPL',
+      label: 'Typed play',
+      description: 'Claim a character and play with typed commands in the browser.',
+      supportsServer: true,
+    },
+    {
       href: 'world-generator.html',
       title: 'World Generator',
       label: 'Admin generator',
