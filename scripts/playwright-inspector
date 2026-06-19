@@ -72,7 +72,7 @@ def main() -> None:
         if not page.locator("#client-menu-dialog:not(.hidden)").is_visible():
             raise AssertionError("client menu did not open on first inspector load")
         menu_titles = page.locator(".client-menu-item-title").evaluate_all(
-            "(els) => els.map((el) => el.textContent.trim())"
+            "(els) => els.map((el) => el.childNodes[0].textContent.trim())"
         )
         expected_titles = [
             "Welcome",

@@ -435,6 +435,13 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-weight: bold;
 }
 
+.client-menu-admin-badge {
+  color: var(--bl-error);
+  font-size: 0.7em;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
 .client-menu-item-desc {
   color: var(--bl-text-soft);
   font-size: var(--bl-text-sm);
@@ -449,12 +456,20 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .client-menu-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 14px;
   border-top: 1px solid var(--bl-border);
   background: var(--bl-bg);
+}
+
+.client-menu-admin-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--bl-text-muted);
+  font-size: var(--bl-text-xs);
 }
 
 .client-menu-theme {

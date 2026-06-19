@@ -59,6 +59,7 @@
       label: 'Admin generator',
       description: 'Generate or replace a live world using enabled server generators.',
       supportsServer: true,
+      admin: true,
     },
     {
       href: 'inspector.html',
@@ -66,6 +67,7 @@
       label: 'Graph client',
       description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
       supportsServer: true,
+      admin: true,
     },
     {
       href: 'world-editor.html',
@@ -73,6 +75,7 @@
       label: 'Admin editor',
       description: 'Edit entities, components, relationships, fragments, and live snapshots.',
       supportsServer: true,
+      admin: true,
     },
     {
       href: 'script-editor.html',
@@ -80,6 +83,7 @@
       label: 'Automation scripts',
       description: 'Create and validate script JSON blocks against a snapshot.',
       supportsServer: false,
+      admin: true,
     },
     {
       href: 'behavior-editor.html',
@@ -87,6 +91,7 @@
       label: 'Behavior trees',
       description: 'Author behavior-tree JSON for behavioral controllers and register it live.',
       supportsServer: true,
+      admin: true,
     },
   ];
 
@@ -242,7 +247,7 @@
             return `
               <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}"${clientTargetAttrs(item)}>
                 <span class="client-menu-item-main">
-                  <span class="client-menu-item-title">${escapeHtml(item.title)}</span>
+                  <span class="client-menu-item-title">${escapeHtml(item.title)}${item.admin ? '<span class="client-menu-admin-badge" title="Requires authentication" aria-label="Requires authentication">●</span>' : ''}</span>
                   <span class="client-menu-item-desc">${escapeHtml(item.description)}</span>
                 </span>
                 <span class="client-menu-item-label">${escapeHtml(active ? 'Current' : item.label)}</span>
@@ -262,6 +267,7 @@
           ${discordUrl ? `
             <a class="client-menu-discord" href="${escapeHtml(discordUrl)}" target="_blank" rel="noopener">Join the Discord</a>
           ` : ''}
+          <p class="client-menu-admin-note"><span class="client-menu-admin-badge">●</span> Admin tools require authentication.</p>
         </div>
       </div>
     `;
