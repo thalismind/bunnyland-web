@@ -34,6 +34,10 @@
     if (Array.isArray(value.spans)) return value.spans;
     if (value.trace_id || value.traceId) return [value];
     if (Array.isArray(value.resourceSpans)) return spansFromResourceSpans(value.resourceSpans);
+    // Tempo's GET /api/traces/{id} returns OTLP JSON with a `batches` array (and the v2
+    // route wraps it in a `trace` object); both carry the same ResourceSpans shape.
+    if (Array.isArray(value.batches)) return spansFromResourceSpans(value.batches);
+    if (value.trace && typeof value.trace === 'object') return spansFromJson(value.trace);
     return [];
   }
 
@@ -124,8 +128,19 @@
 
   function normalizeStatus(status) {
     if (!status || typeof status !== 'object') return { code: 'UNSET', description: '' };
-    const code = String(status.code || status.status_code || 'UNSET').split('.').pop();
-    return { code: code || 'UNSET', description: String(status.description || '') };
+    return {
+      code: normalizeStatusCode(status.code ?? status.status_code),
+      description: String(status.description || status.message || ''),
+    };
+  }
+
+  function normalizeStatusCode(code) {
+    if (code == null || code === '') return 'UNSET';
+    // OTLP JSON from Tempo uses numeric (0/1/2) or "STATUS_CODE_ERROR"; artifact JSONL
+    // uses "StatusCode.ERROR". Normalize all of them to UNSET/OK/ERROR.
+    if (typeof code === 'number') return ['UNSET', 'OK', 'ERROR'][code] || 'UNSET';
+    const token = String(code).split('.').pop().replace(/^STATUS_CODE_/, '');
+    return token || 'UNSET';
   }
 
   function buildTraces(spans) {
@@ -222,6 +237,19 @@
     return new Date(ns / 1_000_000).toISOString().replace('T', ' ').replace('Z', '');
   }
 
+  function formatRelative(ns, nowMs = Date.now()) {
+    if (!ns) return 'unknown';
+    const deltaMs = nowMs - ns / 1_000_000;
+    if (deltaMs < 1000) return 'just now';
+    const seconds = deltaMs / 1000;
+    if (seconds < 60) return `${Math.round(seconds)}s ago`;
+    const minutes = seconds / 60;
+    if (minutes < 60) return `${Math.round(minutes)}m ago`;
+    const hours = minutes / 60;
+    if (hours < 24) return `${Math.round(hours)}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  }
+
   function trimNumber(value) {
     if (value >= 100) return value.toFixed(0);
     if (value >= 10) return value.toFixed(1).replace(/\.0$/, '');
@@ -238,6 +266,7 @@
     formatDate,
     formatDuration,
     formatOffset,
+    formatRelative,
     parseTraceText,
     traceTitle,
   };

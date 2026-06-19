@@ -13,7 +13,11 @@
 
     #toolbar input[type=file] { max-width: 280px; }
     #trace-select { width: min(560px, 42vw); }
+    #tempo-url { width: 150px; }
     #theme-select { width: 210px; }
+
+    #tempo-status[data-state="ok"] { color: var(--bl-accent-strong); }
+    #tempo-status[data-state="error"] { color: var(--bl-error); }
 
     #main {
       display: grid;
@@ -372,8 +376,10 @@
     <label for="trace-select">Trace:</label>
     <select id="trace-select" disabled><option value="">No trace loaded</option></select>
     <span class="toolbar-sep">|</span>
-    <span class="stub">Tempo live connection: v2</span>
-    <button id="tempo-connect" type="button" disabled>Connect Tempo</button>
+    <label for="tempo-url">Tempo:</label>
+    <input id="tempo-url" type="text" placeholder="/tempo" spellcheck="false">
+    <button id="tempo-connect" type="button">Connect</button>
+    <span id="tempo-status" class="stub">offline</span>
     <span class="push"></span>
     <label for="theme-select">Theme:</label>
     <select id="theme-select"></select>
@@ -429,6 +435,7 @@
 </div>
 
 <script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
 <script src="assets/bunnyland-trace.js"></script>
 <script>
 'use strict';
@@ -443,21 +450,43 @@ const {
   formatDate,
   formatDuration,
   formatOffset,
+  formatRelative,
   parseTraceText,
   traceTitle,
 } = BunnylandTrace;
+const { normalizeBase, promptBasicAuth, serverFromUrl } = BunnylandApi;
+
+// Tempo live connection: poll the search API for recent traces, fetch full spans only
+// when a trace is selected. See https://grafana.com/docs/tempo/latest/api_docs/#search
+// and #query-v1 for the endpoint contracts.
+const TEMPO = {
+  defaultBase: '/tempo',
+  refreshMs: 60_000,
+  lookbackSec: 3 * 60 * 60,
+  limit: 50,
+};
 
 const app = {
   fileName: '',
   traces: [],
   selectedTraceId: '',
   selectedSpanId: '',
+  live: {
+    base: '',
+    auth: null,
+    connected: false,
+    summaries: [],
+    timer: null,
+  },
 };
 window.traceAnalyzer = app;
 
 const els = {
   file: document.getElementById('trace-file'),
   traceSelect: document.getElementById('trace-select'),
+  tempoUrl: document.getElementById('tempo-url'),
+  tempoConnect: document.getElementById('tempo-connect'),
+  tempoStatus: document.getElementById('tempo-status'),
   dropZone: document.getElementById('drop-zone'),
   content: document.getElementById('trace-content'),
   title: document.getElementById('trace-title'),
@@ -482,6 +511,7 @@ function selectedTrace() {
 }
 
 async function loadFile(file) {
+  if (app.live.connected) disconnectTempo();
   const text = await file.text();
   const parsed = parseTraceText(text, file.name);
   app.fileName = parsed.filename;
@@ -492,15 +522,31 @@ async function loadFile(file) {
   render();
 }
 
+function traceOptionItems() {
+  const now = Date.now();
+  if (app.live.connected) {
+    return app.live.summaries.map(summary => {
+      const loaded = app.traces.find(trace => trace.traceId === summary.traceId);
+      const tail = loaded ? `${loaded.spans.length} spans` : formatDuration(summary.durationNs);
+      return {
+        traceId: summary.traceId,
+        label: `${summary.title} · ${formatDate(summary.startNs)} · ${formatRelative(summary.startNs, now)} · ${tail}`,
+      };
+    });
+  }
+  return app.traces.map(trace => ({
+    traceId: trace.traceId,
+    label: `${shortId(trace.traceId)} · ${traceTitle(trace)} · ${formatDate(trace.startNs)} · ${formatRelative(trace.startNs, now)} · ${trace.spans.length} spans`,
+  }));
+}
+
 function renderTraceOptions() {
-  els.traceSelect.disabled = app.traces.length === 0;
-  els.traceSelect.innerHTML = app.traces.length
-    ? app.traces.map(trace => `
-      <option value="${escapeHtml(trace.traceId)}">
-        ${escapeHtml(shortId(trace.traceId))} · ${escapeHtml(traceTitle(trace))} · ${trace.spans.length} spans
-      </option>
-    `).join('')
-    : '<option value="">No trace loaded</option>';
+  const items = traceOptionItems();
+  els.traceSelect.disabled = items.length === 0;
+  const empty = app.live.connected ? 'No traces in window' : 'No trace loaded';
+  els.traceSelect.innerHTML = items.length
+    ? items.map(item => `<option value="${escapeHtml(item.traceId)}">${escapeHtml(item.label)}</option>`).join('')
+    : `<option value="">${empty}</option>`;
   els.traceSelect.value = app.selectedTraceId;
 }
 
@@ -694,9 +740,11 @@ els.file.addEventListener('change', () => {
   if (file) loadFile(file).catch(showError);
 });
 els.traceSelect.addEventListener('change', () => {
-  app.selectedTraceId = els.traceSelect.value;
-  app.selectedSpanId = selectedTrace()?.root?.spanId || '';
-  render();
+  selectTrace(els.traceSelect.value).catch(showError);
+});
+els.tempoConnect.addEventListener('click', () => {
+  if (app.live.connected) disconnectTempo();
+  else connectTempo().catch(showError);
 });
 els.filterText.addEventListener('input', render);
 els.filterService.addEventListener('change', render);
@@ -746,6 +794,129 @@ function showError(err) {
   els.content.classList.add('hidden');
   els.dropZone.textContent = `Could not load trace: ${err.message || err}`;
 }
+
+async function selectTrace(traceId) {
+  app.selectedTraceId = traceId;
+  if (traceId && app.live.connected && !app.traces.some(trace => trace.traceId === traceId)) {
+    setTempoStatus('loading trace...', 'ok');
+    await loadLiveTrace(traceId);
+    setTempoStatus(`live · ${app.live.summaries.length} traces · updated ${clockNow()}`, 'ok');
+  }
+  app.selectedSpanId = selectedTrace()?.root?.spanId || '';
+  renderTraceOptions();
+  render();
+}
+
+// --- Tempo live connection ---
+
+function setTempoStatus(text, state) {
+  els.tempoStatus.textContent = text;
+  els.tempoStatus.dataset.state = state || '';
+}
+
+function clockNow() {
+  return new Date().toLocaleTimeString();
+}
+
+async function tempoFetch(path) {
+  const url = `${normalizeBase(app.live.base)}${path}`;
+  const headers = () => ({
+    Accept: 'application/json',
+    ...(app.live.auth ? { Authorization: app.live.auth } : {}),
+  });
+  let res = await fetch(url, { headers: headers() });
+  if (res.status === 401) {
+    const auth = promptBasicAuth();
+    if (auth) {
+      app.live.auth = auth;
+      res = await fetch(url, { headers: headers() });
+    }
+  }
+  if (!res.ok) throw new Error(`Tempo HTTP ${res.status}`);
+  return res;
+}
+
+function toSummary(entry) {
+  const traceId = String(entry.traceID || entry.traceId || '').trim();
+  return {
+    traceId,
+    startNs: Number(entry.startTimeUnixNano || 0),
+    durationNs: Number(entry.durationMs || 0) * 1_000_000,
+    title: `${entry.rootServiceName || 'unknown'}: ${entry.rootTraceName || shortId(traceId)}`,
+  };
+}
+
+async function refreshLive() {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const params = new URLSearchParams({
+    q: '{}',
+    limit: String(TEMPO.limit),
+    start: String(nowSec - TEMPO.lookbackSec),
+    end: String(nowSec),
+  });
+  const res = await tempoFetch(`/api/search?${params}`);
+  const data = await res.json();
+  app.live.summaries = (data.traces || [])
+    .map(toSummary)
+    .filter(summary => summary.traceId)
+    .sort((a, b) => b.startNs - a.startNs);
+  if (!app.selectedTraceId && app.live.summaries[0]) {
+    await selectTrace(app.live.summaries[0].traceId);
+  } else {
+    renderTraceOptions();
+  }
+  setTempoStatus(`live · ${app.live.summaries.length} traces · updated ${clockNow()}`, 'ok');
+}
+
+async function loadLiveTrace(traceId) {
+  const res = await tempoFetch(`/api/traces/${encodeURIComponent(traceId)}`);
+  const parsed = parseTraceText(await res.text(), `tempo:${shortId(traceId)}`);
+  const trace = parsed.traces.find(item => item.traceId === traceId) || parsed.traces[0];
+  if (!trace) throw new Error('Tempo returned no spans for this trace');
+  app.fileName = `tempo · ${app.live.base}`;
+  app.traces = [trace, ...app.traces.filter(item => item.traceId !== trace.traceId)];
+  return trace;
+}
+
+async function connectTempo() {
+  app.live.base = els.tempoUrl.value.trim() || TEMPO.defaultBase;
+  stopTempoTimer();
+  app.live.connected = true;
+  app.live.summaries = [];
+  app.selectedTraceId = '';
+  setTempoStatus('connecting...', 'ok');
+  els.tempoConnect.textContent = 'Disconnect';
+  try {
+    await refreshLive();
+    app.live.timer = setInterval(() => refreshLive().catch(handleLiveError), TEMPO.refreshMs);
+  } catch (err) {
+    disconnectTempo();
+    setTempoStatus(`error: ${err.message || err}`, 'error');
+  }
+}
+
+function disconnectTempo() {
+  stopTempoTimer();
+  app.live.connected = false;
+  app.live.summaries = [];
+  els.tempoConnect.textContent = 'Connect';
+  setTempoStatus('offline', '');
+  renderTraceOptions();
+}
+
+function stopTempoTimer() {
+  if (app.live.timer) {
+    clearInterval(app.live.timer);
+    app.live.timer = null;
+  }
+}
+
+function handleLiveError(err) {
+  setTempoStatus(`refresh error: ${err.message || err}`, 'error');
+}
+
+const initialServer = serverFromUrl();
+els.tempoUrl.value = initialServer ? `${normalizeBase(initialServer)}/tempo` : TEMPO.defaultBase;
 </script>
 </body>
 </html>
