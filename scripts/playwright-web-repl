@@ -50,6 +50,20 @@ CHARACTER_PROJECTION = {
     },
     "actions": [
         {
+            "command_type": "shout",
+            "tool_name": "shout",
+            "title": "Shout",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 4},
+            "arguments": [],
+            "available": False,
+            "enough_action_points": True,
+            "enough_focus_points": False,
+            "has_required_target": True,
+            "meets_requirements": True,
+            "unavailable_reason": "not enough focus points",
+        },
+        {
             "command_type": "say",
             "tool_name": "say",
             "title": "Say",
@@ -146,6 +160,9 @@ def connect_and_select(page) -> None:
         timeout=15000,
     )
     expect(page.locator("#side-actions")).to_contain_text("say")
+    expect(page.locator("#side-actions")).to_contain_text("not enough focus points")
+    expect(page.locator("#side-actions .side-row").nth(0)).to_contain_text("say")
+    expect(page.locator("#side-actions .side-row.unavailable")).to_contain_text("shout")
 
 
 def submit_say(page, posted: list[dict]) -> None:
@@ -169,6 +186,16 @@ def submit_say(page, posted: list[dict]) -> None:
         raise AssertionError(f"unexpected command body: {body!r}")
 
 
+def submit_unavailable(page, posted: list[dict]) -> None:
+    page.locator("#repl-input").fill("shout")
+    page.locator("#btn-send").click()
+    page.wait_for_function("() => document.querySelector('#repl-log')?.textContent.includes('» shout')")
+    if not posted or posted[-1]["command_type"] != "shout":
+        raise AssertionError(f"unavailable action was not posted; posted={posted!r}")
+    if posted[-1]["on_insufficient_points"] != "queue":
+        raise AssertionError(f"unavailable action should still queue: {posted[-1]!r}")
+
+
 def submit_tell_named_target(page, posted: list[dict]) -> None:
     page.locator("#repl-input").fill("tell Marlow psst")
     page.locator("#btn-send").click()
@@ -187,6 +214,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        submit_unavailable(page, posted)
         submit_say(page, posted)
         submit_tell_named_target(page, posted)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-repl.png"))

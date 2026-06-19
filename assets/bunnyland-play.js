@@ -137,6 +137,25 @@
     return Array.isArray(action?.arguments) ? action.arguments : [];
   }
 
+  function actionAvailable(action) {
+    return action?.available !== false;
+  }
+
+  function actionUnavailableReason(action) {
+    return actionAvailable(action) ? '' : String(action?.unavailable_reason || 'Unavailable right now');
+  }
+
+  function orderActionsByAvailability(actions) {
+    return (actions || [])
+      .map((action, index) => ({ action, index }))
+      .sort((a, b) => {
+        const aAvailable = actionAvailable(a.action) ? 0 : 1;
+        const bAvailable = actionAvailable(b.action) ? 0 : 1;
+        return aAvailable - bAvailable || a.index - b.index;
+      })
+      .map(item => item.action);
+  }
+
   function formatPoints(value) {
     return Number.isInteger(Number(value)) ? String(Number(value)) : Number(value || 0).toFixed(1);
   }
@@ -301,11 +320,13 @@
   window.BunnylandPlay = {
     KIND_ICON,
     actionArguments,
+    actionAvailable,
     actionCommandType,
     actionCost,
     actionLane,
     actionTitle,
     actionTool,
+    actionUnavailableReason,
     claimWebController,
     entityIcon,
     entityName,
@@ -319,6 +340,7 @@
     drainNarratedEvents,
     humanizeEventType,
     perceivesEvent,
+    orderActionsByAvailability,
     parseCharacterList,
     parseCharacterProjection,
     parseQueuedCommands,

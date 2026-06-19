@@ -218,7 +218,12 @@
     }
     .verb.ready { cursor: pointer; }
     .verb.ready:hover { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
-    .verb.unafford { opacity: 0.45; cursor: not-allowed; }
+    .verb.unavailable {
+      opacity: 0.58;
+      background: var(--bl-bg-subtle);
+      border-color: var(--bl-border-muted);
+    }
+    .verb.unavailable .verb-name { color: var(--bl-text-muted); }
     .verb-name { white-space: nowrap; }
     .verb-cost { display: flex; align-items: center; gap: 4px; }
     .verb-cost .cost {
@@ -231,6 +236,14 @@
     .verb-cost .cost.fp { color: var(--bl-info); }
     .verb-cost .cost.free { color: var(--bl-text-dim); }
     .verb-cost .verb-note { font-size: var(--bl-text-xs); color: var(--bl-text-dim); }
+    .verb-cost .verb-reason {
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--bl-text-xs);
+      color: var(--bl-warn);
+    }
 
     .queued-list { display: flex; flex-direction: column; gap: 6px; }
     .queued-action {
@@ -443,13 +456,16 @@ BunnylandUI.initClientMenu();
 const {
   KIND_ICON,
   actionArguments,
+  actionAvailable,
   actionCommandType,
   actionCost,
   actionLane,
   actionTitle,
   actionTool,
+  actionUnavailableReason,
   entityIcon,
   entityName,
+  orderActionsByAvailability,
   parseCharacterList,
   parseCharacterProjection,
   parseQueuedCommands,
@@ -1243,7 +1259,7 @@ class RoomClient {
     const control = this._playerControl() || await this._claimPlayer();
     if (!this.apiBase || !control) return false;
     try {
-      await BunnylandApi.sendJson(this.apiBase, '/world/commands', {
+      const result = await BunnylandApi.sendJson(this.apiBase, '/world/commands', {
         method: 'POST',
         body: JSON.stringify({
           character_id: this.playerId,
@@ -1256,6 +1272,10 @@ class RoomClient {
           on_insufficient_points: 'queue',
         }),
       });
+      if (result?.queued === false) {
+        this._appendActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
+        return false;
+      }
       return true;
     } catch (err) {
       console.warn('Could not submit Bunnyland command', err);
@@ -1377,11 +1397,11 @@ class RoomClient {
 
   _filteredActions() {
     const query = this.actionFilter.trim().toLowerCase();
-    if (!query) return this._availableActions();
-    return this._availableActions().filter(action =>
+    const actions = query ? this._availableActions().filter(action =>
       actionTitle(action).toLowerCase().includes(query) ||
       actionTool(action).toLowerCase().includes(query) ||
-      actionCommandType(action).toLowerCase().includes(query));
+      actionCommandType(action).toLowerCase().includes(query)) : this._availableActions();
+    return orderActionsByAvailability(actions);
   }
 
   // Arguments worth prompting: every required argument plus any entity argument that has
@@ -1565,10 +1585,11 @@ class RoomClient {
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {
     const costView = actionCost(verb);
-    const affordable = pts.ap >= costView.action && pts.fp >= costView.focus;
-    const ready = hasPlayer && affordable;
+    const available = actionAvailable(verb);
+    const ready = hasPlayer;
+    const reason = actionUnavailableReason(verb);
     const title = !hasPlayer ? 'Select a player'
-      : !affordable ? 'Not enough points'
+      : reason ? reason
       : actionArguments(verb).some(arg => arg.target_group) ? `${actionTitle(verb)}: choose a target`
       : `Perform: ${actionTitle(verb)}`;
 
@@ -1579,10 +1600,14 @@ class RoomClient {
     const note = actionArguments(verb).some(arg => arg.target_group)
       ? '<span class="verb-note">⌖ target</span>'
       : '';
+    const reasonHtml = reason ? `<span class="verb-reason">${esc(reason)}</span>` : '';
+    const classes = ['verb'];
+    if (ready) classes.push('ready');
+    if (!available) classes.push('unavailable');
 
-    return `<div class="verb ${ready ? 'ready' : 'unafford'}"${ready ? ` data-tool="${esc(actionTool(verb))}"` : ''} title="${esc(title)}">` +
+    return `<div class="${classes.join(' ')}"${ready ? ` data-tool="${esc(actionTool(verb))}"` : ''} title="${esc(title)}">` +
       `<span class="verb-name">${esc(actionTitle(verb))}</span>` +
-      `<span class="verb-cost">${note}${cost}</span></div>`;
+      `<span class="verb-cost">${note}${cost}${reasonHtml}</span></div>`;
   }
 
   _activityHtml(esc) {

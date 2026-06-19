@@ -58,6 +58,17 @@ CHARACTER_PROJECTION = {
     },
     "actions": [
         {
+            "command_type": "shout", "tool_name": "shout", "title": "Shout", "lane": "world",
+            "cost": {"action": 1, "focus": 4},
+            "arguments": [],
+            "available": False,
+            "enough_action_points": True,
+            "enough_focus_points": False,
+            "has_required_target": True,
+            "meets_requirements": True,
+            "unavailable_reason": "not enough focus points",
+        },
+        {
             "command_type": "say", "tool_name": "say", "title": "Say", "lane": "world",
             "cost": {"action": 1, "focus": 1},
             "arguments": [
@@ -155,6 +166,9 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator("#actions-body")).to_contain_text("⌖ target")
     expect(page.locator("#actions-body")).to_contain_text("1 AP")
     expect(page.locator("#actions-body")).to_contain_text("1 FP")
+    expect(page.locator("#actions-body")).to_contain_text("not enough focus points")
+    expect(page.locator("#actions-body .verb.ready").nth(0)).to_contain_text("Say")
+    expect(page.locator('.verb.unavailable.ready[data-tool="shout"]')).to_be_visible()
 
     page.locator("#action-filter").fill("ell")
     expect(page.locator('.verb.ready[data-tool="tell"]')).to_be_visible()
@@ -164,6 +178,7 @@ def check_action_search_and_indicators(page) -> None:
 
 
 def check_say_text_field(page, posted: list[dict]) -> None:
+    baseline = len(posted)
     page.locator('.verb.ready[data-tool="say"]').click()
     overlay = page.locator("#action-form-overlay")
     overlay.wait_for(state="visible")
@@ -174,7 +189,7 @@ def check_say_text_field(page, posted: list[dict]) -> None:
     # Submitting a blank required field reports an error and posts nothing.
     overlay.locator(".af-submit").click()
     expect(overlay.locator(".af-error")).to_contain_text("required")
-    if posted:
+    if len(posted) != baseline:
         raise AssertionError(f"blank submit should not post a command; posted={posted!r}")
 
     overlay.locator('input.af-input[type="text"]').fill("hello toon")
@@ -184,6 +199,14 @@ def check_say_text_field(page, posted: list[dict]) -> None:
         raise AssertionError(f"say command was not posted; posted={posted!r}")
     if posted[-1]["payload"] != {"text": "hello toon"}:
         raise AssertionError(f"say payload wrong: {posted[-1]['payload']!r}")
+
+
+def check_unavailable_action_can_queue(page, posted: list[dict]) -> None:
+    page.locator('.verb.unavailable.ready[data-tool="shout"]').click()
+    if not posted or posted[-1]["command_type"] != "shout":
+        raise AssertionError(f"unavailable action was not posted; posted={posted!r}")
+    if posted[-1]["on_insufficient_points"] != "queue":
+        raise AssertionError(f"unavailable action should still queue: {posted[-1]!r}")
 
 
 def check_tell_dropdown_and_text(page, posted: list[dict]) -> None:
@@ -224,6 +247,7 @@ def main() -> None:
         connect_and_select(page)
         check_action_search_and_indicators(page)
         check_say_text_field(page, posted)
+        check_unavailable_action_can_queue(page, posted)
         check_tell_dropdown_and_text(page, posted)
         check_single_form_at_a_time(page)
 

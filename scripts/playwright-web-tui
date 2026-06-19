@@ -47,6 +47,20 @@ CHARACTER_PROJECTION = {
     },
     "actions": [
         {
+            "command_type": "shout",
+            "tool_name": "shout",
+            "title": "Shout",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 4},
+            "arguments": [],
+            "available": False,
+            "enough_action_points": True,
+            "enough_focus_points": False,
+            "has_required_target": True,
+            "meets_requirements": True,
+            "unavailable_reason": "not enough focus points",
+        },
+        {
             "command_type": "move",
             "tool_name": "move",
             "title": "Move",
@@ -164,6 +178,9 @@ def connect_and_select(page) -> None:
     expect(page.locator("#verbs")).to_contain_text("⌖ target")
     expect(page.locator("#verbs")).to_contain_text("1 AP")
     expect(page.locator("#verbs")).to_contain_text("1 FP")
+    expect(page.locator("#verbs")).to_contain_text("not enough focus points")
+    expect(page.locator("#verbs .option").nth(0)).to_contain_text("Move")
+    expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_be_visible()
 
 
 def filter_actions(page) -> None:
@@ -197,6 +214,15 @@ def submit_tell(page, posted: list[dict]) -> None:
         raise AssertionError(f"unexpected command body: {posted[-1]!r}")
 
 
+def submit_unavailable(page, posted: list[dict]) -> None:
+    page.locator("#action-filter").fill("shout")
+    page.locator("#verbs .option.unavailable").filter(has_text="Shout").click()
+    if not posted or posted[-1]["command_type"] != "shout":
+        raise AssertionError(f"unavailable action was not posted; posted={posted!r}")
+    if posted[-1]["on_insufficient_points"] != "queue":
+        raise AssertionError(f"unavailable action should still queue: {posted[-1]!r}")
+
+
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -207,6 +233,7 @@ def main() -> None:
 
         connect_and_select(page)
         filter_actions(page)
+        submit_unavailable(page, posted)
         submit_tell(page, posted)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-tui.png"))
         browser.close()

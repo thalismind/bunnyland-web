@@ -112,6 +112,16 @@
       white-space: nowrap;
     }
     .side-row span { color: var(--bl-text-dim); }
+    .side-row.unavailable {
+      opacity: 0.62;
+      background: var(--bl-bg-subtle);
+      border-color: var(--bl-border-muted);
+    }
+    .side-row.unavailable strong { color: var(--bl-text-muted); }
+    .side-row .reason {
+      color: var(--bl-warn);
+      font-size: var(--bl-text-xs);
+    }
     .side-empty {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
@@ -208,14 +218,17 @@ BunnylandUI.initClientMenu();
 
 const {
   actionArguments,
+  actionAvailable,
   actionCost,
   actionLane,
   actionTitle,
   actionTool,
+  actionUnavailableReason,
   claimWebController,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
+  orderActionsByAvailability,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -645,7 +658,7 @@ class WebRepl {
     }
     const cost = actionCost(action);
     try {
-      await submitCommand(this.apiBase, {
+      const result = await submitCommand(this.apiBase, {
         character_id: this.playerId,
         controller_id: control.controllerId,
         controller_generation: control.generation,
@@ -655,6 +668,11 @@ class WebRepl {
         lane: actionLane(action),
         on_insufficient_points: 'queue',
       });
+      if (result?.queued === false) {
+        this._write(result.reason || 'Command rejected.', 'error');
+        await this.refresh();
+        return;
+      }
       const detail = Object.entries(payload.value).map(([key, value]) => `${key}=${value}`).join(' ');
       this._write(`» ${action.command_type || actionTool(action)}${detail ? ` ${detail}` : ''}`, 'ok');
       await this.refresh();
@@ -969,12 +987,16 @@ class WebRepl {
         `<div class="side-row"><strong>AP ${fmtPoints(pts.action)}/${fmtPoints(pts.action_max)}</strong><span>FP ${fmtPoints(pts.focus)}/${fmtPoints(pts.focus_max)}</span></div>`
       : `<div class="side-empty">${this.connected ? 'Pick a player.' : 'Connect to a running server.'}</div>`;
 
-    const actionRows = this._actions().map(action => {
+    const actionRows = orderActionsByAvailability(this._actions()).map(action => {
       const cost = actionCost(action);
       const parts = [];
       if (cost.action) parts.push(`${cost.action} AP`);
       if (cost.focus) parts.push(`${cost.focus} FP`);
-      return `<div class="side-row"><strong>${BunnylandUI.escapeHtml(actionTool(action))}</strong><span>${BunnylandUI.escapeHtml(parts.join(' + ') || 'free')}</span></div>`;
+      const reason = actionUnavailableReason(action);
+      const meta = [parts.join(' + ') || 'free', reason].filter(Boolean).join(' - ');
+      return `<div class="side-row${actionAvailable(action) ? '' : ' unavailable'}" title="${BunnylandUI.escapeHtml(reason)}">` +
+        `<strong>${BunnylandUI.escapeHtml(actionTool(action))}</strong>` +
+        `<span${reason ? ' class="reason"' : ''}>${BunnylandUI.escapeHtml(meta)}</span></div>`;
     }).join('');
     actions.innerHTML = actionRows || '<div class="side-empty">Pick a player to load available actions.</div>';
 

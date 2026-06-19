@@ -68,6 +68,12 @@
     button.option { width: 100%; cursor: pointer; }
     button.option:hover:not(:disabled) { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
     .option:disabled, .option.disabled { opacity: 0.45; cursor: default; }
+    .option.unavailable {
+      opacity: 0.58;
+      background: var(--bl-bg-subtle);
+      border-color: var(--bl-border-muted);
+    }
+    .option.unavailable .option-main { color: var(--bl-text-muted); }
     .option-main {
       min-width: 0;
       overflow: hidden;
@@ -137,6 +143,14 @@
     .cost.fp { color: var(--bl-info); }
     .cost.free { color: var(--bl-text-dim); }
     .target-mark { color: var(--bl-text-dim); font-size: var(--bl-text-xs); }
+    .unavailable-reason {
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--bl-warn);
+      font-size: var(--bl-text-xs);
+    }
 
     #queued {
       max-height: 28vh;
@@ -257,11 +271,13 @@ BunnylandUI.initClientMenu();
 
 const {
   actionArguments,
+  actionAvailable,
   actionCommandType,
   actionCost,
   actionLane,
   actionTitle,
   actionTool,
+  actionUnavailableReason,
   claimWebController,
   drainNarratedEvents,
   entityIcon,
@@ -270,6 +286,7 @@ const {
   fetchQueuedCommands,
   fetchRecentEvents,
   formatPoints,
+  orderActionsByAvailability,
   queuedCommandLabel,
   submitCommand,
   updateWebControllerFallback,
@@ -507,11 +524,11 @@ class WebTui {
 
   _filteredActions() {
     const query = this.actionFilter.trim().toLowerCase();
-    if (!query) return this._availableActions();
-    return this._availableActions().filter(action =>
+    const actions = query ? this._availableActions().filter(action =>
       actionTitle(action).toLowerCase().includes(query) ||
       actionTool(action).toLowerCase().includes(query) ||
-      actionCommandType(action).toLowerCase().includes(query));
+      actionCommandType(action).toLowerCase().includes(query)) : this._availableActions();
+    return orderActionsByAvailability(actions);
   }
 
   _targetCandidates(group) {
@@ -536,7 +553,7 @@ class WebTui {
     const payload = fields.length ? await this._actionForm(action, fields) : {};
     if (payload == null) return;
     const cost = actionCost(action);
-    await submitCommand(this.apiBase, {
+    const result = await submitCommand(this.apiBase, {
       character_id: this.playerId,
       controller_id: this.control.controllerId,
       controller_generation: this.control.generation,
@@ -546,6 +563,10 @@ class WebTui {
       lane: actionLane(action),
       on_insufficient_points: 'queue',
     });
+    if (result?.queued === false) {
+      this.activityLines.push({ text: result.reason || 'Command rejected.', kind: 'rejection' });
+      this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+    }
     await this.refresh();
   }
 
@@ -686,17 +707,19 @@ class WebTui {
 
   _verbRowHtml(action, index, hasPlayer, pts, esc) {
     const cost = actionCost(action);
-    const affordable = hasPlayer && Number(pts.action || 0) >= cost.action && Number(pts.focus || 0) >= cost.focus;
-    const ready = hasPlayer && affordable;
+    const available = actionAvailable(action);
+    const ready = hasPlayer;
+    const reason = actionUnavailableReason(action);
     const costHtml = cost.action || cost.focus
       ? `${cost.action ? `<span class="cost ap">${cost.action} AP</span>` : ''}${cost.focus ? `<span class="cost fp">${cost.focus} FP</span>` : ''}`
       : '<span class="cost free">free</span>';
     const target = actionArguments(action).some(arg => arg.target_group)
       ? '<span class="target-mark">⌖ target</span>'
       : '';
-    return `<button class="option${ready ? '' : ' disabled'}" type="button" ${ready ? `data-action-index="${index}"` : 'disabled'}>` +
+    const reasonHtml = reason ? `<span class="unavailable-reason">${esc(reason)}</span>` : '';
+    return `<button class="option${available ? '' : ' unavailable'}" type="button" ${ready ? `data-action-index="${index}"` : ''} title="${esc(reason || `Perform: ${actionTitle(action)}`)}">` +
       `<span class="option-main">${esc(actionTitle(action))}</span>` +
-      `<span class="verb-cost">${target}${costHtml}</span></button>`;
+      `<span class="verb-cost">${target}${costHtml}${reasonHtml}</span></button>`;
   }
 }
 
