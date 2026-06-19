@@ -93,9 +93,9 @@
     const resource = plainObject(span.resource);
     const startNs = toNumber(span.start_time_unix_nano ?? span.startTimeUnixNano);
     const endNs = toNumber(span.end_time_unix_nano ?? span.endTimeUnixNano);
-    const traceId = String(span.trace_id || span.traceId || '').trim();
-    const spanId = String(span.span_id || span.spanId || '').trim();
-    const parentSpanId = String(span.parent_span_id || span.parentSpanId || '').trim() || null;
+    const traceId = normalizeId(span.trace_id || span.traceId || span.traceID, 32);
+    const spanId = normalizeId(span.span_id || span.spanId || span.spanID, 16);
+    const parentSpanId = normalizeId(span.parent_span_id || span.parentSpanId || span.parentSpanID, 16) || null;
     return {
       raw: span,
       name: String(span.name || span.operation || 'span'),
@@ -141,6 +141,24 @@
     if (typeof code === 'number') return ['UNSET', 'OK', 'ERROR'][code] || 'UNSET';
     const token = String(code).split('.').pop().replace(/^STATUS_CODE_/, '');
     return token || 'UNSET';
+  }
+
+  function normalizeId(value, hexLength) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (new RegExp(`^[0-9a-fA-F]{${hexLength}}$`).test(raw)) return raw.toLowerCase();
+    const decoded = base64ToHex(raw);
+    return decoded.length === hexLength ? decoded : raw;
+  }
+
+  function base64ToHex(value) {
+    try {
+      const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(normalized);
+      return [...binary].map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+    } catch (_err) {
+      return '';
+    }
   }
 
   function buildTraces(spans) {

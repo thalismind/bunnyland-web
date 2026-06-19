@@ -80,6 +80,109 @@ def write_fixtures(tmp: Path) -> tuple[Path, Path]:
     return jsonl, array_json
 
 
+def tempo_search_payload() -> dict:
+    return {
+        "traces": [
+            {
+                "traceID": "22222222222222222222222222222222",
+                "rootServiceName": "bunnyland",
+                "rootTraceName": "game.loop.iteration",
+                "startTimeUnixNano": "1750000000000000000",
+                "durationMs": 3.74,
+            },
+            {
+                "traceID": "33333333333333333333333333333333",
+                "rootServiceName": "bunnyland-server",
+                "rootTraceName": "command.submit",
+                "startTimeUnixNano": "1749999999000000000",
+                "durationMs": 1.25,
+            },
+        ]
+    }
+
+
+def tempo_trace_payload(trace_id: str) -> dict:
+    if trace_id.endswith("33333333"):
+        service = "bunnyland-server"
+        root_name = "command.submit"
+        child_name = "command.queue"
+        start_ns = 1_749_999_999_000_000_000
+        trace_id_json = "MzMzMzMzMzMzMzMzMzMzMw=="
+    else:
+        service = "bunnyland"
+        root_name = "game.loop.iteration"
+        child_name = "controller.run_once"
+        start_ns = 1_750_000_000_000_000_000
+        trace_id_json = "IiIiIiIiIiIiIiIiIiIiIg=="
+    return {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": service}},
+                        {"key": "telemetry.sdk.name", "value": {"stringValue": "opentelemetry"}},
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "bunnyland-test"},
+                        "spans": [
+                            {
+                                "traceId": trace_id_json,
+                                "spanId": "qqqqqqqqqqo=",
+                                "name": root_name,
+                                "startTimeUnixNano": str(start_ns),
+                                "endTimeUnixNano": str(start_ns + 3_740_000),
+                                "attributes": [{"key": "loop.tick_index", "value": {"intValue": "12"}}],
+                                "events": [],
+                                "status": {"code": 0},
+                            },
+                            {
+                                "traceId": trace_id_json,
+                                "spanId": "u7u7u7u7u7s=",
+                                "parentSpanId": "qqqqqqqqqqo=",
+                                "name": child_name,
+                                "startTimeUnixNano": str(start_ns + 250_000),
+                                "endTimeUnixNano": str(start_ns + 1_250_000),
+                                "attributes": [{"key": "command.type", "value": {"stringValue": child_name}}],
+                                "events": [
+                                    {
+                                        "name": "queued",
+                                        "timeUnixNano": str(start_ns + 300_000),
+                                        "attributes": [{"key": "ok", "value": {"boolValue": False}}],
+                                    }
+                                ],
+                                "status": {"code": 2},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def route_tempo(page) -> None:
+    page.route(
+        "**/tempo/api/search**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(tempo_search_payload()),
+        ),
+    )
+
+    def fulfill_trace(route) -> None:
+        trace_id = route.request.url.rsplit("/", 1)[-1]
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(tempo_trace_payload(trace_id)),
+        )
+
+    page.route("**/tempo/api/traces/**", fulfill_trace)
+
+
 def load_trace(page, path: Path) -> None:
     page.goto(f"{BASE_URL}/trace-analyzer.html", wait_until="domcontentloaded")
     page.locator("#trace-file").set_input_files(str(path))
@@ -115,6 +218,23 @@ def test_json_trace(page, json_file: Path) -> None:
         raise AssertionError("trace analyzer should not render the shared client menu")
 
 
+def test_live_tempo_trace(page) -> None:
+    route_tempo(page)
+    page.goto(f"{BASE_URL}/trace-analyzer.html", wait_until="domcontentloaded")
+    page.locator("#tempo-connect").click()
+    expect(page.locator("#tempo-status")).to_contain_text("live")
+    expect(page.locator("#trace-title")).to_contain_text("bunnyland: game.loop.iteration")
+    expect(page.locator("#stat-spans")).to_have_text("2")
+    expect(page.locator("#span-rows .span-row")).to_have_count(2)
+    expect(page.locator("#detail-pane")).to_contain_text("loop.tick_index")
+
+    page.locator("#trace-select").select_option("33333333333333333333333333333333")
+    expect(page.locator("#trace-title")).to_contain_text("bunnyland-server: command.submit")
+    expect(page.locator("#stat-spans")).to_have_text("2")
+    page.locator("#span-rows .span-row").nth(1).click()
+    expect(page.locator("#detail-pane")).to_contain_text("Status: ERROR")
+
+
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="bunnyland-trace-analyzer-") as tmp_dir:
@@ -124,6 +244,7 @@ def main() -> None:
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             test_jsonl_trace(page, jsonl)
             test_json_trace(page, json_file)
+            test_live_tempo_trace(page)
             page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-trace-analyzer.png"))
             browser.close()
 
