@@ -77,6 +77,57 @@
       overflow: hidden;
     }
     #graph-canvas { display: block; }
+    #graph-context-menu {
+      position: absolute;
+      min-width: 250px;
+      max-width: 310px;
+      background: var(--bl-bg);
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      box-shadow: var(--bl-shadow-popover);
+      z-index: 25;
+      padding: 5px;
+      color: var(--bl-text);
+    }
+    #graph-context-menu.hidden { display: none; }
+    .graph-menu-title {
+      padding: 4px 7px 6px;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-sm);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid var(--bl-bg-strong);
+      margin-bottom: 4px;
+    }
+    .graph-menu-item {
+      width: 100%;
+      display: block;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      color: var(--bl-text);
+      border-radius: var(--bl-radius-sm);
+      padding: 6px 8px;
+      font: inherit;
+      font-size: var(--bl-text-sm);
+      cursor: pointer;
+    }
+    .graph-menu-item:hover:not(:disabled) { background: var(--bl-surface); }
+    .graph-menu-item:disabled {
+      color: var(--bl-text-muted);
+      cursor: not-allowed;
+    }
+    .graph-menu-select {
+      width: 100%;
+      margin: 4px 0;
+      font-size: var(--bl-text-sm);
+    }
+    .graph-menu-sep {
+      height: 1px;
+      margin: 4px 0;
+      background: var(--bl-bg-strong);
+    }
 
     #drop-overlay {
       position: absolute;
@@ -400,6 +451,7 @@
   <div id="graph-wrapper">
     <canvas id="graph-canvas"></canvas>
     <div id="social-legend" class="hidden"></div>
+    <div id="graph-context-menu" class="hidden"></div>
     <div id="drop-overlay">
       <div class="title">🐰 Bunnyland Inspector</div>
       <div>Load a world snapshot JSON to begin</div>
@@ -585,19 +637,19 @@ function regionCharacteristics(entity) {
 // A character's controller is a separate entity reached by the ControlledBy edge; its
 // component type says who is driving it: an LLM, a Discord player, or nobody (suspended).
 const CONTROL_STYLE = {
-  llm:       { icon: '🤖', label: 'LLM',       color: '#89b4fa' },
-  discord:   { icon: '🎮', label: 'Discord',   color: '#cba6f7' },
-  suspended: { icon: '💤', label: 'Suspended', color: '#6c7086' },
+  llm:        { icon: '🤖', label: 'LLM',        color: '#89b4fa' },
+  discord:    { icon: '🎮', label: 'Discord',    color: '#cba6f7' },
+  mcp:        { icon: '🔌', label: 'MCP',        color: '#94e2d5' },
+  behavioral: { icon: '🌳', label: 'Behavior',   color: '#a6e3a1' },
+  scripted:   { icon: '📜', label: 'Script',     color: '#f9e2af' },
+  web:        { icon: '⌨', label: 'Web',        color: '#74c7ec' },
+  suspended:  { icon: '💤', label: 'Suspended',  color: '#6c7086' },
 };
 
-// Returns { kind, icon, label, color, detail } for whoever controls this entity, or null
-// if it has no controller (most non-character entities).
-function controlInfo(entity, world) {
-  const edges = entity.relationships?.ControlledBy;
-  if (!edges?.length) return null;
-  const controller = world.entities[edges[0].target];
+// Returns { kind, icon, label, color, detail } for a controller entity.
+function controllerInfo(controller) {
   if (!controller) return null;
-  const c = controller.components;
+  const c = controller.components || {};
   if (c.LLMControllerComponent) {
     const m = c.LLMControllerComponent;
     return { kind: 'llm', ...CONTROL_STYLE.llm,
@@ -608,11 +660,39 @@ function controlInfo(entity, world) {
     return { kind: 'discord', ...CONTROL_STYLE.discord,
              detail: d.discord_user_id ? `user ${d.discord_user_id}` : '' };
   }
+  if (c.MCPControllerComponent) {
+    const m = c.MCPControllerComponent;
+    return { kind: 'mcp', ...CONTROL_STYLE.mcp,
+             detail: [m.label, m.agent_id].filter(Boolean).join(' / ') };
+  }
+  if (c.BehaviorControllerComponent) {
+    const b = c.BehaviorControllerComponent;
+    return { kind: 'behavioral', ...CONTROL_STYLE.behavioral, detail: b.behavior_name || '' };
+  }
+  if (c.ScriptedControllerComponent) {
+    const s = c.ScriptedControllerComponent;
+    return { kind: 'scripted', ...CONTROL_STYLE.scripted, detail: s.script_name || '' };
+  }
+  if (c.WebControllerComponent) {
+    const w = c.WebControllerComponent;
+    return { kind: 'web', ...CONTROL_STYLE.web,
+             detail: [w.label, w.client_id].filter(Boolean).join(' / ') };
+  }
   if (c.SuspendedControllerComponent) {
     const s = c.SuspendedControllerComponent;
     return { kind: 'suspended', ...CONTROL_STYLE.suspended, detail: s.reason || '' };
   }
   return null;
+}
+
+// Returns { kind, icon, label, color, detail } for whoever controls this entity, or null
+// if it has no controller (most non-character entities).
+function controlInfo(entity, world) {
+  const edges = entity.relationships?.ControlledBy;
+  if (!edges?.length) return null;
+  const controller = world.entities[edges[0].target];
+  if (!controller) return null;
+  return controllerInfo(controller);
 }
 
 // How long after an ActorMovedEvent (in world-epoch units) a character still counts as
@@ -1237,6 +1317,7 @@ class BunnylandInspector {
     this._selectedId = null;     // currently inspected entity (mirrored to the URL hash)
     this._pendingNav = null;     // deep-link {view, entity} to apply once a world loads
     this._applyingDeepLink = false;
+    this._menuEntityId = null;
 
     this._initCanvas();
     this._initFileInput();
@@ -1279,6 +1360,12 @@ class BunnylandInspector {
       setTimeout(() => document.getElementById('search-results').classList.add('hidden'), 150);
     });
     searchInput.addEventListener('focus', (e) => { if (e.target.value.trim()) this._search(e.target.value); });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#graph-context-menu')) this._hideContextMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this._hideContextMenu();
+    });
   }
 
   _initCanvas() {
@@ -1302,6 +1389,8 @@ class BunnylandInspector {
     this.lgcanvas.getCanvasMenuOptions = () => null;
     this.lgcanvas.getNodeMenuOptions = () => null;
 
+    canvas.addEventListener('contextmenu', (event) => this._onGraphContextMenu(event));
+
     this.lgcanvas.onNodeSelected = (node) => {
       if (node?.entityId && this.world) {
         showInspector(node.entityId, this.world);
@@ -1322,6 +1411,97 @@ class BunnylandInspector {
     canvas.width  = wrapper.clientWidth;
     canvas.height = wrapper.clientHeight;
     if (this.lgcanvas) this.lgcanvas.resize();
+  }
+
+  _nodeAtEvent(event) {
+    const ds = this.lgcanvas?.ds;
+    if (!ds) return null;
+    const rect = this.lgcanvas.canvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / ds.scale - ds.offset[0];
+    const y = (event.clientY - rect.top) / ds.scale - ds.offset[1];
+    const titleH = LiteGraph.NODE_TITLE_HEIGHT || 20;
+    for (let i = this.lgraph._nodes.length - 1; i >= 0; i--) {
+      const node = this.lgraph._nodes[i];
+      if (!node.entityId) continue;
+      if (x >= node.pos[0] && x <= node.pos[0] + node.size[0]
+          && y >= node.pos[1] - titleH && y <= node.pos[1] + node.size[1]) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  _onGraphContextMenu(event) {
+    const node = this._nodeAtEvent(event);
+    if (!node?.entityId || !this.world?.entities?.[node.entityId]) {
+      this._hideContextMenu();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.selectEntity(node.entityId);
+    this._showContextMenu(node.entityId, event.clientX, event.clientY);
+  }
+
+  _showContextMenu(entityId, clientX, clientY) {
+    const entity = this.world?.entities?.[entityId];
+    if (!entity) return;
+    const menu = document.getElementById('graph-context-menu');
+    const controllers = this._controllerOptions();
+    const liveDisabled = this._apiBase ? '' : ' disabled';
+    const canAssignController = this._apiBase && entity.components?.CharacterComponent && controllers.length;
+    const controllerDisabled = canAssignController ? '' : ' disabled';
+    const selectedController = entity.relationships?.ControlledBy?.[0]?.target || controllers[0]?.id || '';
+    menu.innerHTML = `
+      <div class="graph-menu-title">${esc(entityDisplayName(entity))}</div>
+      <button type="button" class="graph-menu-item" data-menu-action="edit">Edit in World Editor</button>
+      <div class="graph-menu-sep"></div>
+      <select class="graph-menu-select" data-controller-select${canAssignController ? '' : ' disabled'}>
+        ${controllers.length
+          ? controllers.map(option => `<option value="${esc(option.id)}"${option.id === selectedController ? ' selected' : ''}>${esc(option.label)}</option>`).join('')
+          : '<option value="">No controllers</option>'}
+      </select>
+      <button type="button" class="graph-menu-item" data-menu-action="assign"${controllerDisabled}>Assign Controller</button>
+      <button type="button" class="graph-menu-item" data-menu-action="delete"${liveDisabled}>Remove from World</button>
+      <button type="button" class="graph-menu-item" data-menu-action="clone"${liveDisabled}>Clone Entity</button>
+    `;
+    menu.onclick = (event) => this._handleContextMenuClick(event);
+    this._menuEntityId = entityId;
+
+    const wrapperRect = document.getElementById('graph-wrapper').getBoundingClientRect();
+    menu.classList.remove('hidden');
+    const menuRect = menu.getBoundingClientRect();
+    const left = Math.min(clientX - wrapperRect.left, wrapperRect.width - menuRect.width - 8);
+    const top = Math.min(clientY - wrapperRect.top, wrapperRect.height - menuRect.height - 8);
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+  }
+
+  _hideContextMenu() {
+    const menu = document.getElementById('graph-context-menu');
+    menu.classList.add('hidden');
+    this._menuEntityId = null;
+  }
+
+  _handleContextMenuClick(event) {
+    const button = event.target.closest('[data-menu-action]');
+    if (!button) return;
+    event.preventDefault();
+    const entityId = this._menuEntityId;
+    this._hideContextMenu();
+    if (!entityId) return;
+    const action = button.dataset.menuAction;
+    if (action === 'edit') {
+      location.href = worldEditorHref(entityId);
+      return;
+    }
+    if (action === 'assign') {
+      const controllerId = document.querySelector('#graph-context-menu [data-controller-select]')?.value;
+      if (controllerId) this._assignController(entityId, controllerId);
+      return;
+    }
+    if (action === 'delete') this._deleteEntity(entityId);
+    else if (action === 'clone') this._cloneEntity(entityId);
   }
 
   _initFileInput() {
@@ -1473,16 +1653,18 @@ class BunnylandInspector {
     };
   }
 
-  async _sendAdmin(path, { method, prompt = true } = {}) {
+  async _sendAdmin(path, { method, body = null, prompt = true } = {}) {
     if (!this._apiBase) throw new Error('Connect to a live server first');
     let res = await fetch(`${this._apiBase}${path}`, {
       method,
-      headers: this._adminHeaders()
+      headers: this._adminHeaders(),
+      body
     });
     if (res.status === 401 && prompt && this._promptBasicAuth()) {
       res = await fetch(`${this._apiBase}${path}`, {
         method,
-        headers: this._adminHeaders()
+        headers: this._adminHeaders(),
+        body
       });
     }
     const data = await res.json().catch(() => ({}));
@@ -1510,6 +1692,128 @@ class BunnylandInspector {
       const data = await this._sendAdmin(path, { method: 'POST', prompt: true });
       this._applyRuntime(data);
       this._setApiStatus('live', this._runtimePaused ? '● Paused' : '● Playing');
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  async _sendPatch(operations, { status = 'Patch applied', selectEntityId = null } = {}) {
+    if (!this._apiBase) throw new Error('Connect to a live server first');
+    if (!operations.length) return null;
+    const data = await this._sendAdmin('/admin/world', {
+      method: 'PATCH',
+      body: JSON.stringify({ operations }),
+      prompt: true
+    });
+    this._mergePatchResponse(data);
+    this._setApiStatus('live', status);
+    if (selectEntityId && this.world?.entities?.[selectEntityId]) this.jumpToEntity(selectEntityId);
+    else if (this._selectedId && !this.world?.entities?.[this._selectedId]) this.showRoot();
+    return data;
+  }
+
+  _mergePatchResponse(data) {
+    if (!this.world) return;
+    for (const id of data.deleted_entities || []) {
+      delete this.world.entities[id];
+      delete this._movedAt[id];
+    }
+    for (const item of data.changed_entities || []) {
+      this.world.entities[item.id] = parseApiSnapshot({ entities: [item] }).entities[item.id];
+    }
+    if (data.world_epoch != null) this.world.epoch = data.world_epoch;
+    const selected = this._selectedId;
+    if (selected && !this.world.entities[selected]) this._selectedId = null;
+    if (this.viewStack.some(crumb => !this.world.entities[crumb.entityId])) {
+      this.viewStack = [];
+      this.showRoot();
+    } else if (this.viewStack.length) {
+      this._showEntity(this.viewStack[this.viewStack.length - 1].entityId);
+    } else {
+      this.showRoot();
+    }
+    if (selected && this.world.entities[selected]) this.selectEntity(selected);
+    this._syncUrl();
+  }
+
+  _controllerOptions() {
+    if (!this.world) return [];
+    return Object.values(this.world.entities)
+      .map(entity => {
+        const info = controllerInfo(entity);
+        if (!info) return null;
+        const detail = info.detail ? ` · ${info.detail}` : '';
+        return {
+          id: entity.id,
+          label: `${info.icon} ${info.label}${detail} (${entity.id})`
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async _assignController(entityId, controllerId) {
+    try {
+      const data = await this._sendAdmin('/admin/controllers/assign', {
+        method: 'POST',
+        body: JSON.stringify({ character_id: entityId, controller_id: controllerId }),
+        prompt: true
+      });
+      this._mergePatchResponse(data);
+      this._setApiStatus('live', '● Controller assigned');
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  async _deleteEntity(entityId) {
+    if (!this.world?.entities?.[entityId]) return;
+    if (!window.confirm(`Delete ${entityId}? Incoming edges will also be removed.`)) return;
+    try {
+      await this._sendPatch([{ op: 'delete_entity', entity_id: entityId }], {
+        status: '● Entity removed'
+      });
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  _cloneEntityOperations(entityId, clientId = `clone:${entityId}:${Date.now()}`) {
+    const entity = this.world?.entities?.[entityId];
+    if (!entity) throw new Error('Entity no longer exists');
+    const operations = [{
+      op: 'add_entity',
+      client_id: clientId,
+      components: Object.entries(entity.components || {}).map(([type, fields]) => ({
+        type,
+        fields: BunnylandUI.cloneJson(fields || {})
+      }))
+    }];
+
+    for (const source of Object.values(this.world.entities)) {
+      for (const [edgeType, edges] of Object.entries(source.relationships || {})) {
+        if (!CONTAINMENT_EDGES.includes(edgeType)) continue;
+        for (const rel of edges || []) {
+          if (rel.target !== entityId) continue;
+          operations.push({
+            op: 'set_edge',
+            source_id: source.id,
+            target_id: clientId,
+            edge: { type: edgeType, fields: BunnylandUI.cloneJson(rel.edge || {}) }
+          });
+        }
+      }
+    }
+    return operations;
+  }
+
+  async _cloneEntity(entityId) {
+    try {
+      const data = await this._sendPatch(this._cloneEntityOperations(entityId), {
+        status: '● Entity cloned'
+      });
+      const created = data?.changed_entities?.find(entity => entity.id !== entityId)?.id;
+      if (created) this.jumpToEntity(created);
     } catch (err) {
       this._setApiStatus('error', `⚠ ${err.message}`);
     }

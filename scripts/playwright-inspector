@@ -255,6 +255,126 @@ def main() -> None:
         if not editor_href or "world-editor.html" not in editor_href or f"#{selected}" not in editor_href:
             raise AssertionError(f"unexpected world editor link for {selected}: {editor_href!r}")
 
+        context_result = page.evaluate(
+            """
+            () => {
+              window.app.loadSnapshot({
+                entities: { room: {}, char: {}, old_ctrl: {}, new_ctrl: {}, item: {} },
+                components: {
+                  RoomComponent: { room: { title: 'Room' } },
+                  IdentityComponent: {
+                    char: { name: 'Juniper', kind: 'character', tags: [] },
+                    old_ctrl: { name: 'Old', kind: 'controller', tags: [] },
+                    new_ctrl: { name: 'New', kind: 'controller', tags: [] },
+                    item: { name: 'Pebble', kind: 'item', tags: [] },
+                  },
+                  CharacterComponent: { char: { species: 'bunny' } },
+                  LLMControllerComponent: {
+                    old_ctrl: { profile_name: 'default', model: 'old-model' },
+                    new_ctrl: { profile_name: 'default', model: 'new-model' },
+                  },
+                  PortableComponent: { item: {} },
+                },
+                relationships: {
+                  Contains: {
+                    room: [
+                      { target: 'char', edge: { mode: 'room_content', visible: true, discovered: true, order: 0 } },
+                    ],
+                  },
+                  ControlledBy: {
+                    char: [{ target: 'old_ctrl', edge: { generation: 2, since_epoch: 10 } }],
+                  },
+                  Holding: {
+                    char: [{ target: 'item', edge: {} }],
+                  },
+                },
+              });
+              window.app._pushEntity('room');
+              const node = window.app._nodeMap.char;
+              const ds = window.app.lgcanvas.ds;
+              const rect = window.app.lgcanvas.canvas.getBoundingClientRect();
+              return {
+                x: rect.left + (node.pos[0] + node.size[0] / 2 + ds.offset[0]) * ds.scale,
+                y: rect.top + (node.pos[1] + node.size[1] / 2 + ds.offset[1]) * ds.scale,
+              };
+            }
+            """
+        )
+        page.mouse.click(context_result["x"], context_result["y"], button="right")
+        menu = page.locator("#graph-context-menu:not(.hidden)")
+        if not menu.is_visible():
+            raise AssertionError("graph node context menu did not open")
+        menu_text = menu.text_content() or ""
+        for expected in ["Edit in World Editor", "Assign Controller", "Remove from World", "Clone Entity"]:
+            if expected not in menu_text:
+                raise AssertionError(f"context menu missed {expected!r}: {menu_text!r}")
+        assign_capture = page.evaluate(
+            """
+            async () => {
+              const calls = [];
+              window.app._apiBase = '/api';
+              window.app._sendAdmin = async (path, options) => {
+                calls.push({ path, options });
+                return {
+                  world_epoch: 12,
+                  changed_entities: [{
+                    id: 'char',
+                    components: {
+                      IdentityComponent: { name: 'Juniper', kind: 'character', tags: [] },
+                      CharacterComponent: { species: 'bunny' },
+                    },
+                    relationships: {
+                      ControlledBy: [{ target_id: 'new_ctrl', edge: { generation: 3, since_epoch: 12 } }],
+                    },
+                  }],
+                  deleted_entities: [],
+                };
+              };
+              await window.app._assignController('char', 'new_ctrl');
+              return calls.map(call => ({
+                path: call.path,
+                method: call.options.method,
+                body: JSON.parse(call.options.body),
+              }));
+            }
+            """
+        )
+        if assign_capture != [
+            {
+                "path": "/admin/controllers/assign",
+                "method": "POST",
+                "body": {"character_id": "char", "controller_id": "new_ctrl"},
+            }
+        ]:
+            raise AssertionError(f"assign controller used unexpected request: {assign_capture!r}")
+        clone_ops = page.evaluate(
+            """
+            () => window.app._cloneEntityOperations('char', 'clone_char')
+            """
+        )
+        if clone_ops[0]["op"] != "add_entity" or clone_ops[0]["client_id"] != "clone_char":
+            raise AssertionError(f"clone did not begin with add_entity: {clone_ops!r}")
+        if not any(op.get("op") == "set_edge" and op.get("source_id") == "room" and op.get("target_id") == "clone_char" for op in clone_ops):
+            raise AssertionError(f"clone did not copy incoming containment edges: {clone_ops!r}")
+        if any(op.get("op") == "set_edge" and op.get("edge", {}).get("type") == "ControlledBy" for op in clone_ops):
+            raise AssertionError(f"clone copied controller edges: {clone_ops!r}")
+        delete_ops = page.evaluate(
+            """
+            async () => {
+              const calls = [];
+              window.confirm = () => true;
+              window.app._sendPatch = async (operations, options) => {
+                calls.push({ operations, options });
+                return { world_epoch: 12, changed_entities: [], deleted_entities: ['char'] };
+              };
+              await window.app._deleteEntity('char');
+              return calls;
+            }
+            """
+        )
+        if delete_ops[0]["operations"] != [{"op": "delete_entity", "entity_id": "char"}]:
+            raise AssertionError(f"delete did not send delete_entity patch: {delete_ops!r}")
+
         regional = page.evaluate(
             """
             async () => {
