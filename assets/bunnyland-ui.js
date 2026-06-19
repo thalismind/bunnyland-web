@@ -2,6 +2,7 @@
   'use strict';
 
   const THEME_KEY = 'bunnyland.theme';
+  const THEME_CLASS_PREFIX = 'bl-theme-';
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   const CLIENT_MENU_ITEMS = [
     {
@@ -83,7 +84,12 @@
 
   function setTheme(name) {
     const theme = name || 'dark';
-    document.documentElement.dataset.theme = theme;
+    const root = document.documentElement;
+    for (const className of [...root.classList]) {
+      if (className.startsWith(THEME_CLASS_PREFIX)) root.classList.remove(className);
+    }
+    root.classList.add(`${THEME_CLASS_PREFIX}${theme}`);
+    root.dataset.theme = theme;
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch (_err) {
@@ -98,7 +104,7 @@
     } catch (_err) {
       // Keep the default theme when storage is unavailable.
     }
-    document.documentElement.dataset.theme = theme;
+    setTheme(theme);
   }
 
   function storageGet(key) {

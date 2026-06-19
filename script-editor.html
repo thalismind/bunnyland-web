@@ -10,11 +10,7 @@
     #script-name { width: 220px; }
     #script-version { width: 78px; }
     #main {
-      display: grid;
       grid-template-columns: minmax(250px, 320px) minmax(520px, 1fr) minmax(330px, 430px);
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
     }
 
     #entity-search {
@@ -48,21 +44,7 @@
       word-break: break-all;
       margin-bottom: 8px;
     }
-    .pill-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      margin: 5px 0 9px 0;
-    }
-    .pill {
-      color: var(--bl-text);
-      background: var(--bl-surface);
-      border: 1px solid var(--bl-border-control);
-      border-radius: var(--bl-radius-sm);
-      padding: 1px 5px;
-      font-size: var(--bl-text-xs);
-      white-space: nowrap;
-    }
+    .pill-row { margin: 5px 0 9px 0; }
     .mini-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -135,7 +117,7 @@
   </div>
 </div>
 
-<div id="main">
+<div id="main" class="app-grid">
   <section class="pane" id="library-pane">
     <div class="pane-header">
       <div class="pane-title">Entity Library</div>

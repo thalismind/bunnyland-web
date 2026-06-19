@@ -17,11 +17,7 @@
     #meta-epoch { width: 90px; }
 
     #main {
-      display: grid;
       grid-template-columns: minmax(250px, 330px) minmax(560px, 1fr) minmax(330px, 430px);
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
     }
     #main.snapshot-hidden {
       grid-template-columns: minmax(250px, 330px) minmax(560px, 1fr);
@@ -192,7 +188,7 @@
   </div>
 </div>
 
-<div id="main">
+<div id="main" class="app-grid">
   <section class="pane">
     <div class="pane-header">
       <div class="pane-title">Entities</div>

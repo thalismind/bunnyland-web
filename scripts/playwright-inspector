@@ -78,6 +78,28 @@ def main() -> None:
         prompt_calls = page.evaluate("window.__promptCalls")
         if prompt_calls:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
+        theme_contract = page.evaluate(
+            """
+            () => {
+              const root = document.documentElement;
+              const readBg = () => getComputedStyle(root).getPropertyValue('--bl-bg').trim();
+              const darkBefore = root.classList.contains('bl-theme-dark');
+              const darkBg = readBg();
+              BunnylandUI.setTheme('light');
+              const lightApplied = root.classList.contains('bl-theme-light') && !root.classList.contains('bl-theme-dark');
+              const lightBg = readBg();
+              BunnylandUI.setTheme('dark');
+              return {
+                darkBefore,
+                lightApplied,
+                bgChanged: darkBg !== lightBg,
+                restored: root.classList.contains('bl-theme-dark') && !root.classList.contains('bl-theme-light'),
+              };
+            }
+            """
+        )
+        if not all(theme_contract.values()):
+            raise AssertionError(f"theme class contract failed: {theme_contract!r}")
 
         page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")
         lobby_contract = page.evaluate(

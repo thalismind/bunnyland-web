@@ -23,6 +23,10 @@ identical.
 
 The shared base style lives in `assets/bunnyland-ui.css`.
 
+- Theme selection is page-level: `BunnylandUI.setTheme('dark')` and
+  `BunnylandUI.setTheme('light')` apply `bl-theme-dark` / `bl-theme-light` to the
+  document root, and those classes override CSS variables. New colors should become
+  `--bl-*` tokens before page styles depend on them.
 - Font: use `--bl-font-mono` for UI text and graph labels.
 - Type scale: use `--bl-text-xs`, `--bl-text-sm`, and `--bl-text-md` for dense controls.
 - Radius: use `--bl-radius-sm` for controls and compact rows, `--bl-radius-md` for

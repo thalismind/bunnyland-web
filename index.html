@@ -12,7 +12,7 @@
       height: auto;
       overflow: auto;
       background:
-        radial-gradient(circle at 15% 10%, rgba(137, 180, 250, 0.16), transparent 28rem),
+        radial-gradient(circle at 15% 10%, var(--bl-accent-wash), transparent 28rem),
         linear-gradient(180deg, var(--bl-bg-deep), var(--bl-bg) 360px, var(--bl-bg-strong));
     }
 
@@ -53,7 +53,7 @@
       padding: 26px;
       border: 1px solid var(--bl-border-control);
       border-radius: var(--bl-radius-md);
-      background: rgba(24, 24, 37, 0.86);
+      background: var(--bl-overlay-strong);
       box-shadow: var(--bl-shadow-popover);
     }
 
@@ -110,19 +110,19 @@
     .button-link.primary {
       border-color: var(--bl-accent);
       color: var(--bl-text-inverse);
-      background: rgba(137, 180, 250, 0.28);
+      background: var(--bl-accent-wash-strong);
     }
 
     /* Discord highlight: mauve, so it reads as equal to "Play online" but distinct. */
     .button-link.discord {
-      border-color: #cba6f7;
+      border-color: var(--bl-secondary);
       color: var(--bl-text-inverse);
-      background: rgba(203, 166, 247, 0.28);
+      background: var(--bl-secondary-wash);
     }
 
     .button-link.discord:hover {
-      border-color: #cba6f7;
-      background: rgba(203, 166, 247, 0.4);
+      border-color: var(--bl-secondary);
+      background: var(--bl-secondary-wash-strong);
     }
 
     .hero-panel {
@@ -193,7 +193,7 @@
     .client-card {
       border: 1px solid var(--bl-border);
       border-radius: var(--bl-radius-md);
-      background: rgba(24, 24, 37, 0.92);
+      background: var(--bl-overlay-strong);
     }
 
     .info-card {

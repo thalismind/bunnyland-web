@@ -9,15 +9,9 @@
     #behavior-name { width: 200px; }
     #behavior-desc { width: 260px; }
     #api-url { width: 200px; }
-    #api-status.ok { color: var(--bl-ok); }
-    #api-status.err { color: var(--bl-error); }
 
     #main {
-      display: grid;
       grid-template-columns: minmax(240px, 320px) minmax(460px, 1fr) minmax(320px, 430px);
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
     }
 
     .lib-section { padding: 10px; border-bottom: 1px solid var(--bl-border); }
@@ -32,16 +26,6 @@
       font-size: var(--bl-text-xs);
       line-height: 1.5;
       margin-bottom: 8px;
-    }
-    .pill-row { display: flex; flex-wrap: wrap; gap: 5px; }
-    .pill {
-      color: var(--bl-text);
-      background: var(--bl-surface);
-      border: 1px solid var(--bl-border-control);
-      border-radius: var(--bl-radius-sm);
-      padding: 1px 6px;
-      font-size: var(--bl-text-xs);
-      white-space: nowrap;
     }
     .behavior-name-row {
       padding: 4px 6px;
@@ -139,7 +123,7 @@
   </div>
 </div>
 
-<div id="main">
+<div id="main" class="app-grid">
   <section class="pane" id="library-pane">
     <div class="pane-header">
       <div class="pane-title">Leaf Library</div>

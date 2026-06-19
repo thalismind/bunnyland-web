@@ -7,14 +7,11 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 190px; }
-    #api-status { font-size: var(--bl-text-sm); white-space: nowrap; }
     #player-select, #claim-fallback, #claim-timeout, #room-title { font-size: var(--bl-text-sm); }
     #claim-timeout { width: 56px; }
     #room-title { color: var(--bl-text-soft); }
 
     /* ── Split layout: visual world on the left, actions on the right ── */
-    #main { display: flex; flex: 1; overflow: hidden; }
-
     #stage-wrapper {
       flex: 1;
       position: relative;
@@ -59,7 +56,7 @@
     .sprite .glyph {
       font-size: 30px;
       line-height: 1;
-      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+      filter: drop-shadow(var(--bl-shadow-text));
     }
     .sprite img.glyph {
       width: 48px;
@@ -70,7 +67,7 @@
     .sprite .label {
       font-size: var(--bl-text-xs);
       color: var(--bl-text-soft);
-      background: rgba(17, 17, 27, 0.7);
+      background: var(--bl-overlay);
       border-radius: var(--bl-radius-sm);
       padding: 0 3px;
       max-width: 120px;
@@ -131,7 +128,7 @@
       z-index: 6000;
       font-size: var(--bl-text-xs);
       color: var(--bl-text-muted);
-      background: rgba(17, 17, 27, 0.8);
+      background: var(--bl-overlay-strong);
       padding: 3px 8px;
       border-radius: var(--bl-radius-sm);
       pointer-events: none;
@@ -305,7 +302,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(17, 17, 27, 0.6);
+      background: var(--bl-overlay);
     }
     .af-body { overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
     .af-field { display: flex; flex-direction: column; gap: 4px; }
@@ -318,7 +315,7 @@
       color: var(--bl-text);
       font-size: var(--bl-text-sm);
     }
-    .af-error { color: var(--bl-danger, #e06c75); font-size: var(--bl-text-sm); min-height: 1em; }
+    .af-error { color: var(--bl-error); font-size: var(--bl-text-sm); min-height: 1em; }
 
     /* ── Loading splash overlay (brief title + bunny) ── */
     #loading-overlay {
@@ -328,7 +325,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(7, 9, 19, 0.8);
+      background: var(--bl-overlay-strong);
       opacity: 1;
       transition: opacity 0.8s ease-in-out;
       pointer-events: none;
@@ -403,7 +400,7 @@
   </div>
 </div>
 
-<div id="main">
+<div id="main" class="app-split">
   <div id="stage-wrapper">
     <div id="stage" tabindex="0">
       <div id="room-bg"></div>

@@ -10,75 +10,9 @@
     #generator-select { width: 220px; }
     #seed-input { width: 100%; min-height: 92px; resize: vertical; }
     #max-rooms { width: 76px; }
-    #api-status.ok { color: var(--bl-ok); }
-    #api-status.err { color: var(--bl-error); }
 
     #main {
-      display: grid;
       grid-template-columns: minmax(300px, 380px) minmax(420px, 1fr) minmax(320px, 430px);
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .control-stack {
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .field-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .field-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .field-row label {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: var(--bl-text-sm);
-      color: var(--bl-text-soft);
-    }
-
-    .hint {
-      color: var(--bl-text-muted);
-      font-size: var(--bl-text-xs);
-      line-height: 1.5;
-    }
-
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .metric {
-      border: 1px solid var(--bl-border);
-      background: var(--bl-bg);
-      border-radius: var(--bl-radius-md);
-      padding: 8px;
-      min-height: 52px;
-    }
-
-    .metric-value {
-      color: var(--bl-text);
-      font-size: 20px;
-      line-height: 1.1;
-    }
-
-    .metric-label {
-      color: var(--bl-text-muted);
-      font-size: var(--bl-text-xs);
-      margin-top: 4px;
     }
 
     #activity-list,
@@ -86,25 +20,8 @@
       padding: 6px 0;
     }
 
-    .activity-row {
-      display: grid;
-      grid-template-columns: 76px minmax(0, 1fr);
-      gap: 8px;
-      padding: 5px 10px;
-      border-bottom: 1px solid var(--bl-bg-row);
-      font-size: var(--bl-text-sm);
-      line-height: 1.45;
-    }
-
-    .activity-row.kind-error { color: var(--bl-error); }
-    .activity-row.kind-ok { color: var(--bl-ok); }
-    .activity-time {
-      color: var(--bl-text-muted);
-      white-space: nowrap;
-    }
-
     .entity-row.generated {
-      background: rgba(137, 180, 250, 0.14);
+      background: var(--bl-accent-wash);
     }
 
     .entity-row.generated .entity-name::after {
@@ -143,7 +60,7 @@
   </div>
 </div>
 
-<div id="main">
+<div id="main" class="app-grid">
   <section class="pane">
     <div class="pane-header">
       <div class="pane-title">Generate World</div>
