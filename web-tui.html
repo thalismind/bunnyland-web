@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 190px; }
-    #player-select, #claim-fallback, #claim-timeout { font-size: var(--bl-text-sm); }
+    #player-select, #claim-fallback, #claim-timeout, #btn-release-character { font-size: var(--bl-text-sm); }
     #claim-timeout { width: 56px; }
 
     #main {
@@ -226,8 +226,9 @@
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <span class="toolbar-sep">|</span>
-    <label for="player-select">Player:</label>
-    <select id="player-select"><option value="">- none -</option></select>
+    <label for="player-select">Character:</label>
+    <select id="player-select"><option value="">— select to play —</option></select>
+    <button id="btn-release-character" type="button" disabled>Release</button>
     <label for="claim-fallback">Fallback:</label>
     <select id="claim-fallback">
       <option value="suspend">Suspend</option>
@@ -250,7 +251,7 @@
   </section>
   <aside id="actions-pane" aria-label="Actions">
     <div id="action-controls">
-      <div id="points-line">Pick a player to see their actions.</div>
+      <div id="points-line">Select a character to play as and see their actions.</div>
       <div id="action-filter-row">
         <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
         <button id="action-filter-clear" type="button">Clear</button>
@@ -335,6 +336,7 @@ class WebTui {
       if (e.target.value) this.selectPlayer(e.target.value);
       else this._dropPlayer();
     });
+    document.getElementById('btn-release-character').addEventListener('click', () => this._dropPlayer());
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
@@ -387,7 +389,8 @@ class WebTui {
     this.eventsPrimed = false;
     this._setStatus('', '○ Offline');
     document.getElementById('btn-connect').textContent = 'Connect Live';
-    document.getElementById('player-select').innerHTML = '<option value="">- none -</option>';
+    document.getElementById('player-select').innerHTML = '<option value="">— select to play —</option>';
+    document.getElementById('btn-release-character').disabled = true;
     if (this.apiBase) BunnylandApi.setServerInUrl('');
     this.render();
   }
@@ -438,6 +441,8 @@ class WebTui {
     this.queueProjection = null;
     this.control = null;
     this.selectedId = '';
+    document.getElementById('player-select').value = '';
+    document.getElementById('btn-release-character').disabled = true;
     this.render();
   }
 
@@ -650,11 +655,11 @@ class WebTui {
 
   _syncPlayers() {
     const select = document.getElementById('player-select');
-    const current = select.value;
-    select.innerHTML = '<option value="">- none -</option>' + this.characters
+    select.innerHTML = '<option value="">— select to play —</option>' + this.characters
       .map(c => `<option value="${BunnylandUI.escapeHtml(c.id)}">${BunnylandUI.escapeHtml(c.name)}</option>`)
       .join('');
-    select.value = this.playerId || current || '';
+    select.value = this.playerId || '';
+    document.getElementById('btn-release-character').disabled = !this.playerId;
   }
 
   _renderWorld() {
@@ -671,7 +676,7 @@ class WebTui {
         return `<button class="option${selected}" type="button" data-entity="${esc(entity.id)}">` +
           `<span class="option-main">${esc(entityIcon(entity))} ${esc(entity.name || entity.id)}${me}</span>` +
           `<span class="option-meta">${esc(entity.kind || '')}</span></button>`;
-      }).join('') : '<div class="empty">Pick a player to see their room.</div>';
+      }).join('') : '<div class="empty">Select a character above to play as and see their room.</div>';
 
     document.querySelectorAll('#members .option[data-entity]').forEach(button => {
       button.addEventListener('click', () => {

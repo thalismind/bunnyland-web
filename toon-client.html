@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 190px; }
-    #player-select, #claim-fallback, #claim-timeout, #room-title { font-size: var(--bl-text-sm); }
+    #player-select, #claim-fallback, #claim-timeout, #room-title, #btn-release-character { font-size: var(--bl-text-sm); }
     #claim-timeout { width: 56px; }
     #room-title { color: var(--bl-text-soft); }
 
@@ -414,8 +414,9 @@
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <span class="toolbar-sep">|</span>
-    <label for="player-select">Player:</label>
-    <select id="player-select"><option value="">— none —</option></select>
+    <label for="player-select">Character:</label>
+    <select id="player-select"><option value="">— select to play —</option></select>
+    <button id="btn-release-character" type="button" disabled>Release</button>
     <label for="claim-fallback">Fallback:</label>
     <select id="claim-fallback">
       <option value="suspend">Suspend</option>
@@ -426,7 +427,7 @@
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
-    <button id="btn-follow" title="Re-centre the view on your player's room">⌖ Follow player</button>
+    <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
     <span class="toolbar-sep">|</span>
     <label><input type="checkbox" id="debug-bounds"> Bounds</label>
     <span class="toolbar-sep">|</span>
@@ -442,7 +443,7 @@
     <div id="stage-hint"></div>
     <div id="stage-empty">
       <div class="title">No room to show</div>
-      <div>Connect to a running server, then pick a player.</div>
+      <div>Connect to a running server, then select a character to play as.</div>
     </div>
   </div>
   <div id="actions">
@@ -657,6 +658,9 @@ class RoomClient {
     });
     document.getElementById('player-select').addEventListener('change', (e) => {
       this._selectPlayer(e.target.value);
+    });
+    document.getElementById('btn-release-character').addEventListener('click', () => {
+      this._selectPlayer('');
     });
     document.getElementById('claim-fallback').addEventListener('change', () => {
       this._updateClaimFallback();
@@ -1023,7 +1027,7 @@ class RoomClient {
     const chars = this.characterList.slice()
       .sort((a, b) => a.name.localeCompare(b.name));
     const current = this.playerId;
-    select.innerHTML = '<option value="">— none —</option>' +
+    select.innerHTML = '<option value="">— select to play —</option>' +
       chars.map(c => `<option value="${c.id}">${BunnylandUI.escapeHtml(c.name)}</option>`).join('');
     if (current && chars.some(c => c.id === current)) select.value = current;
     else if (current) {
@@ -1034,6 +1038,7 @@ class RoomClient {
       this.queueProjection = null;
       this.selectedId = '';
     }
+    document.getElementById('btn-release-character').disabled = !this.playerId;
   }
 
   _selectPlayer(id) {
@@ -1051,6 +1056,7 @@ class RoomClient {
     this.followPlayer = true;
     this.localPos = null;          // adopt the server position for the new player
     this._recenterOnPlayer();
+    document.getElementById('btn-release-character').disabled = !id;
     this.render();
     if (id) this._claimPlayer(id);
     if (id) {
@@ -1482,7 +1488,7 @@ class RoomClient {
     const available = actionAvailable(verb);
     const ready = hasPlayer;
     const reason = actionUnavailableReason(verb);
-    const title = !hasPlayer ? 'Select a player'
+    const title = !hasPlayer ? 'Select a character'
       : reason ? reason
       : actionArguments(verb).some(arg => arg.target_group) ? `${actionTitle(verb)}: choose a target`
       : `Perform: ${actionTitle(verb)}`;
@@ -1565,7 +1571,7 @@ class RoomClient {
     const hint = document.getElementById('stage-hint');
     hint.textContent = this._playerInView()
       ? 'Click or use arrow keys / WASD to move · click a door to walk to the next room'
-      : (this.playerId ? 'Spectating another room — “Follow player” to return' : 'Pick a player to move');
+      : (this.playerId ? 'Spectating another room — “Follow character” to return' : 'Select a character to move');
   }
 
   _spriteEl(entity, left, top, isPlayer) {
