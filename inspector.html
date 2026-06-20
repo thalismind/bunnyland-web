@@ -603,7 +603,7 @@ function moodBadge(affect) {
 // Status badges for a character: lifecycle, injury, pregnancy, needs, mood, thoughts.
 // Returns [{ icon, label }]; non-characters get none. Several is expected — the node
 // renders them on their own row.
-function statusBadges(entity, world) {
+function statusBadges(entity) {
   const c = entity.components;
   if (!c.CharacterComponent) return [];
   const out = [];
@@ -1134,7 +1134,7 @@ function showInspector(entityId, world) {
   const movedHtml = window.app?._movedRecently(entityId)
     ? ` <span class="control-badge" style="color:${MOVED_HIGHLIGHT_STYLE}">🏃 moved recently</span>`
     : '';
-  const badges = statusBadges(entity, world);
+  const badges = statusBadges(entity);
   const badgesHtml = badges.length
     ? `<div class="status-badges">${badges.map(b => `${b.icon} ${esc(b.label)}`).join('  ·  ')}</div>`
     : '';
@@ -2262,7 +2262,7 @@ class BunnylandInspector {
 
     // Status badges (characters): mood / needs / health / pregnancy / thoughts. These can
     // be several, so they get their own row of icons; the inspector spells out the labels.
-    const badges = this.world ? statusBadges(entity, this.world) : [];
+    const badges = this.world ? statusBadges(entity) : [];
     if (badges.length) {
       const w = node.addWidget('text', '', badges.map(b => b.icon).join(' '), () => {});
       w.type = 'label';

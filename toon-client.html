@@ -454,7 +454,6 @@
 BunnylandUI.initClientMenu();
 
 const {
-  KIND_ICON,
   actionArguments,
   actionAvailable,
   actionCost,
@@ -1521,7 +1520,7 @@ class RoomClient {
       stage.appendChild(this._spriteEl(member, point.x, point.y, isPlayer));
     }
 
-    this._renderDoors(stage, room, rect);
+    this._renderDoors(stage, room);
     this._renderDebugBounds(stage, room, rect);
 
     const hint = document.getElementById('stage-hint');
@@ -1548,7 +1547,7 @@ class RoomClient {
     return el;
   }
 
-  _renderDoors(stage, room, rect) {
+  _renderDoors(stage, room) {
     const margin = 14;
     if (this.roomProjection?.room?.id === room.id) {
       for (const exit of room.exits || []) {

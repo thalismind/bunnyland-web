@@ -14,7 +14,6 @@
     }
 
     #entity-search {
-      width: 100%;
       margin: 8px 10px 6px 10px;
       width: calc(100% - 20px);
     }
@@ -166,12 +165,6 @@
 
 BunnylandUI.initClientMenu();
 
-const COMMON_COMPONENTS = [
-  'CharacterComponent', 'RoomComponent', 'IdentityComponent', 'PortableComponent',
-  'ContainerComponent', 'SuspendedComponent', 'DeadComponent', 'DownedComponent',
-  'LLMControllerComponent', 'DiscordControllerComponent', 'SuspendedControllerComponent'
-];
-
 const DEFAULT_SCRIPT = {
   id: 'local.script',
   name: 'Local Script',
@@ -228,10 +221,6 @@ function entitySubtitle(entity, world) {
 
 function controlKind(entity, world) {
   return BunnylandWorld.controlInfo(entity, world)?.kind || '';
-}
-
-function componentNamesFromWorld(world) {
-  return BunnylandWorld.componentNames(world, COMMON_COMPONENTS);
 }
 
 function makeDefaultBlock(index) {

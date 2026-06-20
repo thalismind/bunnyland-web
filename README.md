@@ -50,6 +50,17 @@ scripts/playwright-all
 The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_URL` and
 `BUNNYLAND_WEB_NO_SERVER=1` to point the checks at an already-running server.
 
+## JS/CSS/HTML checks
+
+The static clients use npm only for linting and unit tests; there is no bundle output.
+
+```bash
+npm ci
+npm run lint     # ESLint for JS/inline scripts, Stylelint for CSS/style blocks, HTMLHint for HTML
+npm test         # Node unit tests for shared scripts
+npm run check    # lint + unit tests
+```
+
 ## API contracts
 
 The room-focused play client (`toon-client.html`) uses only play-facing contracts and never
