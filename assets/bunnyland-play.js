@@ -82,6 +82,11 @@
     return {
       characterId: data.character_id,
       worldEpoch: data.world_epoch || 0,
+      generatedAtUnix: data.generated_at_unix ?? null,
+      nextTickAtUnix: data.next_tick_at_unix ?? null,
+      tickSeconds: data.tick_seconds ?? null,
+      timeScale: data.time_scale ?? null,
+      gameSecondsPerTick: data.game_seconds_per_tick ?? null,
       commands: data.commands || [],
     };
   }
@@ -361,6 +366,18 @@
     );
   }
 
+  async function cancelQueuedCommand(base, characterId, commandId, control) {
+    const params = new URLSearchParams({
+      controller_id: control?.controllerId || '',
+      controller_generation: String(control?.generation ?? 0),
+    });
+    return BunnylandApi.sendJson(
+      base,
+      `/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`,
+      { method: 'DELETE' }
+    );
+  }
+
   async function claimWebController(base, payload) {
     return BunnylandApi.sendJson(base, '/world/controllers/web/claim', {
       method: 'POST',
@@ -382,8 +399,15 @@
     });
   }
 
+  function queuedCountdownSeconds(queueProjection) {
+    const nextTick = queueProjection?.nextTickAtUnix;
+    if (nextTick == null) return null;
+    return Math.max(0, Math.round(Number(nextTick) - Date.now() / 1000));
+  }
+
   const UNNARRATED_EVENT_TYPES = new Set([
     'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
+    'CommandCancelledEvent',
     'CommandExecutedEvent', 'CommandExpiredEvent',
     'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
     'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
@@ -480,6 +504,7 @@
     actionTool,
     actionUnavailableReason,
     allTargets,
+    cancelQueuedCommand,
     claimWebController,
     claimSettings,
     controlFromResponse,
@@ -508,6 +533,7 @@
     queuedCommandCost,
     queuedCommandDetail,
     queuedCommandName,
+    queuedCountdownSeconds,
     renderEventLine,
     resolveTargetName,
     randomClientId,

@@ -225,6 +225,7 @@ const {
   actionTool,
   actionUnavailableReason,
   allTargets,
+  cancelQueuedCommand,
   claimWebController,
   claimSettings,
   controlFromResponse,
@@ -238,6 +239,7 @@ const {
   orderActionsByAvailability,
   persistentClientId,
   playerControl,
+  queuedCountdownSeconds,
   resolveTargetName,
   suggestTargetNames,
   submitCommand,
@@ -248,7 +250,7 @@ const {
 
 const POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
-const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'clear'];
+const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'cancel', 'clear'];
 
 function splitArgs(rest) {
   const tokens = rest.trim().split(/\s+/).filter(Boolean);
@@ -275,6 +277,7 @@ class WebRepl {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
@@ -348,6 +351,7 @@ class WebRepl {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
@@ -370,6 +374,7 @@ class WebRepl {
         this.projection = projection?.characterId === this.playerId ? projection : null;
         const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
         this.queuedCommands = queued?.characterId === this.playerId ? queued.commands : [];
+        this.queueProjection = queued?.characterId === this.playerId ? queued : null;
       }
       await this._refreshRecentEvents();
       this._setStatus('live', `● Live · epoch ${this.epoch}s`);
@@ -400,6 +405,7 @@ class WebRepl {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     document.getElementById('player-select').value = '';
     this.render();
@@ -497,6 +503,7 @@ class WebRepl {
     if (verb === 'inventory' || verb === 'inv') return this._writeInventory();
     if (verb === 'points') return this._writePoints();
     if (verb === 'queued') return this._writeQueued();
+    if (verb === 'cancel') return this._cancelQueued(rest);
     if (verb === 'refresh') {
       await this.refresh();
       return this._write('Refreshed.', 'ok');
@@ -582,10 +589,27 @@ class WebRepl {
   _writeQueued() {
     if (!this.playerId) return this._write('Pick a player first: play <name>.', 'error');
     if (!this.queuedCommands.length) return this._write('No queued actions.');
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    if (countdown != null) this._write(`Next tick in ${countdown}s.`);
     this._write(this.queuedCommands.map(command => {
       const payload = Object.entries(command.payload || {}).map(([k, v]) => `${k}=${v}`).join(' ');
-      return `${command.command_type}${payload ? ` ${payload}` : ''}`;
+      return `${command.command_id}: ${command.command_type}${payload ? ` ${payload}` : ''}`;
     }).join('\n'));
+  }
+
+  async _cancelQueued(commandId) {
+    if (!this.playerId) return this._write('Pick a player first: play <name>.', 'error');
+    if (!commandId) return this._write('Usage: cancel <command id>', 'error');
+    const control = this._playerControl() || await this._claimPlayer();
+    if (!control) return this._write('Could not claim a web controller for this player.', 'error');
+    try {
+      const result = await cancelQueuedCommand(this.apiBase, this.playerId, commandId, control);
+      if (result?.cancelled) this._write(`Cancelled ${commandId}.`, 'ok');
+      else this._write(result?.reason || 'Command was not cancelled.', 'error');
+      await this.refresh();
+    } catch (err) {
+      this._write(`Cancel failed: ${err.message}`, 'error');
+    }
   }
 
   async _act(line) {

@@ -279,6 +279,7 @@ const {
   actionTitle,
   actionUnavailableReason,
   allTargets,
+  cancelQueuedCommand,
   claimWebController,
   claimSettings,
   controlFromResponse,
@@ -292,6 +293,7 @@ const {
   formatPoints,
   persistentClientId,
   queuedCommandLabel,
+  queuedCountdownSeconds,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -308,6 +310,7 @@ class WebTui {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     this.selectedId = '';
     this.actionFilter = '';
@@ -376,6 +379,7 @@ class WebTui {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     this.selectedId = '';
     this.activityLines = [];
@@ -398,6 +402,7 @@ class WebTui {
         this.projection = await fetchCharacterProjection(this.apiBase, this.playerId);
         const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
         this.queuedCommands = queued?.commands || [];
+        this.queueProjection = queued?.characterId === this.playerId ? queued : null;
         if (this.projection?.controller) {
           this.control = {
             characterId: this.playerId,
@@ -421,6 +426,7 @@ class WebTui {
     this.selectedId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = await this._claimPlayer(id);
     await this.refresh();
   }
@@ -429,6 +435,7 @@ class WebTui {
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
+    this.queueProjection = null;
     this.control = null;
     this.selectedId = '';
     this.render();
@@ -536,6 +543,44 @@ class WebTui {
     await this.refresh();
   }
 
+  async _moveThroughExit(exit) {
+    if (!exit || !this.playerId || !this.control) return;
+    const action = this._availableActions().find(item =>
+      actionArguments(item).some(arg => arg.target_group === 'exits'));
+    const exitArg = action ? actionArguments(action).find(arg => arg.target_group === 'exits') : null;
+    if (!action || !exitArg) return;
+    const cost = actionCost(action);
+    const result = await submitCommand(this.apiBase, {
+      character_id: this.playerId,
+      controller_id: this.control.controllerId,
+      controller_generation: this.control.generation,
+      command_type: actionCommandType(action),
+      payload: { [exitArg.key]: exit.id },
+      cost,
+      lane: actionLane(action),
+      on_insufficient_points: 'queue',
+    });
+    if (result?.queued === false) {
+      this.activityLines.push({ text: result.reason || 'Command rejected.', kind: 'rejection' });
+      this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+    }
+    await this.refresh();
+  }
+
+  async _cancelQueuedCommand(commandId) {
+    if (!this.playerId || !this.control || !commandId) return;
+    try {
+      const result = await cancelQueuedCommand(this.apiBase, this.playerId, commandId, this.control);
+      if (!result?.cancelled) {
+        this.activityLines.push({ text: result?.reason || 'Could not cancel queued command.', kind: 'rejection' });
+        this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+      }
+      await this.refresh();
+    } catch (err) {
+      this._setStatus('err', `⚠ ${err.message || err}`);
+    }
+  }
+
   _actionForm(action, fields) {
     return new Promise((resolve) => {
       if (document.getElementById('action-form-overlay')) { resolve(null); return; }
@@ -547,7 +592,10 @@ class WebTui {
         let control;
         if (field.candidates) {
           const options = ['<option value="">— choose —</option>'].concat(
-            field.candidates.map(c => `<option value="${esc(c.value)}">${esc(c.icon)} ${esc(c.label)}</option>`)
+            field.candidates.map(c => {
+              const selected = c.value === this.selectedId ? ' selected' : '';
+              return `<option value="${esc(c.value)}"${selected}>${esc(c.icon)} ${esc(c.label)}</option>`;
+            })
           );
           control = `<select class="form-input" data-index="${index}">${options.join('')}</select>`;
         } else if (field.kind === 'boolean') {
@@ -634,8 +682,11 @@ class WebTui {
 
     const exits = room?.exits || [];
     document.getElementById('doors').innerHTML = exits.length ? exits
-      .map(exit => `<div class="option disabled"><span class="option-main">🚪 ${esc(exit.direction || exit.label || exit.id)}</span><span class="option-meta">${exit.locked ? 'locked' : ''}</span></div>`)
+      .map((exit, index) => `<button class="option" type="button" data-exit-index="${index}"><span class="option-main">🚪 ${esc(exit.direction || exit.label || exit.id)}</span><span class="option-meta">${exit.locked ? 'locked' : ''}</span></button>`)
       .join('') : '<div class="empty">No visible exits.</div>';
+    document.querySelectorAll('#doors .option[data-exit-index]').forEach(button => {
+      button.addEventListener('click', () => this._moveThroughExit(exits[Number(button.dataset.exitIndex)]));
+    });
 
     document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
       .map(line => `<div class="option disabled ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${esc(line.text)}</span></div>`)
@@ -665,10 +716,14 @@ class WebTui {
       button.addEventListener('click', () => this._doAction(action));
     });
 
-    document.getElementById('queued').innerHTML = '<div class="action-section-title">Queued actions</div>' +
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    document.getElementById('queued').innerHTML = `<div class="action-section-title">Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}</div>` +
       (this.queuedCommands.length
-        ? this.queuedCommands.map(command => `<div class="option disabled"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span></div>`).join('')
+        ? this.queuedCommands.map(command => `<button class="option" type="button" data-cancel-command="${esc(command.command_id || '')}" title="Cancel queued action"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span><span class="option-meta">cancel</span></button>`).join('')
         : '<div class="empty">No queued actions.</div>');
+    document.querySelectorAll('#queued .option[data-cancel-command]').forEach(button => {
+      button.addEventListener('click', () => this._cancelQueuedCommand(button.dataset.cancelCommand));
+    });
   }
 
   _verbRowHtml(action, index, hasPlayer, pts, esc) {

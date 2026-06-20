@@ -77,6 +77,7 @@
     }
     .sprite.player .glyph { filter: drop-shadow(0 0 6px var(--bl-accent)); }
     .sprite.player .label { color: var(--bl-accent); }
+    .sprite.selected .glyph { outline: 2px solid var(--bl-accent); outline-offset: 3px; }
 
     .debug-box {
       position: absolute;
@@ -255,7 +256,12 @@
       border-radius: var(--bl-radius-sm);
       background: var(--bl-bg-subtle);
       font-size: var(--bl-text-sm);
+      color: var(--bl-text);
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
     }
+    .queued-action:hover { border-color: var(--bl-accent); background: var(--bl-surface-hover); }
     .queued-action-head {
       display: flex;
       justify-content: space-between;
@@ -462,6 +468,7 @@ const {
   actionTitle,
   actionTool,
   actionUnavailableReason,
+  cancelQueuedCommand,
   claimSettings,
   claimWebController,
   controlFromResponse,
@@ -478,6 +485,7 @@ const {
   queuedCommandCost,
   queuedCommandDetail,
   queuedCommandName,
+  queuedCountdownSeconds,
   randomClientId,
   submitCommand,
   updateWebControllerFallback,
@@ -615,6 +623,8 @@ class RoomClient {
     this.characterProjection = null;
     this.roomProjection = null;
     this.queuedCommands = null;
+    this.queueProjection = null;
+    this.selectedId = '';
     this.activityLines = [];
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
@@ -816,17 +826,20 @@ class RoomClient {
   async _refreshQueuedCommands({ render = false } = {}) {
     if (!this.apiBase || !this.playerId) {
       this.queuedCommands = null;
+      this.queueProjection = null;
       if (render) this.render();
       return null;
     }
     try {
       const projection = await fetchQueuedCommands(this.apiBase, this.playerId);
       this.queuedCommands = projection?.characterId === this.playerId ? projection.commands : null;
+      this.queueProjection = projection?.characterId === this.playerId ? projection : null;
       if (render) this.render();
       return this.queuedCommands;
     } catch (err) {
       console.warn('Could not refresh Bunnyland queued commands', err);
       this.queuedCommands = null;
+      this.queueProjection = null;
       if (render) this.render();
       return null;
     }
@@ -1018,6 +1031,8 @@ class RoomClient {
       this.control = null;
       this.characterProjection = null;
       this.queuedCommands = null;
+      this.queueProjection = null;
+      this.selectedId = '';
     }
   }
 
@@ -1026,6 +1041,8 @@ class RoomClient {
     this.control = null;
     this.characterProjection = null;
     this.queuedCommands = null;
+    this.queueProjection = null;
+    this.selectedId = '';
     this.roomProjection = null;
     this.activityLines = [];
     this.seenEventIds = new Set();
@@ -1177,6 +1194,20 @@ class RoomClient {
     }
   }
 
+  async _cancelQueuedCommand(commandId) {
+    const control = this._playerControl() || await this._claimPlayer();
+    if (!this.apiBase || !this.playerId || !control || !commandId) return;
+    try {
+      const result = await cancelQueuedCommand(this.apiBase, this.playerId, commandId, control);
+      if (!result?.cancelled) {
+        this._appendActivity({ text: result?.reason || 'Could not cancel queued command.', kind: 'rejection' });
+      }
+      await this._refresh();
+    } catch (err) {
+      console.warn('Could not cancel Bunnyland queued command', err);
+    }
+  }
+
   // ── Optimistic movement + periodic sync ──────────────────────────────────────
 
   _moveTo(x, y) {
@@ -1190,6 +1221,7 @@ class RoomClient {
 
   _onStageClick(e) {
     if (e.target.closest('.door')) return;       // door clicks navigate, not move
+    if (e.target.closest('.sprite')) return;     // sprite clicks select targets
     if (!this._playerInView()) return;
     const stage = document.getElementById('stage');
     const rect = stage.getBoundingClientRect();
@@ -1314,8 +1346,10 @@ class RoomClient {
         let control;
         if (field.candidates) {
           const options = ['<option value="">— choose —</option>'].concat(
-            field.candidates.map(c =>
-              `<option value="${esc(c.value)}">${esc(c.icon)} ${esc(c.label)}</option>`));
+            field.candidates.map(c => {
+              const selected = c.value === this.selectedId ? ' selected' : '';
+              return `<option value="${esc(c.value)}"${selected}>${esc(c.icon)} ${esc(c.label)}</option>`;
+            }));
           control = `<select class="af-input" data-i="${i}">${options.join('')}</select>`;
         } else if (field.kind === 'boolean') {
           control = `<select class="af-input" data-i="${i}">` +
@@ -1410,6 +1444,9 @@ class RoomClient {
       const action = this._availableActions().find(item => actionTool(item) === el.dataset.tool);
       el.addEventListener('click', () => this._doAction(action));
     }
+    for (const el of body.querySelectorAll('[data-cancel-command]')) {
+      el.addEventListener('click', () => this._cancelQueuedCommand(el.dataset.cancelCommand));
+    }
     const filter = document.getElementById('action-filter');
     if (filter && filterWasFocused) {
       filter.focus();
@@ -1418,8 +1455,10 @@ class RoomClient {
   }
 
   _queuedActionsHtml(commands, esc) {
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    const title = `Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}`;
     if (!commands.length) {
-      return '<div class="action-section-title">Queued actions</div>' +
+      return `<div class="action-section-title">${esc(title)}</div>` +
         '<div class="queued-empty">No queued actions.</div>';
     }
     const actions = this._availableActions();
@@ -1427,15 +1466,15 @@ class RoomClient {
       const name = queuedCommandName(command, actions);
       const cost = queuedCommandCost(command);
       const detail = queuedCommandDetail(command);
-      return `<div class="queued-action">` +
+      return `<button class="queued-action" type="button" data-cancel-command="${esc(command.command_id || '')}" title="Cancel queued action">` +
         `<div class="queued-action-head">` +
         `<span class="queued-action-name">${esc(name)}</span>` +
         `<span class="queued-action-lane">${esc(command.lane || '')}</span>` +
         `</div>` +
         `<div class="queued-action-detail">${esc([cost, detail].filter(Boolean).join(' · '))}</div>` +
-        `</div>`;
+        `</button>`;
     }).join('');
-    return `<div class="action-section-title">Queued actions</div><div class="queued-list">${rows}</div>`;
+    return `<div class="action-section-title">${esc(title)}</div><div class="queued-list">${rows}</div>`;
   }
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {
@@ -1531,7 +1570,7 @@ class RoomClient {
 
   _spriteEl(entity, left, top, isPlayer) {
     const el = document.createElement('div');
-    el.className = 'sprite' + (isPlayer ? ' player' : '');
+    el.className = 'sprite' + (isPlayer ? ' player' : '') + (entity.id === this.selectedId ? ' selected' : '');
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
     el.style.zIndex = String(1000 + this._spriteLayer(entity));
@@ -1544,6 +1583,11 @@ class RoomClient {
       ? `<img class="glyph" src="${img}" alt=""${scaleStyle}>`
       : `<div class="glyph"${scaleStyle}>${entityIcon(entity)}</div>`;
     el.innerHTML = `${glyph}<div class="label">${BunnylandUI.escapeHtml(entityName(entity))}</div>`;
+    el.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.selectedId = entity.id;
+      this.render();
+    });
     return el;
   }
 
