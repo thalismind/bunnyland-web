@@ -49,7 +49,7 @@
     {
       href: 'web-repl.html',
       title: 'Web REPL',
-      label: 'Typed play',
+      label: 'Text-based play',
       description: 'Claim a character and play with typed commands in the browser.',
       supportsServer: true,
     },
