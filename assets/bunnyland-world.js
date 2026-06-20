@@ -250,7 +250,7 @@
     return [...names].sort();
   }
 
-  function parseEntitySearch(query) {
+  function parseEntitySearch(query, { invalidToken = false } = {}) {
     const filters = [];
     const text = [];
     for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
@@ -258,7 +258,9 @@
       if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
       else text.push(token.toLowerCase());
     }
-    return { filters, text: text.join(' ') };
+    const invalid = invalidToken && text.includes('invalid');
+    const terms = invalid ? text.filter(token => token !== 'invalid') : text;
+    return { filters, invalid, text: terms.join(' ') };
   }
 
   window.BunnylandWorld = {

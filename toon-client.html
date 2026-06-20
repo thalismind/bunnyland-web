@@ -457,19 +457,31 @@ const {
   KIND_ICON,
   actionArguments,
   actionAvailable,
-  actionCommandType,
   actionCost,
+  actionFields,
   actionLane,
   actionTitle,
   actionTool,
   actionUnavailableReason,
+  claimSettings,
+  claimWebController,
+  controlFromResponse,
+  drainNarratedEvents,
   entityIcon,
   entityName,
-  orderActionsByAvailability,
-  parseCharacterList,
-  parseCharacterProjection,
-  parseQueuedCommands,
-  parseRoomProjection,
+  fetchCharacterList,
+  fetchCharacterProjection,
+  fetchQueuedCommands,
+  fetchRecentEvents,
+  fetchRoomProjection,
+  filterActions,
+  playerControl,
+  queuedCommandCost,
+  queuedCommandDetail,
+  queuedCommandName,
+  randomClientId,
+  submitCommand,
+  updateWebControllerFallback,
 } = BunnylandPlay;
 
 // Compass direction → unit edge offset, mirroring the Inspector's room layout.
@@ -514,25 +526,7 @@ const ACTION_VERBS = [
 ];
 
 const ACTIVITY_LIMIT = 8;
-const UNNARRATED_EVENT_TYPES = new Set([
-  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
-  'CommandExecutedEvent', 'CommandExpiredEvent',
-  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
-  'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
-  'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
-  'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
-]);
-const EVENT_BASE_KEYS = new Set([
-  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
-  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
-]);
-
 const fmtPoints = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-
-function humanizeEventType(eventType) {
-  const name = String(eventType || 'Event').replace(/Event$/, '');
-  return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
-}
 
 function legacyActionView(verb) {
   const args = [];
@@ -562,22 +556,6 @@ function legacyActionView(verb) {
     cost: { action: verb.ap, focus: verb.fp },
     arguments: args,
   };
-}
-
-function randomClientId() {
-  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (globalThis.crypto?.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < bytes.length; i += 1) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0'));
-  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
 }
 
 async function persistentClientId() {
@@ -789,7 +767,7 @@ class RoomClient {
   async _refreshCharacterList() {
     // The claim lobby: ids and names of every character, with no per-character state. This
     // is the player-facing replacement for the admin-gated snapshot's character roster.
-    const parsed = parseCharacterList(await BunnylandApi.sendJson(this.apiBase, '/world/characters'));
+    const parsed = await fetchCharacterList(this.apiBase);
     this.characterList = parsed.characters;
     this.epoch = parsed.epoch;
     this._refreshPlayerOptions();
@@ -802,9 +780,7 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = parseCharacterProjection(
-        await BunnylandApi.sendJson(this.apiBase, `/world/character/${encodeURIComponent(this.playerId)}`)
-      );
+      const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
       this.characterProjection = projection?.characterId === this.playerId ? projection : null;
       if (this.followPlayer && this.characterProjection?.room?.id) {
         this.viewRoomId = this.characterProjection.room.id;
@@ -826,9 +802,7 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = parseRoomProjection(
-        await BunnylandApi.sendJson(this.apiBase, `/world/room/${encodeURIComponent(roomId)}`)
-      );
+      const projection = await fetchRoomProjection(this.apiBase, roomId);
       this.roomProjection = projection?.room?.id === roomId ? projection : null;
       if (render) this.render();
       return this.roomProjection;
@@ -847,9 +821,7 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = parseQueuedCommands(
-        await BunnylandApi.sendJson(this.apiBase, `/world/character/${encodeURIComponent(this.playerId)}/commands`)
-      );
+      const projection = await fetchQueuedCommands(this.apiBase, this.playerId);
       this.queuedCommands = projection?.characterId === this.playerId ? projection.commands : null;
       if (render) this.render();
       return this.queuedCommands;
@@ -864,7 +836,7 @@ class RoomClient {
   async _refreshRecentEvents() {
     if (!this.apiBase) return;
     try {
-      const data = await BunnylandApi.sendJson(this.apiBase, '/world/events/recent');
+      const data = await fetchRecentEvents(this.apiBase);
       this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
       this.eventsPrimed = true;
     } catch (err) {
@@ -1087,14 +1059,7 @@ class RoomClient {
 
   // Controller (id + generation) claimed by this browser client.
   _playerControl() {
-    if (this.control?.characterId === this.playerId) {
-      return { controllerId: this.control.controllerId, generation: this.control.generation };
-    }
-    const projected = this.characterProjection?.controller;
-    if (this.characterProjection?.characterId === this.playerId && projected) {
-      return { controllerId: projected.controller_id, generation: projected.generation };
-    }
-    return null;
+    return playerControl(this.control, this.characterProjection, this.playerId);
   }
 
   async _clientIdValue() {
@@ -1106,20 +1071,13 @@ class RoomClient {
     if (!this.apiBase || !playerId) return null;
     try {
       const clientId = await this._clientIdValue();
-      const data = await BunnylandApi.sendJson(this.apiBase, '/world/controllers/web/claim', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...this._claimSettings(),
-          character_id: playerId,
-          client_id: clientId,
-          label: 'toon',
-        }),
+      const data = await claimWebController(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: playerId,
+        client_id: clientId,
+        label: 'toon',
       });
-      const control = {
-        characterId: data.character_id,
-        controllerId: data.controller_id,
-        generation: data.controller_generation,
-      };
+      const control = controlFromResponse(data, playerId);
       if (this.playerId === playerId) this.control = control;
       return control;
     } catch (err) {
@@ -1129,29 +1087,19 @@ class RoomClient {
   }
 
   _claimSettings() {
-    const fallback = document.getElementById('claim-fallback').value;
-    const rawMinutes = Number(document.getElementById('claim-timeout').value);
-    const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : 30;
-    return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
+    return claimSettings();
   }
 
   async _updateClaimFallback() {
     if (!this.apiBase || !this.playerId || !this.control) return;
     try {
       const clientId = await this._clientIdValue();
-      const data = await BunnylandApi.sendJson(this.apiBase, '/world/controllers/web/fallback', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          ...this._claimSettings(),
-          character_id: this.playerId,
-          client_id: clientId,
-        }),
+      const data = await updateWebControllerFallback(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: this.playerId,
+        client_id: clientId,
       });
-      this.control = {
-        characterId: data.character_id,
-        controllerId: data.controller_id,
-        generation: data.controller_generation,
-      };
+      this.control = controlFromResponse(data, this.playerId);
     } catch (err) {
       console.warn('Could not update Bunnyland claim fallback', err);
     }
@@ -1185,66 +1133,16 @@ class RoomClient {
     return entity ? entityName(entity) : null;
   }
 
-  _perceivesEvent(event) {
-    const visibility = event.visibility;
-    if (visibility === 'public') return true;
-    if (visibility === 'room') return Boolean(this.playerId) && event.room_id === this._playerRoomId();
-    if (visibility === 'directed') {
-      return Boolean(this.playerId) && (
-        event.actor_id === this.playerId || (event.target_ids || []).includes(this.playerId)
-      );
-    }
-    if (visibility === 'private') return Boolean(this.playerId) && event.actor_id === this.playerId;
-    return false;
-  }
-
   _drainEvents(messages, { prime = false } = {}) {
-    const current = new Set(this.seenEventIds);
-    const lines = [];
-    for (const message of messages || []) {
-      const data = message.data || message;
-      const event = data.event || {};
-      const eventId = event.event_id;
-      if (!eventId) continue;
-      current.add(eventId);
-      if (this.seenEventIds.has(eventId)) continue;
-      const eventType = data.event_type || 'Event';
-      if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
-      const own = this.playerId && event.actor_id === this.playerId;
-      if (own || this._perceivesEvent(event)) lines.push(this._renderEventLine(data));
-    }
-    this.seenEventIds = current;
+    const drained = drainNarratedEvents(messages, {
+      seenIds: this.seenEventIds,
+      playerId: this.playerId,
+      roomOf: (id) => (id === this.playerId ? this._playerRoomId() : null),
+      nameFor: (id) => this._nameFor(id),
+    });
+    this.seenEventIds = drained.seenIds;
     if (prime) return;
-    for (const line of lines) this._appendActivity(line);
-  }
-
-  _renderEventLine(data) {
-    const event = data.event || {};
-    const eventType = String(data.event_type || 'Event');
-    if (eventType === 'ActorMovedEvent' && this.playerId &&
-        event.actor_id === this.playerId && event.arrival_summary) {
-      return { text: String(event.arrival_summary), kind: '' };
-    }
-    const actor = event.actor_id ? this._nameFor(event.actor_id) : null;
-    const details = [];
-    for (const [key, value] of Object.entries(event)) {
-      if (EVENT_BASE_KEYS.has(key) || value == null || value === '' ||
-          (Array.isArray(value) && !value.length)) {
-        continue;
-      }
-      if (key.endsWith('_ids') && Array.isArray(value)) {
-        const names = value.map(item => this._nameFor(String(item))).filter(Boolean);
-        if (names.length) details.push(names.join(', '));
-      } else if (key.endsWith('_id')) {
-        const name = this._nameFor(String(value));
-        if (name) details.push(name);
-      } else {
-        details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
-      }
-    }
-    const label = humanizeEventType(eventType);
-    const text = `${actor ? `${actor}: ` : ''}${label}${details.length ? ` — ${details.join('; ')}` : ''}`;
-    return { text, kind: eventType === 'CommandRejectedEvent' ? 'rejection' : '' };
+    for (const line of drained.lines) this._appendActivity(line);
   }
 
   _appendActivity(line) {
@@ -1259,18 +1157,15 @@ class RoomClient {
     const control = this._playerControl() || await this._claimPlayer();
     if (!this.apiBase || !control) return false;
     try {
-      const result = await BunnylandApi.sendJson(this.apiBase, '/world/commands', {
-        method: 'POST',
-        body: JSON.stringify({
-          character_id: this.playerId,
-          controller_id: control.controllerId,
-          controller_generation: control.generation,
-          command_type: commandType,
-          payload,
-          cost: { action: ap, focus: fp },
-          lane,
-          on_insufficient_points: 'queue',
-        }),
+      const result = await submitCommand(this.apiBase, {
+        character_id: this.playerId,
+        controller_id: control.controllerId,
+        controller_generation: control.generation,
+        command_type: commandType,
+        payload,
+        cost: { action: ap, focus: fp },
+        lane,
+        on_insufficient_points: 'queue',
       });
       if (result?.queued === false) {
         this._appendActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
@@ -1396,33 +1291,14 @@ class RoomClient {
   }
 
   _filteredActions() {
-    const query = this.actionFilter.trim().toLowerCase();
-    const actions = query ? this._availableActions().filter(action =>
-      actionTitle(action).toLowerCase().includes(query) ||
-      actionTool(action).toLowerCase().includes(query) ||
-      actionCommandType(action).toLowerCase().includes(query)) : this._availableActions();
-    return orderActionsByAvailability(actions);
+    return filterActions(this._availableActions(), this.actionFilter);
   }
 
   // Arguments worth prompting: every required argument plus any entity argument that has
   // a target group (rendered as a dropdown of nearby candidates). Mirrors the terminal
   // TUI's action form so both player clients prompt for the same fields.
   _actionFields(action) {
-    const fields = [];
-    for (const argument of actionArguments(action)) {
-      if (!argument.key) continue;
-      const required = !!argument.required;
-      const targetGroup = argument.target_group;
-      if (!required && !targetGroup) continue;
-      fields.push({
-        key: argument.key,
-        label: argument.title || argument.key,
-        kind: argument.kind || 'string',
-        required,
-        candidates: targetGroup ? this._targetCandidates(targetGroup) : null,
-      });
-    }
-    return fields;
+    return actionFields(action, group => this._targetCandidates(group));
   }
 
   // One modal collecting all of an action's fields: a dropdown for target and boolean
@@ -1519,9 +1395,10 @@ class RoomClient {
       `<input id="action-filter" type="text" value="${esc(this.actionFilter)}" placeholder="Search actions" spellcheck="false">` +
       `<button id="action-filter-clear" type="button">Clear</button>` +
       `</div>`;
+    const filteredActions = this._filteredActions();
     for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
       html += `<div class="action-section-title">${title}</div><div class="verb-list">`;
-      const rows = this._filteredActions().filter(action => actionLane(action) === lane)
+      const rows = filteredActions.filter(action => actionLane(action) === lane)
         .map((action) => this._verbRowHtml(action, pts, hasPlayer, esc)).join('');
       html += rows || '<div class="queued-empty">No matching actions.</div>';
       html += '</div>';
@@ -1546,10 +1423,11 @@ class RoomClient {
       return '<div class="action-section-title">Queued actions</div>' +
         '<div class="queued-empty">No queued actions.</div>';
     }
+    const actions = this._availableActions();
     const rows = commands.map(command => {
-      const name = this._queuedCommandName(command);
-      const cost = this._queuedCommandCost(command);
-      const detail = this._queuedCommandDetail(command);
+      const name = queuedCommandName(command, actions);
+      const cost = queuedCommandCost(command);
+      const detail = queuedCommandDetail(command);
       return `<div class="queued-action">` +
         `<div class="queued-action-head">` +
         `<span class="queued-action-name">${esc(name)}</span>` +
@@ -1559,28 +1437,6 @@ class RoomClient {
         `</div>`;
     }).join('');
     return `<div class="action-section-title">Queued actions</div><div class="queued-list">${rows}</div>`;
-  }
-
-  _queuedCommandName(command) {
-    const action = this._availableActions().find(item => item.command_type === command.command_type);
-    if (action) return actionTitle(action);
-    return String(command.command_type || 'command').replaceAll('-', ' ');
-  }
-
-  _queuedCommandCost(command) {
-    const cost = command.cost || {};
-    const parts = [];
-    if (cost.action) parts.push(`${cost.action} AP`);
-    if (cost.focus) parts.push(`${cost.focus} FP`);
-    return parts.length ? parts.join(' + ') : 'free';
-  }
-
-  _queuedCommandDetail(command) {
-    const payload = command.payload || {};
-    return Object.entries(payload)
-      .filter(([, value]) => value !== '' && value != null)
-      .map(([key, value]) => `${key}: ${String(value)}`)
-      .join(', ');
   }
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {

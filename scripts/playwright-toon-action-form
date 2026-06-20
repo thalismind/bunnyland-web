@@ -90,7 +90,20 @@ CHARACTER_PROJECTION = {
 }
 
 ROOM_PROJECTION = {"world_epoch": 5, "room": CHARACTER_PROJECTION["room"]}
-QUEUED = {"character_id": CHARACTER, "commands": []}
+QUEUED = {
+    "character_id": CHARACTER,
+    "commands": [
+        {
+            "command_id": "queued-1",
+            "character_id": CHARACTER,
+            "command_type": "say",
+            "payload": {"text": "after lunch"},
+            "cost": {"action": 1, "focus": 1},
+            "lane": "world",
+            "submitted_at_epoch": 5,
+        }
+    ],
+}
 EVENTS = {"events": []}
 
 
@@ -167,6 +180,8 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator("#actions-body")).to_contain_text("1 AP")
     expect(page.locator("#actions-body")).to_contain_text("1 FP")
     expect(page.locator("#actions-body")).to_contain_text("not enough focus points")
+    expect(page.locator("#actions-body")).to_contain_text("Queued actions")
+    expect(page.locator("#actions-body")).to_contain_text("after lunch")
     expect(page.locator("#actions-body .verb.ready").nth(0)).to_contain_text("Say")
     expect(page.locator('.verb.unavailable.ready[data-tool="shout"]')).to_be_visible()
 
@@ -237,6 +252,25 @@ def check_single_form_at_a_time(page) -> None:
     expect(page.locator("#action-form-overlay")).to_have_count(0)
 
 
+def check_event_activity(page) -> None:
+    EVENTS["events"] = [
+        {
+            "event_type": "CommandRejectedEvent",
+            "data": {
+                "event_type": "CommandRejectedEvent",
+                "event": {
+                    "event_id": "event-rejected-1",
+                    "visibility": "directed",
+                    "actor_id": CHARACTER,
+                    "reason": "blocked by furniture",
+                },
+            },
+        }
+    ]
+    page.evaluate("() => window.app._refresh()")
+    expect(page.locator("#actions-body")).to_contain_text("blocked by furniture")
+
+
 def main() -> None:
     with sync_playwright() as playwright:
         browser = launch_browser(playwright)
@@ -250,6 +284,7 @@ def main() -> None:
         check_unavailable_action_can_queue(page, posted)
         check_tell_dropdown_and_text(page, posted)
         check_single_form_at_a_time(page)
+        check_event_activity(page)
 
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-toon-action-form.png"))
         browser.close()

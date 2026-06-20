@@ -274,19 +274,24 @@ const {
   actionAvailable,
   actionCommandType,
   actionCost,
+  actionFields,
   actionLane,
   actionTitle,
   actionTool,
   actionUnavailableReason,
+  allTargets,
   claimWebController,
+  claimSettings,
+  controlFromResponse,
   drainNarratedEvents,
   entityIcon,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
   fetchRecentEvents,
+  filterActions,
   formatPoints,
-  orderActionsByAvailability,
+  persistentClientId,
   queuedCommandLabel,
   submitCommand,
   updateWebControllerFallback,
@@ -295,24 +300,6 @@ const {
 const POLL_INTERVAL_MS = 2000;
 const ACTIVITY_LIMIT = 8;
 const CLIENT_ID_KEY = 'bunnyland.webTui.clientId';
-
-function randomClientId() {
-  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
-  return `web-tui-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function persistentClientId() {
-  try {
-    let clientId = localStorage.getItem(CLIENT_ID_KEY);
-    if (!clientId) {
-      clientId = randomClientId();
-      localStorage.setItem(CLIENT_ID_KEY, clientId);
-    }
-    return clientId;
-  } catch (_err) {
-    return randomClientId();
-  }
-}
 
 class WebTui {
   constructor() {
@@ -328,7 +315,7 @@ class WebTui {
     this.activityLines = [];
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
-    this.clientId = persistentClientId();
+    this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-tui');
     this._pollTimer = null;
 
     this._bindUi();
@@ -451,30 +438,23 @@ class WebTui {
   async _claimPlayer(characterId) {
     if (!this.apiBase || !characterId) return null;
     const data = await claimWebController(this.apiBase, {
+      ...claimSettings(),
       character_id: characterId,
       client_id: this.clientId,
       label: 'web-tui',
-      fallback_controller: document.getElementById('claim-fallback').value,
-      timeout_seconds: Number(document.getElementById('claim-timeout').value || 30) * 60,
     });
-    return {
-      characterId,
-      controllerId: data.controller_id,
-      generation: Number(data.controller_generation || 0),
-    };
+    return controlFromResponse(data, characterId);
   }
 
   async _updateClaimFallback() {
     if (!this.apiBase || !this.playerId || !this.control) return;
     try {
       const data = await updateWebControllerFallback(this.apiBase, {
+        ...claimSettings(),
         character_id: this.playerId,
-        controller_id: this.control.controllerId,
-        controller_generation: this.control.generation,
-        fallback_controller: document.getElementById('claim-fallback').value,
-        timeout_seconds: Number(document.getElementById('claim-timeout').value || 30) * 60,
+        client_id: this.clientId,
       });
-      this.control.generation = Number(data.controller_generation || this.control.generation);
+      this.control = controlFromResponse(data, this.playerId);
     } catch (err) {
       this._setStatus('err', `⚠ ${err.message || err}`);
     }
@@ -501,8 +481,7 @@ class WebTui {
   }
 
   _allTargets() {
-    const groups = this.projection?.targetGroups || {};
-    return Object.values(groups).flat();
+    return allTargets(this.projection);
   }
 
   _drainEvents(messages, { prime = false } = {}) {
@@ -524,11 +503,7 @@ class WebTui {
 
   _filteredActions() {
     const query = this.actionFilter.trim().toLowerCase();
-    const actions = query ? this._availableActions().filter(action =>
-      actionTitle(action).toLowerCase().includes(query) ||
-      actionTool(action).toLowerCase().includes(query) ||
-      actionCommandType(action).toLowerCase().includes(query)) : this._availableActions();
-    return orderActionsByAvailability(actions);
+    return filterActions(this._availableActions(), query);
   }
 
   _targetCandidates(group) {
@@ -536,15 +511,7 @@ class WebTui {
   }
 
   _actionFields(action) {
-    return actionArguments(action)
-      .filter(arg => arg.key && (arg.required || arg.target_group))
-      .map(arg => ({
-        key: arg.key,
-        label: arg.title || arg.key,
-        kind: arg.kind || 'string',
-        required: Boolean(arg.required),
-        candidates: arg.target_group ? this._targetCandidates(arg.target_group) : null,
-      }));
+    return actionFields(action, group => this._targetCandidates(group));
   }
 
   async _doAction(action) {

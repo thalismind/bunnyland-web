@@ -93,7 +93,21 @@ CHARACTER_PROJECTION = {
     ],
 }
 
-QUEUED = {"character_id": CHARACTER, "world_epoch": 8, "commands": []}
+QUEUED = {
+    "character_id": CHARACTER,
+    "world_epoch": 8,
+    "commands": [
+        {
+            "command_id": "queued-1",
+            "character_id": CHARACTER,
+            "command_type": "say",
+            "payload": {"text": "later"},
+            "cost": {"action": 1, "focus": 1},
+            "lane": "world",
+            "submitted_at_epoch": 8,
+        }
+    ],
+}
 EVENTS = {"events": []}
 
 
@@ -163,6 +177,9 @@ def connect_and_select(page) -> None:
     expect(page.locator("#side-actions")).to_contain_text("not enough focus points")
     expect(page.locator("#side-actions .side-row").nth(0)).to_contain_text("say")
     expect(page.locator("#side-actions .side-row.unavailable")).to_contain_text("shout")
+    page.locator("#repl-input").fill("queued")
+    page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_contain_text("text=later")
 
 
 def submit_say(page, posted: list[dict]) -> None:
@@ -205,6 +222,25 @@ def submit_tell_named_target(page, posted: list[dict]) -> None:
         raise AssertionError(f"tell command did not resolve visible target: {body!r}")
 
 
+def narrate_event(page) -> None:
+    EVENTS["events"] = [
+        {
+            "event_type": "ActorMovedEvent",
+            "data": {
+                "event_type": "ActorMovedEvent",
+                "event": {
+                    "event_id": "event-moved-1",
+                    "visibility": "directed",
+                    "actor_id": CHARACTER,
+                    "arrival_summary": "You arrive in the Hallway.",
+                },
+            },
+        }
+    ]
+    page.evaluate("() => window.app.refresh()")
+    expect(page.locator("#repl-log")).to_contain_text("You arrive in the Hallway.")
+
+
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -214,6 +250,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        narrate_event(page)
         submit_unavailable(page, posted)
         submit_say(page, posted)
         submit_tell_named_target(page, posted)

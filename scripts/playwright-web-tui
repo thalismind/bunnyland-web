@@ -106,7 +106,21 @@ CHARACTER_PROJECTION = {
     ],
 }
 
-QUEUED = {"character_id": CHARACTER, "world_epoch": 8, "commands": []}
+QUEUED = {
+    "character_id": CHARACTER,
+    "world_epoch": 8,
+    "commands": [
+        {
+            "command_id": "queued-1",
+            "character_id": CHARACTER,
+            "command_type": "remember",
+            "payload": {"query": "brass key"},
+            "cost": {"action": 0, "focus": 1},
+            "lane": "focus",
+            "submitted_at_epoch": 8,
+        }
+    ],
+}
 EVENTS = {"events": []}
 
 
@@ -179,6 +193,8 @@ def connect_and_select(page) -> None:
     expect(page.locator("#verbs")).to_contain_text("1 AP")
     expect(page.locator("#verbs")).to_contain_text("1 FP")
     expect(page.locator("#verbs")).to_contain_text("not enough focus points")
+    expect(page.locator("#queued")).to_contain_text("Remember")
+    expect(page.locator("#queued")).to_contain_text("query: brass key")
     expect(page.locator("#verbs .option").nth(0)).to_contain_text("Move")
     expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_be_visible()
 
@@ -223,6 +239,25 @@ def submit_unavailable(page, posted: list[dict]) -> None:
         raise AssertionError(f"unavailable action should still queue: {posted[-1]!r}")
 
 
+def narrate_event(page) -> None:
+    EVENTS["events"] = [
+        {
+            "event_type": "CommandRejectedEvent",
+            "data": {
+                "event_type": "CommandRejectedEvent",
+                "event": {
+                    "event_id": "event-rejected-1",
+                    "visibility": "directed",
+                    "actor_id": CHARACTER,
+                    "reason": "too tired",
+                },
+            },
+        }
+    ]
+    page.evaluate("() => window.app.refresh()")
+    expect(page.locator("#activity")).to_contain_text("too tired")
+
+
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -233,6 +268,7 @@ def main() -> None:
 
         connect_and_select(page)
         filter_actions(page)
+        narrate_event(page)
         submit_unavailable(page, posted)
         submit_tell(page, posted)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-tui.png"))

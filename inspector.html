@@ -1092,14 +1092,7 @@ function worldEditorHref(entityId) {
 }
 
 function parseEntitySearch(query) {
-  const filters = [];
-  const text = [];
-  for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
-    const match = token.match(/^([a-z]+):(.*)$/i);
-    if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
-    else text.push(token.toLowerCase());
-  }
-  return { filters, text: text.join(' ') };
+  return BunnylandWorld.parseEntitySearch(query);
 }
 
 function matchesInspectorSearch(entity, parsed) {

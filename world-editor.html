@@ -314,14 +314,7 @@ const componentNames = (world) => BunnylandWorld.componentNames(world, COMMON_CO
 const edgeNames = (world) => BunnylandWorld.edgeNames(world, COMMON_EDGES);
 
 function parseEntitySearch(query) {
-  const filters = [];
-  const text = [];
-  for (const token of String(query || '').trim().split(/\s+/).filter(Boolean)) {
-    const match = token.match(/^([a-z]+):(.*)$/i);
-    if (match) filters.push({ key: match[1].toLowerCase(), value: match[2].toLowerCase() });
-    else text.push(token.toLowerCase());
-  }
-  return { filters, invalid: text.includes('invalid'), text: text.filter(token => token !== 'invalid').join(' ') };
+  return BunnylandWorld.parseEntitySearch(query, { invalidToken: true });
 }
 
 function hasInvalidEdges(entity, world) {

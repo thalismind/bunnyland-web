@@ -156,6 +156,15 @@
       .map(item => item.action);
   }
 
+  function filterActions(actions, query = '') {
+    const q = String(query || '').trim().toLowerCase();
+    const rows = q ? (actions || []).filter(action =>
+      actionTitle(action).toLowerCase().includes(q) ||
+      actionTool(action).toLowerCase().includes(q) ||
+      actionCommandType(action).toLowerCase().includes(q)) : (actions || []);
+    return orderActionsByAvailability(rows);
+  }
+
   function formatPoints(value) {
     return Number.isInteger(Number(value)) ? String(Number(value)) : Number(value || 0).toFixed(1);
   }
@@ -177,11 +186,153 @@
   }
 
   function queuedCommandLabel(command, actions = []) {
-    const match = actions.find(action => action.command_type === command?.command_type);
-    const name = match ? actionTitle(match) : String(command?.command_type || 'command').replaceAll('-', ' ');
+    const name = queuedCommandName(command, actions);
     const lane = command?.lane ? ` [${command.lane}]` : '';
     const details = [queuedCommandCost(command), queuedCommandDetail(command)].filter(Boolean);
     return `${name}${lane}${details.length ? ` - ${details.join(' · ')}` : ''}`;
+  }
+
+  function queuedCommandName(command, actions = []) {
+    const match = actions.find(action => action.command_type === command?.command_type);
+    return match ? actionTitle(match) : String(command?.command_type || 'command').replaceAll('-', ' ');
+  }
+
+  function randomClientId(prefix = 'web') {
+    if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    if (globalThis.crypto?.getRandomValues) {
+      crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0'));
+      return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function persistentClientId(key, prefix = 'web') {
+    try {
+      let clientId = localStorage.getItem(key);
+      if (!clientId) {
+        clientId = randomClientId(prefix);
+        localStorage.setItem(key, clientId);
+      }
+      return clientId;
+    } catch (_err) {
+      return randomClientId(prefix);
+    }
+  }
+
+  function claimSettings({
+    fallbackId = 'claim-fallback',
+    timeoutId = 'claim-timeout',
+    defaultMinutes = 30,
+  } = {}) {
+    const fallback = document.getElementById(fallbackId)?.value || 'suspend';
+    const rawMinutes = Number(document.getElementById(timeoutId)?.value);
+    const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : defaultMinutes;
+    return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
+  }
+
+  function controlFromResponse(data, fallbackCharacterId = '') {
+    if (!data) return null;
+    return {
+      characterId: data.character_id || fallbackCharacterId,
+      controllerId: data.controller_id,
+      generation: Number(data.controller_generation ?? data.generation ?? 0),
+    };
+  }
+
+  function playerControl(control, projection, playerId) {
+    if (control?.characterId === playerId) {
+      return { controllerId: control.controllerId, generation: control.generation };
+    }
+    const projected = projection?.controller;
+    if (projection?.characterId === playerId && projected) {
+      return { controllerId: projected.controller_id, generation: projected.generation };
+    }
+    return null;
+  }
+
+  function allTargets(projection) {
+    const targets = [];
+    const seen = new Set();
+    const add = (value, label, kind = '') => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      targets.push({ value, label: label || value, kind });
+    };
+    for (const group of Object.values(projection?.targetGroups || {})) {
+      for (const item of group || []) add(item.value, item.label, item.kind);
+    }
+    for (const entity of projection?.room?.entities || []) {
+      add(entity.id, entity.name || entity.label || entity.id, entity.kind);
+    }
+    for (const exit of projection?.room?.exits || []) {
+      add(exit.id, exit.direction || exit.label || exit.id, 'exit');
+    }
+    for (const item of projection?.inventory || []) {
+      add(item.id, item.label || item.name || item.id, item.kind);
+    }
+    return targets;
+  }
+
+  function targetCandidates(projection, arg) {
+    if (arg?.target_group && projection?.targetGroups?.[arg.target_group]) {
+      return projection.targetGroups[arg.target_group];
+    }
+    return allTargets(projection);
+  }
+
+  function actionFields(action, targetCandidateFn) {
+    return actionArguments(action)
+      .filter(arg => arg.key && (arg.required || arg.target_group))
+      .map(arg => ({
+        key: arg.key,
+        label: arg.title || arg.key,
+        kind: arg.kind || 'string',
+        required: Boolean(arg.required),
+        candidates: arg.target_group ? targetCandidateFn(arg.target_group, arg) : null,
+      }));
+  }
+
+  function isReferenceArg(arg) {
+    return arg?.kind === 'entity' || Boolean(arg?.target_group) || String(arg?.key || '').endsWith('_id');
+  }
+
+  function resolveTargetName(value, candidates) {
+    if ((candidates || []).some(c => c.value === value)) return candidates.find(c => c.value === value);
+    const query = String(value || '').trim().toLowerCase();
+    if (!query) return null;
+    const normalize = (text) => String(text || '').trim().toLowerCase().replace(/^(a|an|the)\s+/, '');
+    return (candidates || []).find(c => String(c.label).toLowerCase() === query || normalize(c.label) === query) ||
+      (candidates || []).slice()
+        .sort((a, b) => String(a.label).length - String(b.label).length || String(a.label).localeCompare(String(b.label)))
+        .find(c => String(c.label).toLowerCase().startsWith(query) || normalize(c.label).startsWith(query)) || null;
+  }
+
+  function suggestTargetNames(value, candidates) {
+    const query = String(value || '').trim().toLowerCase();
+    if (!query) return [];
+    return (candidates || [])
+      .map(c => String(c.label))
+      .filter(label => label.toLowerCase().includes(query.slice(0, 3)))
+      .slice(0, 3);
+  }
+
+  function targetPrefix(rest, candidates) {
+    const lower = String(rest || '').toLowerCase();
+    const sorted = (candidates || []).slice().sort((a, b) => String(b.label).length - String(a.label).length);
+    for (const candidate of sorted) {
+      const label = String(candidate.label);
+      if (lower === label.toLowerCase()) return { raw: label, remaining: '' };
+      if (lower.startsWith(`${label.toLowerCase()} `)) {
+        return { raw: label, remaining: String(rest).slice(label.length).trim() };
+      }
+    }
+    const [first, ...restParts] = String(rest || '').split(/\s+/);
+    if (first) return { raw: first, remaining: restParts.join(' ') };
+    return null;
   }
 
   async function fetchRecentEvents(base) {
@@ -323,11 +474,15 @@
     actionAvailable,
     actionCommandType,
     actionCost,
+    actionFields,
     actionLane,
     actionTitle,
     actionTool,
     actionUnavailableReason,
+    allTargets,
     claimWebController,
+    claimSettings,
+    controlFromResponse,
     entityIcon,
     entityName,
     entityType,
@@ -336,19 +491,31 @@
     fetchQueuedCommands,
     fetchRecentEvents,
     fetchRoomProjection,
+    filterActions,
     formatPoints,
     drainNarratedEvents,
     humanizeEventType,
+    isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,
     parseCharacterList,
     parseCharacterProjection,
     parseQueuedCommands,
     parseRoomProjection,
+    persistentClientId,
+    playerControl,
     queuedCommandLabel,
+    queuedCommandCost,
+    queuedCommandDetail,
+    queuedCommandName,
     renderEventLine,
+    resolveTargetName,
+    randomClientId,
+    suggestTargetNames,
     submitCommand,
+    targetCandidates,
     targetIcon,
+    targetPrefix,
     updateWebControllerFallback,
   };
 

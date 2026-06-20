@@ -224,55 +224,31 @@ const {
   actionTitle,
   actionTool,
   actionUnavailableReason,
+  allTargets,
   claimWebController,
+  claimSettings,
+  controlFromResponse,
+  drainNarratedEvents,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
+  fetchRecentEvents,
+  formatPoints,
+  isReferenceArg,
   orderActionsByAvailability,
+  persistentClientId,
+  playerControl,
+  resolveTargetName,
+  suggestTargetNames,
   submitCommand,
+  targetCandidates,
+  targetPrefix,
   updateWebControllerFallback,
 } = BunnylandPlay;
 
 const POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
 const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'clear'];
-const UNNARRATED_EVENT_TYPES = new Set([
-  'CommandSubmittedEvent', 'CommandAcceptedEvent', 'CommandQueuedEvent',
-  'CommandExecutedEvent', 'CommandExpiredEvent',
-  'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
-  'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
-  'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
-  'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
-]);
-const EVENT_BASE_KEYS = new Set([
-  'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
-  'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
-]);
-
-const fmtPoints = (n) => (Number.isInteger(Number(n)) ? String(Number(n)) : Number(n || 0).toFixed(1));
-
-function randomClientId() {
-  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
-  return `web-repl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function persistentClientId() {
-  try {
-    let clientId = localStorage.getItem(CLIENT_ID_KEY);
-    if (!clientId) {
-      clientId = randomClientId();
-      localStorage.setItem(CLIENT_ID_KEY, clientId);
-    }
-    return clientId;
-  } catch (_err) {
-    return randomClientId();
-  }
-}
-
-function humanizeEventType(eventType) {
-  const name = String(eventType || 'Event').replace(/Event$/, '');
-  return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
-}
 
 function splitArgs(rest) {
   const tokens = rest.trim().split(/\s+/).filter(Boolean);
@@ -304,7 +280,7 @@ class WebRepl {
     this.eventsPrimed = false;
     this.history = [];
     this.historyIndex = 0;
-    this.clientId = persistentClientId();
+    this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-repl');
     this._pollTimer = null;
 
     this._bindUi();
@@ -462,10 +438,7 @@ class WebRepl {
   }
 
   _claimSettings() {
-    const fallback = document.getElementById('claim-fallback').value;
-    const rawMinutes = Number(document.getElementById('claim-timeout').value);
-    const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : 30;
-    return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
+    return claimSettings();
   }
 
   async _claimPlayer() {
@@ -477,11 +450,7 @@ class WebRepl {
         client_id: this.clientId,
         label: 'web-repl',
       });
-      this.control = {
-        characterId: data.character_id || this.playerId,
-        controllerId: data.controller_id,
-        generation: data.controller_generation ?? data.generation ?? 0,
-      };
+      this.control = controlFromResponse(data, this.playerId);
       return this.control;
     } catch (err) {
       console.warn('Could not claim Bunnyland web REPL controller', err);
@@ -497,25 +466,14 @@ class WebRepl {
         character_id: this.playerId,
         client_id: this.clientId,
       });
-      this.control = {
-        characterId: data.character_id || this.playerId,
-        controllerId: data.controller_id,
-        generation: data.controller_generation ?? data.generation ?? 0,
-      };
+      this.control = controlFromResponse(data, this.playerId);
     } catch (err) {
       console.warn('Could not update Bunnyland web REPL fallback', err);
     }
   }
 
   _playerControl() {
-    if (this.control?.characterId === this.playerId) {
-      return { controllerId: this.control.controllerId, generation: this.control.generation };
-    }
-    const projected = this.projection?.controller;
-    if (this.projection?.characterId === this.playerId && projected) {
-      return { controllerId: projected.controller_id, generation: projected.generation };
-    }
-    return null;
+    return playerControl(this.control, this.projection, this.playerId);
   }
 
   async dispatchInput() {
@@ -618,7 +576,7 @@ class WebRepl {
       return;
     }
     const pts = this.projection?.points || {};
-    this._write(`AP ${fmtPoints(pts.action)}/${fmtPoints(pts.action_max)}   FP ${fmtPoints(pts.focus)}/${fmtPoints(pts.focus_max)}`);
+    this._write(`AP ${formatPoints(pts.action)}/${formatPoints(pts.action_max)}   FP ${formatPoints(pts.focus)}/${formatPoints(pts.focus_max)}`);
   }
 
   _writeQueued() {
@@ -727,7 +685,7 @@ class WebRepl {
   }
 
   _isReferenceArg(arg) {
-    return arg?.kind === 'entity' || Boolean(arg?.target_group) || String(arg?.key || '').endsWith('_id');
+    return isReferenceArg(arg);
   }
 
   _resolvePayload(action, rawArgs) {
@@ -758,68 +716,29 @@ class WebRepl {
   }
 
   _candidatesForArg(arg) {
-    if (arg.target_group && this.projection?.targetGroups?.[arg.target_group]) {
-      return this.projection.targetGroups[arg.target_group];
-    }
-    return this._allTargets();
+    return targetCandidates(this.projection, arg);
   }
 
   _allTargets() {
-    const targets = [];
-    const seen = new Set();
-    const add = (value, label, kind = '') => {
-      if (!value || seen.has(value)) return;
-      seen.add(value);
-      targets.push({ value, label: label || value, kind });
-    };
-    for (const group of Object.values(this.projection?.targetGroups || {})) {
-      for (const item of group) add(item.value, item.label, item.kind);
-    }
-    for (const entity of this.projection?.room?.entities || []) add(entity.id, entity.name || entity.id, entity.kind);
-    for (const exit of this.projection?.room?.exits || []) add(exit.id, exit.direction || exit.label || exit.id, 'exit');
-    for (const item of this.projection?.inventory || []) add(item.id, item.label || item.name || item.id, item.kind);
-    return targets;
+    return allTargets(this.projection);
   }
 
   _resolveName(value, candidates) {
-    if (candidates.some(c => c.value === value)) return candidates.find(c => c.value === value);
-    const query = String(value || '').trim().toLowerCase();
-    if (!query) return null;
-    const normalize = (text) => String(text || '').trim().toLowerCase().replace(/^(a|an|the)\s+/, '');
-    return candidates.find(c => String(c.label).toLowerCase() === query || normalize(c.label) === query) ||
-      candidates.slice()
-        .sort((a, b) => String(a.label).length - String(b.label).length || String(a.label).localeCompare(String(b.label)))
-        .find(c => String(c.label).toLowerCase().startsWith(query) || normalize(c.label).startsWith(query)) || null;
+    return resolveTargetName(value, candidates);
   }
 
   _suggestNames(value, candidates) {
-    const query = String(value || '').trim().toLowerCase();
-    if (!query) return [];
-    return candidates
-      .map(c => String(c.label))
-      .filter(label => label.toLowerCase().includes(query.slice(0, 3)))
-      .slice(0, 3);
+    return suggestTargetNames(value, candidates);
   }
 
   _targetPrefix(rest, candidates) {
-    const lower = rest.toLowerCase();
-    const sorted = candidates.slice().sort((a, b) => String(b.label).length - String(a.label).length);
-    for (const candidate of sorted) {
-      const label = String(candidate.label);
-      if (lower === label.toLowerCase()) return { raw: label, remaining: '' };
-      if (lower.startsWith(`${label.toLowerCase()} `)) {
-        return { raw: label, remaining: rest.slice(label.length).trim() };
-      }
-    }
-    const [first, ...restParts] = rest.split(/\s+/);
-    if (first) return { raw: first, remaining: restParts.join(' ') };
-    return null;
+    return targetPrefix(rest, candidates);
   }
 
   async _refreshRecentEvents() {
     if (!this.apiBase) return;
     try {
-      const data = await BunnylandApi.sendJson(this.apiBase, '/world/events/recent');
+      const data = await fetchRecentEvents(this.apiBase);
       this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
       this.eventsPrimed = true;
     } catch (err) {
@@ -827,66 +746,16 @@ class WebRepl {
     }
   }
 
-  _perceivesEvent(event) {
-    const visibility = event.visibility;
-    if (visibility === 'public') return true;
-    if (visibility === 'room') return Boolean(this.playerId) && event.room_id === this.projection?.room?.id;
-    if (visibility === 'directed') {
-      return Boolean(this.playerId) && (
-        event.actor_id === this.playerId || (event.target_ids || []).includes(this.playerId)
-      );
-    }
-    if (visibility === 'private') return Boolean(this.playerId) && event.actor_id === this.playerId;
-    return false;
-  }
-
   _drainEvents(messages, { prime = false } = {}) {
-    const current = new Set(this.seenEventIds);
-    const lines = [];
-    for (const message of messages || []) {
-      const data = message.data || message;
-      const event = data.event || {};
-      const eventId = event.event_id;
-      if (!eventId) continue;
-      current.add(eventId);
-      if (this.seenEventIds.has(eventId)) continue;
-      const eventType = data.event_type || 'Event';
-      if (UNNARRATED_EVENT_TYPES.has(eventType)) continue;
-      const own = this.playerId && event.actor_id === this.playerId;
-      if (own || this._perceivesEvent(event)) lines.push(this._renderEventLine(data));
-    }
-    this.seenEventIds = current;
+    const drained = drainNarratedEvents(messages, {
+      seenIds: this.seenEventIds,
+      playerId: this.playerId,
+      roomOf: () => this.projection?.room?.id || null,
+      nameFor: (id) => this._nameFor(id),
+    });
+    this.seenEventIds = drained.seenIds;
     if (prime) return;
-    for (const line of lines) this._write(line.text, line.kind || 'event');
-  }
-
-  _renderEventLine(data) {
-    const event = data.event || {};
-    const eventType = String(data.event_type || 'Event');
-    if (eventType === 'ActorMovedEvent' && this.playerId &&
-        event.actor_id === this.playerId && event.arrival_summary) {
-      return { text: String(event.arrival_summary), kind: 'event' };
-    }
-    const actor = event.actor_id ? this._nameFor(event.actor_id) : null;
-    const details = [];
-    for (const [key, value] of Object.entries(event)) {
-      if (EVENT_BASE_KEYS.has(key) || value == null || value === '' ||
-          (Array.isArray(value) && !value.length)) continue;
-      if (key.endsWith('_ids') && Array.isArray(value)) {
-        const names = value.map(item => this._nameFor(String(item))).filter(Boolean);
-        if (names.length) details.push(names.join(', '));
-      } else if (key.endsWith('_id')) {
-        const name = this._nameFor(String(value));
-        if (name) details.push(name);
-      } else {
-        details.push(`${key.replaceAll('_', ' ')} ${String(value)}`);
-      }
-    }
-    const label = humanizeEventType(eventType);
-    return {
-      text: `${actor ? `${actor}: ` : ''}${label}${details.length ? ` - ${details.join('; ')}` : ''}`,
-      kind: eventType === 'CommandRejectedEvent' ? 'rejection' : 'event',
-    };
+    for (const line of drained.lines) this._write(line.text, line.kind || 'event');
   }
 
   _nameFor(entityId) {
@@ -984,7 +853,7 @@ class WebRepl {
     const pts = this.projection?.points || {};
     status.innerHTML = player
       ? `<div class="side-row"><strong>${BunnylandUI.escapeHtml(player.name)}</strong><span>epoch ${this.epoch}s</span></div>` +
-        `<div class="side-row"><strong>AP ${fmtPoints(pts.action)}/${fmtPoints(pts.action_max)}</strong><span>FP ${fmtPoints(pts.focus)}/${fmtPoints(pts.focus_max)}</span></div>`
+        `<div class="side-row"><strong>AP ${formatPoints(pts.action)}/${formatPoints(pts.action_max)}</strong><span>FP ${formatPoints(pts.focus)}/${formatPoints(pts.focus_max)}</span></div>`
       : `<div class="side-empty">${this.connected ? 'Pick a player.' : 'Connect to a running server.'}</div>`;
 
     const actionRows = orderActionsByAvailability(this._actions()).map(action => {
