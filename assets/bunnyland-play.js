@@ -411,8 +411,13 @@
     'CommandExecutedEvent', 'CommandExpiredEvent',
     'ActionPointsChangedEvent', 'FocusPointsChangedEvent', 'EncumbranceChangedEvent',
     'PainChangedEvent', 'BleedingChangedEvent', 'AttentionShiftedEvent', 'AffectChangedEvent',
-    'EntitySeenEvent', 'RoomLookedEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
+    'EntitySeenEvent', 'RoomQualityUpdatedEvent', 'HungerChangedEvent',
     'ThirstChangedEvent', 'DailyNeedChangedEvent', 'SkillXPChangedEvent',
+  ]);
+
+  const SYSTEM_EVENT_TYPES = new Set([
+    'ControllerChangedEvent',
+    'WorldPauseStatusChangedEvent',
   ]);
 
   const EVENT_BASE_KEYS = new Set([
@@ -445,6 +450,9 @@
         event.actor_id === playerId && event.arrival_summary) {
       return { text: String(event.arrival_summary), kind: 'event' };
     }
+    if (eventType === 'RoomLookedEvent' && event.summary) {
+      return { text: String(event.summary), kind: 'event' };
+    }
     const actor = event.actor_id ? nameFor(event.actor_id) : null;
     const details = [];
     for (const [key, value] of Object.entries(event)) {
@@ -463,7 +471,9 @@
     const label = humanizeEventType(eventType);
     return {
       text: `${actor ? `${actor}: ` : ''}${label}${details.length ? ` - ${details.join('; ')}` : ''}`,
-      kind: eventType === 'CommandRejectedEvent' ? 'rejection' : 'event',
+      kind: eventType === 'CommandRejectedEvent'
+        ? 'rejection'
+        : SYSTEM_EVENT_TYPES.has(eventType) ? 'system' : 'event',
     };
   }
 

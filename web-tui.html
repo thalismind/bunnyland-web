@@ -86,6 +86,9 @@
       white-space: nowrap;
     }
     .option.selected { border-color: var(--bl-accent); background: var(--bl-bg-subtle); }
+    .option.activity { cursor: default; }
+    .option.activity.kind-system .option-main { color: var(--bl-text-dim); }
+    .option.activity.kind-rejection .option-main { color: var(--bl-warn); }
     .empty {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
@@ -694,7 +697,7 @@ class WebTui {
     });
 
     document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
-      .map(line => `<div class="option disabled ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${esc(line.text)}</span></div>`)
+      .map(line => `<div class="option activity ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${esc(line.text)}</span></div>`)
       .join('') : '<div class="empty">No recent activity.</div>';
   }
 
