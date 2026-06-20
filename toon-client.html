@@ -187,6 +187,7 @@
     }
     #pt-summary .pt.ap { color: var(--bl-warn); }
     #pt-summary .pt.fp { color: var(--bl-info); }
+    #pt-summary .point-pip.zero { color: var(--bl-text-dim); }
     #pt-summary .pt-empty { color: var(--bl-text-muted); }
 
     #action-filter-row {
@@ -1426,9 +1427,9 @@ class RoomClient {
     const filterWasFocused = document.activeElement?.id === 'action-filter';
 
     const summary = hasPlayer
-      ? `<span class="pt ap">⚡ ${fmtPoints(pts.ap)} / ${fmtPoints(pts.apMax)} AP</span>` +
-        `<span class="pt fp">🔹 ${fmtPoints(pts.fp)} / ${fmtPoints(pts.fpMax)} FP</span>`
-      : '<span class="pt-empty">Select a player to see their actions.</span>';
+      ? `<span class="pt ap"><span class="point-pip${pts.ap > 0 ? '' : ' zero'}">⚡</span> ${fmtPoints(pts.ap)} / ${fmtPoints(pts.apMax)} AP</span>` +
+        `<span class="pt fp"><span class="point-pip${pts.fp > 0 ? '' : ' zero'}">🔹</span> ${fmtPoints(pts.fp)} / ${fmtPoints(pts.fpMax)} FP</span>`
+      : '<span class="pt-empty">Select a character to play as and see their actions.</span>';
 
     let html = `<div id="pt-summary">${summary}</div>` +
       `<div id="action-filter-row">` +

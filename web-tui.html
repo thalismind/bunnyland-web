@@ -107,8 +107,9 @@
       color: var(--bl-text-soft);
       font-size: var(--bl-text-sm);
     }
-    #points-line .ap { color: var(--bl-warn); }
-    #points-line .fp { color: var(--bl-info); }
+    #points-line .point.ap { color: var(--bl-warn); }
+    #points-line .point.fp { color: var(--bl-info); }
+    #points-line .point-pip.zero { color: var(--bl-text-dim); }
     #action-filter-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -704,10 +705,12 @@ class WebTui {
   _renderActions() {
     const pts = this.projection?.points || {};
     const hasPlayer = Boolean(this.playerId && this.projection);
+    const ap = Number(pts.action || 0);
+    const fp = Number(pts.focus || 0);
     document.getElementById('points-line').innerHTML = hasPlayer
-      ? `<span class="ap">⚡ ${formatPoints(pts.action)} / ${formatPoints(pts.action_max)} AP</span>   ` +
-        `<span class="fp">🔹 ${formatPoints(pts.focus)} / ${formatPoints(pts.focus_max)} FP</span>`
-      : 'Pick a player to see their actions.';
+      ? `<span class="point ap"><span class="point-pip${ap > 0 ? '' : ' zero'}">⚡</span> ${formatPoints(pts.action)} / ${formatPoints(pts.action_max)} AP</span>   ` +
+        `<span class="point fp"><span class="point-pip${fp > 0 ? '' : ' zero'}">🔹</span> ${formatPoints(pts.focus)} / ${formatPoints(pts.focus_max)} FP</span>`
+      : 'Select a character to play as and see their actions.';
 
     const esc = BunnylandUI.escapeHtml;
     const actions = this._filteredActions();
