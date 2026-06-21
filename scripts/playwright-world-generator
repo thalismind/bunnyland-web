@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland world generator."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+
+
+INITIAL_SNAPSHOT = {
+    "world_epoch": 4,
+    "metadata": {"seed": "old marsh", "generator": "empty"},
+    "entities": [
+        {
+            "id": "room:old",
+            "components": {
+                "RoomComponent": {"title": "Old Room"},
+                "IdentityComponent": {"name": "Old Room", "kind": "room"},
+            },
+        }
+    ],
+}
+
+GENERATED_SNAPSHOT = {
+    "world_epoch": 9,
+    "metadata": {"seed": "bright meadow", "generator": "recursive"},
+    "entities": [
+        {
+            "id": "room:new",
+            "components": {
+                "RoomComponent": {"title": "Sunny Meadow"},
+                "IdentityComponent": {"name": "Sunny Meadow", "kind": "room"},
+            },
+        },
+        {
+            "id": "char:new",
+            "components": {
+                "CharacterComponent": {"species": "bunny"},
+                "IdentityComponent": {"name": "Juniper", "kind": "character"},
+            },
+        },
+    ],
+}
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def json_response(route, body) -> None:
+    route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+
+def install_routes(page, generated_requests: list[dict]) -> None:
+    state = {"snapshot": INITIAL_SNAPSHOT, "generation_checks": 0}
+
+    page.route(
+        "**/admin/world/generators",
+        lambda route: json_response(
+            route,
+            {
+                "generators": [
+                    {
+                        "name": "empty",
+                        "description": "Clear the world",
+                        "uses_seed": False,
+                    },
+                    {
+                        "name": "recursive",
+                        "description": "Recursive room generator",
+                        "uses_seed": True,
+                    },
+                ]
+            },
+        ),
+    )
+    page.route("**/world/snapshot", lambda route: json_response(route, state["snapshot"]))
+
+    def generate(route) -> None:
+        generated_requests.append(json.loads(route.request.post_data or "{}"))
+        state["snapshot"] = GENERATED_SNAPSHOT
+        json_response(route, {"job_id": "job-1", "status": "queued"})
+
+    page.route("**/admin/world/generate", generate)
+
+    def generation_status(route) -> None:
+        state["generation_checks"] += 1
+        json_response(
+            route,
+            {
+                "job_id": "job-1",
+                "status": "succeeded",
+                "rooms": 1,
+                "characters": 1,
+                "world_epoch": 9,
+            },
+        )
+
+    page.route("**/admin/world/generation", generation_status)
+
+
+def install_socket_stub(page) -> None:
+    page.add_init_script(
+        """
+        window.WebSocket = class {
+          constructor(url) {
+            this.url = url;
+            setTimeout(() => {
+              if (this.onopen) this.onopen({});
+            }, 0);
+          }
+          close() {
+            if (this.onclose) this.onclose({});
+          }
+        };
+        """
+    )
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("world-generator")
+        browser = launch_browser(playwright)
+        page = coverage.new_page(browser, viewport={"width": 1400, "height": 900})
+        generated_requests: list[dict] = []
+        install_socket_stub(page)
+        install_routes(page, generated_requests)
+        page.goto(f"{BASE_URL}/world-generator.html", wait_until="networkidle")
+
+        page.locator("#api-url").fill("/api")
+        page.locator("#btn-connect").click()
+        expect(page.locator("#api-status")).to_have_text("live")
+        expect(page.locator("#generator-count")).to_have_text("2 generators")
+        expect(page.locator("#metric-entities")).to_have_text("1")
+        expect(page.locator("#metric-rooms")).to_have_text("1")
+        expect(page.locator("#world-summary")).to_contain_text("old marsh")
+
+        page.locator("#generator-select").select_option("empty")
+        expect(page.locator("#seed-input")).to_be_disabled()
+        expect(page.locator("#seed-hint")).to_contain_text("ignores prompt")
+
+        page.locator("#generator-select").select_option("recursive")
+        expect(page.locator("#seed-input")).to_be_enabled()
+        page.locator("#seed-input").fill("bright meadow")
+        page.locator("#max-rooms").fill("3")
+        page.locator("#btn-generate").click()
+        expect(page.locator("#activity-list")).to_contain_text("Confirm reset")
+
+        page.locator("#confirm-reset").check()
+        page.locator("#save-world").check()
+        page.locator("#btn-generate").click()
+        expect(page.locator("#activity-list")).to_contain_text("Generation job job-1 is queued", timeout=15000)
+        expect(page.locator("#activity-list")).to_contain_text("Generated 1 room(s), 1 character(s)", timeout=15000)
+        expect(page.locator("#metric-entities")).to_have_text("2")
+        expect(page.locator("#metric-characters")).to_have_text("1")
+        expect(page.locator("#world-summary")).to_contain_text("bright meadow")
+        expect(page.locator("#entity-list")).to_contain_text("Juniper")
+
+        expected = {
+            "seed": "bright meadow",
+            "generator": "recursive",
+            "max_rooms": 3,
+            "confirm_reset": True,
+            "save": True,
+        }
+        if generated_requests != [expected]:
+            raise AssertionError(f"unexpected generation payloads: {generated_requests!r}")
+
+        page.locator("#btn-connect").click()
+        expect(page.locator("#api-status")).to_have_text("offline")
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-world-generator.png"))
+        coverage.close_browser(browser)
+
+    print("world_generator=ok")
+
+
+if __name__ == "__main__":
+    main()

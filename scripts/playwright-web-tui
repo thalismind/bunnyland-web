@@ -153,7 +153,9 @@ def json_route(body):
 
 def install_routes(page, posted: list[dict]) -> None:
     deleted: list[str] = []
+    fallback_updates: list[dict] = []
     page.exposed_deleted_commands = deleted
+    page.exposed_fallback_updates = fallback_updates
 
     def command_handler(route):
         posted.append(json.loads(route.request.post_data or "{}"))
@@ -168,6 +170,8 @@ def install_routes(page, posted: list[dict]) -> None:
         )
 
     def claim_handler(route):
+        if route.request.post_data:
+            fallback_updates.append(json.loads(route.request.post_data))
         route.fulfill(
             status=200,
             content_type="application/json",
@@ -260,6 +264,29 @@ def preselect_selected_target(page) -> None:
     expect(overlay).to_have_count(0)
 
 
+def update_fallback_and_release(page) -> None:
+    page.locator("#claim-timeout").fill("17")
+    with page.expect_response("**/world/controllers/web/fallback"):
+        page.locator("#claim-fallback").select_option("llm")
+    updates = page.exposed_fallback_updates
+    if not updates or updates[-1]["fallback_controller"] != "llm" or updates[-1]["timeout_seconds"] != 1020:
+        raise AssertionError(f"fallback settings were not posted: {updates!r}")
+
+    page.locator("#btn-release-character").click()
+    expect(page.locator("#player-select")).to_have_value("")
+    expect(page.locator("#btn-release-character")).to_be_disabled()
+    expect(page.locator("#room-title")).to_have_text("Room")
+    page.locator("#player-select").select_option(CHARACTER)
+    page.wait_for_function(
+        """(id) => (
+            window.app?.projection?.characterId === id
+            && window.app.projection.actions?.length > 0
+        )""",
+        arg=CHARACTER,
+        timeout=15000,
+    )
+
+
 def click_door_queues_move(page, posted: list[dict]) -> None:
     with page.expect_response("**/world/commands"):
         page.locator("#doors .option").first.click()
@@ -317,6 +344,7 @@ def main() -> None:
         connect_and_select(page)
         filter_actions(page)
         preselect_selected_target(page)
+        update_fallback_and_release(page)
         narrate_event(page)
         cancel_queued_command(page)
         click_door_queues_move(page, posted)

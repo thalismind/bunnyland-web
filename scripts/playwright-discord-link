@@ -50,6 +50,15 @@ def mock_config(page, discord_url: str) -> None:
 
 def check_present(page) -> None:
     mock_config(page, DISCORD_URL)
+    page.add_init_script(
+        """
+        window.__clipboardWrites = [];
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText: async (text) => window.__clipboardWrites.push(String(text)) },
+        });
+        """
+    )
     page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
 
     hero = page.locator("#discord-link")
@@ -67,6 +76,16 @@ def check_present(page) -> None:
     footer.wait_for(state="visible")
     if footer.get_attribute("href") != DISCORD_URL:
         raise AssertionError("client menu Discord link has the wrong href")
+    page.keyboard.press("Escape")
+
+    page.locator('[data-copy="cmd-tui"]').click()
+    page.locator('[data-copy="cmd-tui"]').wait_for()
+    writes = page.evaluate("window.__clipboardWrites")
+    expected_copy = f"uv run --extra tui bunnyland-tui --server {BASE_URL}/api"
+    if writes != [expected_copy]:
+        raise AssertionError(f"welcome copy button wrote unexpected text: {writes!r}")
+    if page.locator('[data-copy="cmd-tui"]').text_content() != "Copied":
+        raise AssertionError("welcome copy button did not show copied feedback")
 
 
 def check_absent(page) -> None:

@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland script editor."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def add_and_edit_block(page) -> None:
+    page.locator("#btn-add-block").click()
+    expect(page.locator("#block-count")).to_have_text("1")
+    page.locator("#block-name").fill("greet-juniper")
+    page.locator("#block-priority").fill("3")
+    page.locator("#block-execution").select_option("always")
+    page.locator("#block-cooldown").fill("12")
+    page.locator("#trigger-type").select_option("event")
+    page.locator("#trigger-event").fill("ActorMovedEvent")
+    page.locator("#trigger-json").fill("{bad")
+    expect(page.locator("#trigger-json.bad-json")).to_have_count(1)
+    page.locator("#trigger-json").fill('{"actor_id": "juniper"}')
+    expect(page.locator("#trigger-json.bad-json")).to_have_count(0)
+    page.locator("#btn-add-submit").click()
+    page.locator(".command-type").fill("tell")
+    page.locator(".command-lane").select_option("focus")
+    page.locator(".command-points").select_option("deny")
+    page.locator(".cost-action").fill("2")
+    page.locator(".cost-focus").fill("1")
+    page.locator(".target-query").fill("{bad")
+    expect(page.locator(".target-query.bad-json")).to_have_count(1)
+    page.locator(".target-query").fill('{"components": ["CharacterComponent"]}')
+    expect(page.locator(".target-query.bad-json")).to_have_count(0)
+    page.locator(".command-payload").fill('{"text": "hello"}')
+    expect(page.locator("#problems")).to_have_text("Valid script JSON.")
+
+
+def load_snapshot_and_apply_entity(page) -> None:
+    page.set_input_files("#snapshot-input", str(REPO_ROOT / "examples" / "seed-world.json"))
+    expect(page.locator("#save-status")).to_have_text("Snapshot loaded")
+    expect(page.locator("#world-info")).to_contain_text("entities")
+    page.locator("#entity-search").fill("Juniper")
+    expect(page.locator("#entity-list .entity-row")).to_have_count(1)
+    page.locator("#entity-list .entity-row").click()
+    expect(page.locator("#entity-detail")).to_contain_text("Juniper")
+    page.locator('#entity-detail button[data-use="id"]').click()
+    expect(page.locator("#save-status")).to_have_text("Target query updated")
+    expect(page.locator(".target-query")).to_contain_text("entity_")
+
+
+def edit_patch_action(page) -> None:
+    page.locator("#btn-add-patch").click()
+    expect(page.locator(".action-card").filter(has_text="patch_world")).to_be_visible()
+    page.locator(".action-ops").fill("{bad")
+    expect(page.locator(".action-ops.bad-json")).to_have_count(1)
+    page.locator(".action-ops").fill(
+        json.dumps(
+            [
+                {
+                    "op": "add_entity",
+                    "bind": "marker",
+                    "components": [
+                        {
+                            "type": "IdentityComponent",
+                            "fields": {"name": "test marker", "kind": "marker"},
+                        }
+                    ],
+                }
+            ],
+            indent=2,
+        )
+    )
+    expect(page.locator(".action-ops.bad-json")).to_have_count(0)
+    page.locator('.action-card').filter(has_text="patch_world").locator("[data-delete-action]").click()
+    expect(page.locator(".action-card").filter(has_text="patch_world")).to_have_count(0)
+
+
+def load_existing_script(page) -> None:
+    page.set_input_files("#script-input", str(REPO_ROOT / "examples" / "scripts" / "epoch_bell.json"))
+    expect(page.locator("#save-status")).to_have_text("Script loaded")
+    expect(page.locator("#script-id")).to_have_value("examples.epoch_bell")
+    expect(page.locator("#block-list")).to_contain_text("fifth-second-bell")
+    page.locator("#btn-new").click()
+    expect(page.locator("#save-status")).to_have_text("New script")
+    expect(page.locator("#block-count")).to_have_text("0")
+
+
+def check_client_menu(page) -> None:
+    page.locator("#btn-client-menu").click()
+    active = page.locator(".client-menu-item.active")
+    active.wait_for()
+    href = active.get_attribute("href") or ""
+    if not href.startswith("script-editor.html"):
+        raise AssertionError(f"script editor was not active in client menu: {href!r}")
+    page.keyboard.press("Escape")
+
+
+def main() -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("script-editor")
+        browser = launch_browser(playwright)
+        page = coverage.new_page(browser, viewport={"width": 1400, "height": 900})
+        page.goto(f"{BASE_URL}/script-editor.html", wait_until="networkidle")
+        expect(page.locator("#problems")).to_have_text("Valid script JSON.")
+        add_and_edit_block(page)
+        load_snapshot_and_apply_entity(page)
+        edit_patch_action(page)
+        load_existing_script(page)
+        check_client_menu(page)
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-script-editor.png"))
+        coverage.close_browser(browser)
+
+    print("script_editor=ok")
+
+
+if __name__ == "__main__":
+    main()

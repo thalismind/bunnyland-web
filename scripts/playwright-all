@@ -79,8 +79,10 @@ run_regression() {
 }
 
 run_regression inspector scripts/playwright-inspector
+run_regression world-generator scripts/playwright-world-generator
 run_regression world-editor-toolbar scripts/playwright-world-editor-toolbar
 run_regression world-editor scripts/playwright-world-editor
+run_regression script-editor scripts/playwright-script-editor
 run_regression behavior-editor scripts/playwright-behavior-editor
 run_regression discord-link scripts/playwright-discord-link
 run_regression toon-action-form scripts/playwright-toon-action-form

@@ -203,9 +203,18 @@ def test_jsonl_trace(page, jsonl: Path) -> None:
     expect(page.locator("#span-rows")).to_contain_text("move")
     page.locator("#span-rows .span-row").click()
     expect(page.locator("#detail-pane")).to_contain_text("Status: ERROR")
+    page.locator("#detail-pane button", has_text="Span ID").click()
+    writes = page.evaluate("window.__clipboardWrites")
+    if writes[-1] != "cccccccccccccccc":
+        raise AssertionError(f"span copy button wrote unexpected text: {writes!r}")
+    expect(page.locator("#detail-pane button", has_text="Copied")).to_be_visible()
     page.locator("#filter-text").fill("")
     page.locator("#filter-service").select_option("release-runner")
     expect(page.locator("#span-rows .span-row")).to_have_count(1)
+    page.locator("#filter-status").select_option("ERROR")
+    expect(page.locator("#span-rows")).to_contain_text("No spans match")
+    page.locator("#clear-filters").click()
+    expect(page.locator("#span-rows .span-row")).to_have_count(3)
 
 
 def test_json_trace(page, json_file: Path) -> None:
@@ -245,6 +254,15 @@ def main() -> None:
             coverage = PlaywrightCoverage("trace-analyzer")
             browser = launch_browser(playwright)
             page = coverage.new_page(browser, viewport={"width": 1400, "height": 900})
+            page.add_init_script(
+                """
+                window.__clipboardWrites = [];
+                Object.defineProperty(navigator, 'clipboard', {
+                  configurable: true,
+                  value: { writeText: async (text) => window.__clipboardWrites.push(String(text)) },
+                });
+                """
+            )
             test_jsonl_trace(page, jsonl)
             test_json_trace(page, json_file)
             test_live_tempo_trace(page)

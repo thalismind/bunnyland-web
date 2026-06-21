@@ -11,7 +11,7 @@ import json
 import os
 import shutil
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
 
@@ -159,6 +159,54 @@ def test_load_file_round_trip(page) -> None:
     assert_("Valid behavior JSON" in problems_text(page), "loaded example did not validate")
 
 
+def test_connect_register_disconnect(page) -> None:
+    """A connected admin can load server definitions and register the current behavior."""
+    posted = []
+
+    def definitions_handler(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "condition_library": ["has_visible_objects", "is_story_time"],
+                    "action_library": ["move_first_exit", "say", "take_first_item", "wave"],
+                    "behaviors": ["doorway-greeter"],
+                }
+            ),
+        )
+
+    def register_handler(route):
+        posted.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"behaviors": ["doorway-greeter", "local-behavior"]}),
+        )
+
+    page.route("**/admin/controllers/definitions", definitions_handler)
+    page.route("**/admin/controllers/behaviors", register_handler)
+    page.locator("#api-url").fill("/api")
+    page.locator("#btn-connect").click()
+    expect(page.locator("#api-status")).to_have_text("live")
+    expect(page.locator("#library-source")).to_have_text("from server")
+    assert_(page.locator("#condition-list .pill", has_text="is_story_time").count() == 1,
+            "server condition library did not render")
+    assert_(page.locator("#behavior-list").text_content() == "doorway-greeter",
+            "server behavior list did not render")
+    assert_(not page.locator("#btn-register").is_disabled(), "register button stayed disabled after connect")
+
+    page.locator("#btn-register").click()
+    expect(page.locator("#save-status")).to_have_text("Registered behavior 'local-behavior'")
+    assert_(posted and posted[-1]["name"] == "local-behavior", f"register body wrong: {posted!r}")
+    assert_("local-behavior" in (page.locator("#behavior-list").text_content() or ""),
+            "registered behavior list did not refresh")
+
+    page.locator("#btn-connect").click()
+    expect(page.locator("#api-status")).to_have_text("offline")
+    expect(page.locator("#library-source")).to_have_text("built-in")
+
+
 def test_client_menu_active(page) -> None:
     """The shared client menu marks the behavior editor as the active page."""
     page.locator("#btn-client-menu").click()
@@ -180,6 +228,7 @@ TESTS = [
     test_name_required,
     test_reset_root_and_new,
     test_load_file_round_trip,
+    test_connect_register_disconnect,
     test_client_menu_active,
 ]
 

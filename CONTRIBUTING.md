@@ -71,11 +71,11 @@ scripts/playwright-all --coverage  # local coverage run
 ```
 
 It boots a static server (via `serve.sh`) if one isn't already up, then runs each
-`scripts/playwright-*` regression (inspector, world editor, behavior editor,
-discord link, toon action form, web TUI, web REPL, trace analyzer). When you add
-or change a tool's behavior, add or extend the matching Playwright script and wire
-it into `scripts/playwright-all`. CI enables Playwright JS/CSS coverage automatically
-and uploads `artifacts/playwright-coverage/`.
+`scripts/playwright-*` regression (inspector, world generator, world editor, script
+editor, behavior editor, discord link, toon action form, web TUI, web REPL, trace
+analyzer). When you add or change a tool's behavior, add or extend the matching
+Playwright script and wire it into `scripts/playwright-all`. CI enables Playwright
+JS/CSS coverage automatically and uploads `artifacts/playwright-coverage/`.
 
 ### Real-server regression
 
