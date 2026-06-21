@@ -14,6 +14,8 @@ import shutil
 
 from playwright.sync_api import sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -84,17 +86,18 @@ def check_absent(page) -> None:
 
 def main() -> None:
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("discord-link")
         browser = launch_browser(playwright)
 
-        present = browser.new_page(viewport={"width": 1280, "height": 720})
+        present = coverage.new_page(browser, viewport={"width": 1280, "height": 720})
         check_present(present)
-        present.close()
+        coverage.close_page(present)
 
-        absent = browser.new_page(viewport={"width": 1280, "height": 720})
+        absent = coverage.new_page(browser, viewport={"width": 1280, "height": 720})
         check_absent(absent)
-        absent.close()
+        coverage.close_page(absent)
 
-        browser.close()
+        coverage.close_browser(browser)
 
     print("discord_link=ok")
 

@@ -37,7 +37,9 @@ jobs:
         run: npm run lint
 
       - name: Run shared script unit tests
-        run: npm test
+        run: |
+          mkdir -p artifacts/test-results
+          npm test -- --test-reporter=junit --test-reporter-destination=artifacts/test-results/node-unit.xml
 
       - name: Install Playwright (pip)
         run: |
@@ -67,6 +69,26 @@ jobs:
 
       - name: Run Playwright regressions
         run: scripts/playwright-all
+
+      - name: Publish test and coverage summary
+        if: always()
+        run: python3 scripts/ci_report.py summary
+
+      - name: Upload Playwright coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-coverage
+          path: artifacts/playwright-coverage
+          if-no-files-found: warn
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: artifacts/test-results
+          if-no-files-found: warn
 
   container:
     name: Build container

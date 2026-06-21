@@ -21,6 +21,8 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -327,8 +329,9 @@ def check_event_activity(page) -> None:
 
 def main() -> None:
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("toon-action-form")
         browser = launch_browser(playwright)
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page = coverage.new_page(browser, viewport={"width": 1280, "height": 800})
         posted: list[dict] = []
         install_routes(page, posted)
 
@@ -344,7 +347,7 @@ def main() -> None:
         check_event_activity(page)
 
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-toon-action-form.png"))
-        browser.close()
+        coverage.close_browser(browser)
 
     print("toon_action_form=ok")
 

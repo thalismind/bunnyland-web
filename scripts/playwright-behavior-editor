@@ -13,6 +13,8 @@ import shutil
 
 from playwright.sync_api import sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -34,8 +36,8 @@ def launch_browser(playwright):
     return playwright.chromium.launch(**kwargs)
 
 
-def fresh_page(browser):
-    page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+def fresh_page(browser, coverage: PlaywrightCoverage):
+    page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
     page.goto(f"{BASE_URL}/behavior-editor.html", wait_until="networkidle")
     return page
 
@@ -186,9 +188,10 @@ def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     failures = []
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("behavior-editor")
         browser = launch_browser(playwright)
         for test in TESTS:
-            page = fresh_page(browser)
+            page = fresh_page(browser, coverage)
             try:
                 test(page)
                 print(f"{test.__name__}=ok")
@@ -198,8 +201,8 @@ def main() -> None:
             finally:
                 if test is TESTS[0]:
                     page.screenshot(path=str(SCREENSHOT))
-                page.close()
-        browser.close()
+                coverage.close_page(page)
+        coverage.close_browser(browser)
 
     if failures:
         raise SystemExit("behavior editor regressions:\n  " + "\n  ".join(failures))

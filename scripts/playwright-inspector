@@ -7,6 +7,8 @@ import shutil
 
 from playwright.sync_api import sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -43,8 +45,9 @@ def launch_browser(playwright):
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("inspector")
         browser = launch_browser(playwright)
-        page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+        page = coverage.new_page(browser, viewport={"width": 1440, "height": 900}, device_scale_factor=1)
         page.add_init_script(
             """
             window.__promptCalls = [];
@@ -568,7 +571,7 @@ def main() -> None:
         page.locator("#graph-wrapper").screenshot(path=str(SCREENSHOT))
         scale = page.evaluate("window.app.lgcanvas.ds.scale")
         nodes = page.evaluate("window.app.lgraph._nodes.length")
-        browser.close()
+        coverage.close_browser(browser)
 
     print("prompt_calls=0")
     print(f"nodes={nodes}")

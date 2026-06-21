@@ -7,6 +7,8 @@ import shutil
 
 from playwright.sync_api import sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -30,8 +32,9 @@ def launch_browser(playwright):
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("world-editor")
         browser = launch_browser(playwright)
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = coverage.new_page(browser, viewport={"width": 1400, "height": 900})
         prompt_messages = []
         page.on("dialog", lambda dialog: (prompt_messages.append(dialog.message), dialog.dismiss()))
         page.route(
@@ -269,7 +272,7 @@ def main() -> None:
         page.locator('[data-remove-enum-option="pvp"]').click()
         assert '"pvp"' not in raw.input_value()
         page.screenshot(path=str(SCREENSHOT), full_page=True)
-        browser.close()
+        coverage.close_browser(browser)
 
     print("world_editor_enum_dropdowns=ok")
     print(f"screenshot={SCREENSHOT}")

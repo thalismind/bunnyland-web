@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "--coverage" ]]; then
+  export BUNNYLAND_PLAYWRIGHT_COVERAGE=1
+  shift
+fi
+if [[ "${CI:-}" == "true" && -z "${BUNNYLAND_PLAYWRIGHT_COVERAGE:-}" ]]; then
+  export BUNNYLAND_PLAYWRIGHT_COVERAGE=1
+fi
+
 PORT="${BUNNYLAND_WEB_PORT:-8091}"
 BASE_URL="${BUNNYLAND_WEB_BASE_URL:-http://127.0.0.1:${PORT}}"
 export BUNNYLAND_WEB_BASE_URL="${BASE_URL}"
 export PYTHONDONTWRITEBYTECODE=1
+export BUNNYLAND_PLAYWRIGHT_COVERAGE_DIR="${BUNNYLAND_PLAYWRIGHT_COVERAGE_DIR:-artifacts/playwright-coverage}"
+test_report_dir="${BUNNYLAND_WEB_TEST_REPORT_DIR:-artifacts/test-results}"
+mkdir -p "$test_report_dir"
 
 server_pid=""
 if [[ "${BUNNYLAND_WEB_NO_SERVER:-0}" != "1" ]]; then
@@ -31,12 +42,56 @@ cleanup() {
 }
 trap cleanup EXIT
 
-scripts/playwright-inspector
-scripts/playwright-world-editor-toolbar
-scripts/playwright-world-editor
-scripts/playwright-behavior-editor
-scripts/playwright-discord-link
-scripts/playwright-toon-action-form
-scripts/playwright-web-tui
-scripts/playwright-web-repl
-scripts/playwright-trace-analyzer
+failures=0
+run_regression() {
+  local name="$1"
+  shift
+  local log_file="${test_report_dir}/${name}.log"
+  local xml_file="${test_report_dir}/${name}.xml"
+  local started
+  local finished
+  local elapsed
+  started="$(date +%s)"
+  if "$@" >"$log_file" 2>&1; then
+    cat "$log_file"
+    finished="$(date +%s)"
+    elapsed=$((finished - started))
+    python3 scripts/ci_report.py write-case \
+      --output "$xml_file" \
+      --suite "$name" \
+      --name "$name" \
+      --status passed \
+      --time "$elapsed" \
+      --log-file "$log_file"
+  else
+    cat "$log_file"
+    finished="$(date +%s)"
+    elapsed=$((finished - started))
+    python3 scripts/ci_report.py write-case \
+      --output "$xml_file" \
+      --suite "$name" \
+      --name "$name" \
+      --status failed \
+      --time "$elapsed" \
+      --log-file "$log_file"
+    failures=$((failures + 1))
+  fi
+}
+
+run_regression inspector scripts/playwright-inspector
+run_regression world-editor-toolbar scripts/playwright-world-editor-toolbar
+run_regression world-editor scripts/playwright-world-editor
+run_regression behavior-editor scripts/playwright-behavior-editor
+run_regression discord-link scripts/playwright-discord-link
+run_regression toon-action-form scripts/playwright-toon-action-form
+run_regression web-tui scripts/playwright-web-tui
+run_regression web-repl scripts/playwright-web-repl
+run_regression trace-analyzer scripts/playwright-trace-analyzer
+
+if [[ "${BUNNYLAND_PLAYWRIGHT_COVERAGE:-0}" == "1" ]]; then
+  python3 scripts/playwright_coverage.py "${BUNNYLAND_PLAYWRIGHT_COVERAGE_DIR}"
+fi
+
+if (( failures > 0 )); then
+  exit 1
+fi

@@ -2,3 +2,5 @@ snapshot.json
 __pycache__/
 *.py[cod]
 node_modules/
+artifacts/test-results/
+artifacts/playwright-coverage/

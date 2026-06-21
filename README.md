@@ -45,10 +45,13 @@ Reusable browser checks live in [`scripts/`](scripts/):
 
 ```bash
 scripts/playwright-all
+scripts/playwright-all --coverage  # writes artifacts/playwright-coverage/
 ```
 
 The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_URL` and
-`BUNNYLAND_WEB_NO_SERVER=1` to point the checks at an already-running server.
+`BUNNYLAND_WEB_NO_SERVER=1` to point the checks at an already-running server. In CI,
+`scripts/playwright-all` enables browser JS/CSS coverage automatically and writes the
+merged summary to `artifacts/playwright-coverage/coverage-summary.json`.
 
 ## JS/CSS/HTML checks
 

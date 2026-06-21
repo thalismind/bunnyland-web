@@ -7,6 +7,8 @@ import shutil
 
 from playwright.sync_api import sync_playwright
 
+from playwright_coverage import PlaywrightCoverage
+
 
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
@@ -30,8 +32,9 @@ def launch_browser(playwright):
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("world-editor-toolbar")
         browser = launch_browser(playwright)
-        page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+        page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
 
         fragment_parent = page.locator("#fragment-file").evaluate("node => node.closest('.toolbar-row').id")
@@ -82,7 +85,7 @@ def main() -> None:
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
             raise AssertionError("shared client menu does not include active welcome page")
-        browser.close()
+        coverage.close_browser(browser)
 
     print("world_editor_toolbar=ok")
     print(f"screenshot={SCREENSHOT}")
