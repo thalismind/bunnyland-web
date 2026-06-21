@@ -49,6 +49,41 @@ def projection(*, portrait_url: str = "") -> dict:
         "inventory": [{"id": "item:1", "label": "a brass key", "kind": "item"}],
         "points": {"action": 5, "action_max": 5, "focus": 3, "focus_max": 3},
         "controller": {"controller_id": "web:sheet", "generation": 2},
+        "sheet": {
+            "kind": "character",
+            "species": "hare",
+            "biography": "A careful tunnel scout.",
+            "description": "Dusty from a long patrol.",
+            "appearance": "Long ears, patched satchel, steady eyes.",
+            "tags": ["scout", "local"],
+            "status": ["tense", "hungry"],
+            "vitals": [
+                {"label": "Health", "value": 7, "maximum": 10, "text": "7 / 10", "band": ""},
+                {"label": "Initiative", "value": 2, "maximum": None, "text": "2", "band": ""},
+            ],
+            "needs": [
+                {"label": "Hunger", "value": 75, "maximum": 100, "text": "75 / 100", "band": "urgent"},
+            ],
+            "affect": [
+                {"label": "Stress", "value": 12, "maximum": None, "text": "12", "band": ""},
+            ],
+            "profile": [
+                {"label": "Career", "value": "Scout", "detail": "level 3"},
+            ],
+            "skills": [
+                {"label": "Survival", "value": "level 3", "detail": "8.5 xp"},
+            ],
+            "traits": ["watchful", "goal: keep everyone safe"],
+            "relations": [
+                {"label": "Social Bond", "value": "Marlow", "detail": "trust 4"},
+            ],
+            "injuries": [
+                {"label": "left paw", "value": "severity 2", "detail": "pain 3"},
+            ],
+            "notes": [
+                {"label": "Thought", "value": "worried", "detail": "The tunnel roof is groaning."},
+            ],
+        },
         "target_groups": {
             "characters": [{"id": OTHER, "label": "Marlow", "kind": "character"}],
             "exits": [{"id": EXIT, "label": "north", "kind": "exit"}],
@@ -134,6 +169,18 @@ def main() -> None:
         expect(page.locator("#character-select")).to_have_value(CHARACTER)
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
         expect(page.locator("#portrait-status")).to_contain_text("Portrait generation")
+        expect(page.locator("#species-value")).to_have_text("hare")
+        expect(page.locator("#status-pills")).to_contain_text("tense")
+        expect(page.locator("#sheet-overview")).to_contain_text("Dusty from a long patrol")
+        expect(page.locator("#vitals")).to_contain_text("Health")
+        expect(page.locator("#needs")).to_contain_text("Hunger")
+        expect(page.locator("#affect")).to_contain_text("Stress")
+        expect(page.locator("#profile")).to_contain_text("Scout")
+        expect(page.locator("#skills")).to_contain_text("Survival")
+        expect(page.locator("#traits")).to_contain_text("keep everyone safe")
+        expect(page.locator("#relations")).to_contain_text("Marlow")
+        expect(page.locator("#injuries")).to_contain_text("left paw")
+        expect(page.locator("#notes")).to_contain_text("The tunnel roof is groaning")
         expect(page.locator("#room-value")).to_have_text("Parlor")
         expect(page.locator("#inventory")).to_contain_text("a brass key")
         expect(page.locator("#visible-characters")).to_contain_text("Marlow")

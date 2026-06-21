@@ -87,6 +87,7 @@
       points: data.points || {},
       controller: data.controller || null,
       portrait: data.portrait || {},
+      sheet: data.sheet || {},
       targetGroups,
       actions: data.actions || [],
     };

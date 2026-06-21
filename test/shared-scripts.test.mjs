@@ -94,6 +94,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
     },
     inventory: [{ id: 'item:2', label: 'Lantern', kind: 'item' }],
     controller: { controller_id: 'web:1', generation: 4 },
+    sheet: { species: 'hare', status: ['tense'] },
     target_groups: {
       inventory: [{ id: 'item:2', label: 'Lantern', kind: 'item' }],
     },
@@ -105,6 +106,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
 
   assert.equal(projection.characterId, 'character:1');
   assert.equal(projection.characterName, 'character:1');
+  assert.equal(projection.sheet.species, 'hare');
   assert.equal(BunnylandPlay.actionIcon(projection.actions[0]), '💬');
   assert.equal(BunnylandPlay.actionIcon({ command_type: 'scan-network' }), '📡');
   assert.equal(BunnylandPlay.actionIcon({ command_type: 'unknown-action' }), '•');

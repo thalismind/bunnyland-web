@@ -82,6 +82,23 @@
       overflow-wrap: anywhere;
     }
 
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      padding: 3px 7px;
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+      line-height: 1.3;
+    }
+
     .identity-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -112,6 +129,12 @@
 
     .section {
       margin-bottom: 18px;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
     }
 
     .section-title {
@@ -156,6 +179,68 @@
       opacity: 0.68;
     }
 
+    .sheet-row.entry {
+      align-items: start;
+    }
+
+    .sheet-row.entry strong {
+      white-space: normal;
+    }
+
+    .sheet-row.entry span {
+      white-space: normal;
+      text-align: right;
+    }
+
+    .metric-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .metric-row {
+      padding: 8px 10px;
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+    }
+
+    .metric-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-bottom: 6px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+    }
+
+    .metric-label {
+      color: var(--bl-text);
+      font-weight: 700;
+    }
+
+    .meter {
+      height: 8px;
+      overflow: hidden;
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-deep);
+    }
+
+    .meter-fill {
+      height: 100%;
+      min-width: 2px;
+      background: var(--bl-accent);
+    }
+
+    .metric-row.warning .meter-fill { background: var(--bl-warn); }
+    .metric-row.urgent .meter-fill,
+    .metric-row.crisis .meter-fill { background: var(--bl-error); }
+
+    .prose {
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.45;
+    }
+
     .sheet-empty {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
@@ -197,7 +282,16 @@
     <div id="portrait-status"></div>
     <h1 id="character-name">No character selected</h1>
     <div id="character-id">Connect to a server, then choose a character.</div>
+    <div id="status-pills" class="pill-row"></div>
     <div class="identity-grid">
+      <div class="stat">
+        <div class="stat-label">Species</div>
+        <div class="stat-value" id="species-value">-</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Kind</div>
+        <div class="stat-value" id="kind-value">-</div>
+      </div>
       <div class="stat">
         <div class="stat-label">Controller</div>
         <div class="stat-value" id="controller-value">-</div>
@@ -217,6 +311,48 @@
     </div>
   </section>
   <section id="details-pane" aria-label="Character details">
+    <div class="section">
+      <div class="section-title">Character</div>
+      <div id="sheet-overview" class="sheet-empty">Select a character.</div>
+    </div>
+    <div class="section-grid">
+      <div class="section">
+        <div class="section-title">Vitals</div>
+        <div id="vitals" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Needs</div>
+        <div id="needs" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Mood</div>
+        <div id="affect" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Profile</div>
+        <div id="profile" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Skills</div>
+        <div id="skills" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Traits</div>
+        <div id="traits" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Relations</div>
+        <div id="relations" class="sheet-empty">Select a character.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Injuries</div>
+        <div id="injuries" class="sheet-empty">Select a character.</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <div id="notes" class="sheet-empty">Select a character.</div>
+    </div>
     <div class="section">
       <div class="section-title">Visible Characters</div>
       <div id="visible-characters" class="sheet-empty">Select a character.</div>
@@ -436,10 +572,63 @@ class CharacterSheetApp {
     return `<div class="sheet-row"><strong>${BunnylandUI.escapeHtml(label)}</strong><span>${BunnylandUI.escapeHtml(meta)}</span></div>`;
   }
 
+  _entryRow(entry) {
+    const value = [entry?.value || '', entry?.detail || ''].filter(Boolean).join(' · ');
+    return `<div class="sheet-row entry"><strong>${BunnylandUI.escapeHtml(entry?.label || '')}</strong>` +
+      `<span>${BunnylandUI.escapeHtml(value)}</span></div>`;
+  }
+
+  _metricRow(metric) {
+    const max = Number(metric?.maximum || 0);
+    const value = Number(metric?.value || 0);
+    const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+    const text = metric?.text || (max > 0 ? `${value} / ${max}` : String(value));
+    const band = String(metric?.band || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase();
+    return `<div class="metric-row ${BunnylandUI.escapeHtml(band)}">` +
+      '<div class="metric-head">' +
+      `<span class="metric-label">${BunnylandUI.escapeHtml(metric?.label || '')}</span>` +
+      `<span>${BunnylandUI.escapeHtml(text)}</span>` +
+      '</div>' +
+      (max > 0 ? `<div class="meter"><div class="meter-fill" style="width:${pct.toFixed(1)}%"></div></div>` : '') +
+      '</div>';
+  }
+
   _renderList(id, rows, empty) {
     const target = document.getElementById(id);
     target.className = rows.length ? 'sheet-list' : 'sheet-empty';
     target.innerHTML = rows.length ? rows.join('') : empty;
+  }
+
+  _renderMetrics(id, rows, empty) {
+    const target = document.getElementById(id);
+    target.className = rows.length ? 'metric-list' : 'sheet-empty';
+    target.innerHTML = rows.length ? rows.map(row => this._metricRow(row)).join('') : empty;
+  }
+
+  _renderEntries(id, rows, empty) {
+    this._renderList(id, (rows || []).map(row => this._entryRow(row)), empty);
+  }
+
+  _renderPills(id, values) {
+    const target = document.getElementById(id);
+    target.innerHTML = (values || [])
+      .map(value => `<span class="pill">${BunnylandUI.escapeHtml(value)}</span>`)
+      .join('');
+  }
+
+  _renderOverview(sheet) {
+    const chunks = [];
+    if (sheet.description) chunks.push(`<p>${BunnylandUI.escapeHtml(sheet.description)}</p>`);
+    if (sheet.appearance) chunks.push(`<p>${BunnylandUI.escapeHtml(sheet.appearance)}</p>`);
+    if (sheet.biography) chunks.push(`<p>${BunnylandUI.escapeHtml(sheet.biography)}</p>`);
+    if (sheet.tags?.length) {
+      chunks.push('<div class="pill-row">' + sheet.tags
+        .map(tag => `<span class="pill">${BunnylandUI.escapeHtml(tag)}</span>`)
+        .join('') + '</div>');
+    }
+    const target = document.getElementById('sheet-overview');
+    target.className = chunks.length ? 'prose' : 'sheet-empty';
+    target.innerHTML = chunks.length ? chunks.join('') : 'No character notes.';
   }
 
   render() {
@@ -450,8 +639,11 @@ class CharacterSheetApp {
     document.getElementById('character-id').textContent = this.selectedId || 'Connect to a server, then choose a character.';
 
     const pts = this.projection?.points || {};
+    const sheet = this.projection?.sheet || {};
     const controller = this.projection?.controller;
     const room = this.projection?.room || {};
+    document.getElementById('species-value').textContent = sheet.species || '-';
+    document.getElementById('kind-value').textContent = sheet.kind || '-';
     document.getElementById('controller-value').textContent = controller
       ? `${controller.controller_id} gen ${controller.generation}`
       : '-';
@@ -462,6 +654,20 @@ class CharacterSheetApp {
     document.getElementById('fp-value').textContent = this.projection
       ? `${formatPoints(pts.focus)} / ${formatPoints(pts.focus_max)}`
       : '-';
+    this._renderPills('status-pills', this.projection ? sheet.status || [] : []);
+
+    this._renderOverview(sheet);
+    this._renderMetrics('vitals', sheet.vitals || [], 'No vitals recorded.');
+    this._renderMetrics('needs', sheet.needs || [], 'No needs recorded.');
+    this._renderMetrics('affect', sheet.affect || [], 'No mood values recorded.');
+    this._renderEntries('profile', sheet.profile || [], 'No profile entries.');
+    this._renderEntries('skills', sheet.skills || [], 'No skills recorded.');
+    this._renderList('traits', (sheet.traits || []).map(trait =>
+      `<span class="pill">${BunnylandUI.escapeHtml(trait)}</span>`), 'No traits recorded.');
+    document.getElementById('traits').className = (sheet.traits || []).length ? 'pill-row' : 'sheet-empty';
+    this._renderEntries('relations', sheet.relations || [], 'No relations recorded.');
+    this._renderEntries('injuries', sheet.injuries || [], 'No injuries recorded.');
+    this._renderEntries('notes', sheet.notes || [], 'No notes recorded.');
 
     const visible = (room.entities || [])
       .filter(entity => entity.is_character || entity.kind === 'character')
