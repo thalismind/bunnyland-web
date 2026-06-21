@@ -12,9 +12,10 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
 
 
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 
 
@@ -247,6 +248,7 @@ def test_live_tempo_trace(page) -> None:
 
 
 def main() -> None:
+    ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="bunnyland-trace-analyzer-") as tmp_dir:
         jsonl, json_file = write_fixtures(Path(tmp_dir))

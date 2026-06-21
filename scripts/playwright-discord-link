@@ -15,9 +15,10 @@ import shutil
 from playwright.sync_api import sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
 
 
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 DISCORD_URL = "https://discord.gg/bunnyland-example"
 
@@ -104,6 +105,7 @@ def check_absent(page) -> None:
 
 
 def main() -> None:
+    ensure_web_server(BASE_URL)
     with sync_playwright() as playwright:
         coverage = PlaywrightCoverage("discord-link")
         browser = launch_browser(playwright)

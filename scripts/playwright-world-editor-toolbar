@@ -9,9 +9,10 @@ import shutil
 from playwright.sync_api import sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
 
 
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-world-editor-toolbar.png"
 
@@ -31,6 +32,7 @@ def launch_browser(playwright):
 
 
 def main() -> None:
+    ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         coverage = PlaywrightCoverage("world-editor-toolbar")

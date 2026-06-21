@@ -2,15 +2,17 @@
 """Playwright checks for the Bunnyland world editor."""
 
 from pathlib import Path
+import json
 import os
 import shutil
 
 from playwright.sync_api import sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
 
 
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-enum-editor.png"
 
@@ -30,13 +32,62 @@ def launch_browser(playwright):
 
 
 def main() -> None:
+    ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         coverage = PlaywrightCoverage("world-editor")
         browser = launch_browser(playwright)
         page = coverage.new_page(browser, viewport={"width": 1400, "height": 900})
         prompt_messages = []
-        page.on("dialog", lambda dialog: (prompt_messages.append(dialog.message), dialog.dismiss()))
+
+        def handle_dialog(dialog):
+            if dialog.type == "confirm":
+                dialog.accept()
+                return
+            prompt_messages.append(dialog.message)
+            dialog.dismiss()
+
+        page.on("dialog", handle_dialog)
+        admin_calls = []
+        runtime_state = {"paused": False, "running": True, "world_epoch": 2}
+
+        def admin_world_handler(route):
+            request = route.request
+            body = json.loads(request.post_data or "{}")
+            admin_calls.append({"path": "/admin/world", "method": request.method, "body": body})
+            changed = []
+            for operation in body.get("operations", []):
+                if operation.get("op") == "add_entity":
+                    changed.append(
+                        {
+                            "id": "live_added",
+                            "components": {
+                                "IdentityComponent": {
+                                    "name": "entity",
+                                    "kind": "entity",
+                                    "tags": [],
+                                }
+                            },
+                            "relationships": {},
+                        }
+                    )
+                elif operation.get("op") in {"add_component", "set_component"}:
+                    component = operation.get("component", {})
+                    changed.append(
+                        {
+                            "id": operation.get("entity_id"),
+                            "components": {
+                                "IdentityComponent": {"name": "Linked Entity"},
+                                component.get("type"): component.get("fields", {}),
+                            },
+                            "relationships": {},
+                        }
+                    )
+            route.fulfill(
+                status=200,
+                json={"world_epoch": 6, "changed_entities": changed, "deleted_entities": []},
+            )
+
         page.route(
             "**/world/snapshot",
             lambda route: route.fulfill(
@@ -60,9 +111,66 @@ def main() -> None:
         )
         page.route(
             "**/admin/runtime",
-            lambda route: route.fulfill(status=200, json={"paused": False, "running": True, "world_epoch": 2}),
+            lambda route: route.fulfill(status=200, json=runtime_state),
         )
-        page.route("**/world/schema", lambda route: route.fulfill(status=200, json={"components": {}}))
+        page.route(
+            "**/admin/pause",
+            lambda route: (
+                admin_calls.append({"path": "/admin/pause", "method": route.request.method, "body": {}}),
+                runtime_state.update({"paused": True, "running": False, "world_epoch": 3}),
+                route.fulfill(status=200, json=runtime_state),
+            ),
+        )
+        page.route(
+            "**/admin/resume",
+            lambda route: (
+                admin_calls.append({"path": "/admin/resume", "method": route.request.method, "body": {}}),
+                runtime_state.update({"paused": False, "running": True, "world_epoch": 4}),
+                route.fulfill(status=200, json=runtime_state),
+            ),
+        )
+        page.route(
+            "**/admin/world/save",
+            lambda route: (
+                admin_calls.append({"path": "/admin/world/save", "method": route.request.method, "body": {}}),
+                route.fulfill(status=200, json={"world_epoch": 5, "saved_at_epoch": 5}),
+            ),
+        )
+        page.route("**/admin/world", admin_world_handler)
+        page.route(
+            "**/world/schema",
+            lambda route: route.fulfill(
+                status=200,
+                json={
+                    "components": {
+                        "TestStatsComponent": {
+                            "json_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "tags": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "default": [],
+                                        "title": "Tags",
+                                    },
+                                    "energy": {
+                                        "type": "object",
+                                        "title": "Meter",
+                                        "properties": {
+                                            "value": {"type": "number", "default": 2},
+                                            "minimum": {"type": "number", "default": 0},
+                                            "maximum": {"type": "number", "default": 10},
+                                            "warning_at": {"type": "number", "default": 4},
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "edges": {},
+                },
+            ),
+        )
         page.route("**/world/library", lambda route: route.fulfill(status=200, json={"fragments": []}))
         page.goto(
             f"{BASE_URL}/world-editor.html?server=http://bunnyland.test#map/linked_entity",
@@ -82,7 +190,96 @@ def main() -> None:
         ):
             raise AssertionError(f"unexpected inspector link: {inspector_href!r}")
 
+        page.locator("#btn-save-live").click()
+        page.wait_for_function("document.querySelector('#status').textContent === 'World saved'")
+        assert page.locator("#meta-epoch").input_value() == "5"
+        page.locator("#btn-toggle-live").click()
+        page.wait_for_function("document.querySelector('#runtime-status').textContent === 'runtime: paused'")
+        assert page.locator("#btn-toggle-live").text_content() == "▶"
+        page.locator("#btn-toggle-live").click()
+        page.wait_for_function("document.querySelector('#runtime-status').textContent === 'runtime: playing'")
+        assert page.locator("#btn-toggle-live").text_content() == "⏸"
+
+        live_component_search = page.locator("#add-component-dropdown .search-dropdown-input")
+        live_component_search.fill("TestStats")
+        live_component_search.press("Enter")
+        assert page.locator("#add-component-type").input_value() == "TestStatsComponent"
+        page.locator("#btn-add-component").click()
+        stats_card = page.locator(".component-card[data-type='TestStatsComponent']")
+        stats_card.wait_for()
+        stats_card.locator(".tag-input").fill("quick")
+        stats_card.locator("[data-add-tag]").click()
+        assert '"quick"' in stats_card.locator(".component-json").input_value()
+        stats_card.locator(".tag-input").fill("quiet")
+        stats_card.locator(".tag-input").press("Enter")
+        stats_card.locator('[data-remove-tag="quick"]').click()
+        stats_json = stats_card.locator(".component-json")
+        assert '"quiet"' in stats_json.input_value()
+        assert '"quick"' not in stats_json.input_value()
+        stats_card.locator('.meter-input[data-meter-key="maximum"]').fill("12")
+        stats_card.locator('.meter-input[data-meter-key="value"]').fill("9")
+        assert stats_card.locator(".meter-readout").text_content() == "9.0 / 12.0"
+        assert '"maximum": 12' in stats_json.input_value()
+        assert '"value": 9' in stats_json.input_value()
+        page.wait_for_timeout(450)
+
+        page.locator("#btn-add-entity").click()
+        page.wait_for_function("window.app && window.app.selectedId === 'live_added'")
+        assert page.locator("#selected-label").text_content() == "live_added"
+        page.locator("#entity-id").fill("renamed_live")
+        page.locator("#btn-rename-entity").click()
+        page.wait_for_function(
+            "document.querySelector('#status').textContent === 'Live ECS entity IDs cannot be renamed'"
+        )
+        live_paths = [call["path"] for call in admin_calls]
+        for expected in ["/admin/world/save", "/admin/pause", "/admin/resume", "/admin/world"]:
+            if expected not in live_paths:
+                raise AssertionError(f"missing live admin call {expected}: {admin_calls!r}")
+        if not any(
+            call["path"] == "/admin/world"
+            and call["body"].get("operations", [{}])[0].get("op") == "set_component"
+            and call["body"]["operations"][0].get("component", {}).get("type") == "TestStatsComponent"
+            for call in admin_calls
+        ):
+            raise AssertionError(f"typed component editor did not patch live TestStatsComponent: {admin_calls!r}")
+        if not any(
+            call["path"] == "/admin/world"
+            and call["body"].get("operations", [{}])[0].get("op") == "add_entity"
+            for call in admin_calls
+        ):
+            raise AssertionError(f"live add entity did not patch admin world: {admin_calls!r}")
+
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+        page.locator("#btn-add-entity").click()
+        page.wait_for_function("window.app && window.app.selectedId === 'entity_2'")
+        page.locator("#entity-id").fill("local_target")
+        page.locator("#entity-prefab").fill("prop")
+        page.locator("#entity-created").fill("7")
+        page.locator("#btn-rename-entity").click()
+        page.wait_for_function("window.app && window.app.selectedId === 'local_target'")
+        assert page.locator("#selected-label").text_content() == "local_target"
+        local_json = page.locator("#json-output").input_value()
+        if '"local_target"' not in local_json or '"created_epoch": 7' not in local_json:
+            raise AssertionError(f"local rename did not update exported JSON: {local_json}")
+
+        page.locator('.entity-row[data-id="entity_1"]').click()
+        local_edge_type = page.locator("#add-edge-type-dropdown .search-dropdown-input")
+        local_edge_target = page.locator("#add-edge-target-dropdown .search-dropdown-input")
+        local_edge_type.fill("Contains")
+        local_edge_type.press("Enter")
+        local_edge_target.fill("local_target")
+        local_edge_target.press("Enter")
+        assert page.locator("#add-edge-type").input_value() == "Contains"
+        assert page.locator("#add-edge-target").input_value() == "local_target"
+        page.locator("#btn-add-edge").click()
+        assert page.locator(".edge-card[data-type='Contains']").count() == 1
+        page.locator('.entity-row[data-id="local_target"]').click()
+        page.locator("#btn-delete-entity").click()
+        page.wait_for_function("window.app && !window.app.world.entities.local_target")
+        local_json = page.locator("#json-output").input_value()
+        if "local_target" in local_json:
+            raise AssertionError(f"local delete did not remove entity and incoming edges: {local_json}")
+
         page.evaluate(
             """
             () => {
@@ -274,7 +471,7 @@ def main() -> None:
         page.screenshot(path=str(SCREENSHOT), full_page=True)
         coverage.close_browser(browser)
 
-    print("world_editor_enum_dropdowns=ok")
+    print("world_editor=ok")
     print(f"screenshot={SCREENSHOT}")
 
 

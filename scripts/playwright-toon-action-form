@@ -22,9 +22,10 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
 
 
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 
 CHARACTER = "character:1"
@@ -328,6 +329,7 @@ def check_event_activity(page) -> None:
 
 
 def main() -> None:
+    ensure_web_server(BASE_URL)
     with sync_playwright() as playwright:
         coverage = PlaywrightCoverage("toon-action-form")
         browser = launch_browser(playwright)
