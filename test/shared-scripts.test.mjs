@@ -20,6 +20,7 @@ function loadBrowserAssets(files) {
     history: { replaceState: () => {} },
     location: { href: 'http://example.test/index.html', search: '', pathname: '/index.html' },
     localStorage: new MapStorage(),
+    URLSearchParams,
     window: null,
   };
   context.globalThis = context;
@@ -123,6 +124,63 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   assert.equal(drained.lines.length, 1);
   assert.match(drained.lines[0].text, /too tired/);
   assert.equal(drained.lines[0].kind, 'rejection');
+
+  const system = BunnylandPlay.renderEventLine({
+    event_type: 'ControllerChangedEvent',
+    event: { event_id: 'event:2', actor_id: 'character:1' },
+  }, {
+    playerId: 'character:1',
+    nameFor: id => (id === 'character:1' ? 'Bun' : id),
+  });
+  assert.equal(system.kind, 'system');
+
+  const looked = BunnylandPlay.renderEventLine({
+    event_type: 'RoomLookedEvent',
+    event: { event_id: 'event:3', summary: 'A bright parlor.' },
+  }, {
+    playerId: 'character:1',
+    nameFor: id => (id === 'character:1' ? 'Bun' : id),
+  });
+  assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event' });
+});
+
+test('BunnylandPlay parses queue timing and cancels commands with controller identity', async () => {
+  const context = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+  const { BunnylandPlay } = context;
+
+  const queue = BunnylandPlay.parseQueuedCommands({
+    character_id: 'character:1',
+    world_epoch: 12,
+    generated_at_unix: 100,
+    next_tick_at_unix: Date.now() / 1000 + 12.4,
+    tick_seconds: 5,
+    commands: [{ command_id: 'queued:1', command_type: 'say' }],
+  });
+  assert.equal(queue.characterId, 'character:1');
+  assert.equal(queue.generatedAtUnix, 100);
+  assert.equal(queue.tickSeconds, 5);
+  assert.equal(queue.commands.length, 1);
+  assert.ok(BunnylandPlay.queuedCountdownSeconds(queue) >= 11);
+  assert.ok(BunnylandPlay.queuedCountdownSeconds(queue) <= 13);
+
+  let request = null;
+  context.fetch = async (url, options) => {
+    request = { url, options };
+    return { ok: true, json: async () => ({ cancelled: true }) };
+  };
+  const result = await BunnylandPlay.cancelQueuedCommand('/api/', 'character:1', 'queued:1', {
+    controllerId: 'web:tui',
+    generation: 7,
+  });
+  assert.deepEqual(result, { cancelled: true });
+  assert.equal(request.options.method, 'DELETE');
+  assert.equal(
+    request.url,
+    '/api/world/character/character%3A1/commands/queued%3A1?controller_id=web%3Atui&controller_generation=7',
+  );
 });
 
 test('BunnylandTrace parses JSONL spans and formats durations', () => {

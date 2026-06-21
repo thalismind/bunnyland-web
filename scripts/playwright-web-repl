@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -96,6 +97,9 @@ CHARACTER_PROJECTION = {
 QUEUED = {
     "character_id": CHARACTER,
     "world_epoch": 8,
+    "generated_at_unix": time.time(),
+    "next_tick_at_unix": time.time() + 45,
+    "tick_seconds": 10,
     "commands": [
         {
             "command_id": "queued-1",
@@ -133,9 +137,20 @@ def json_route(body):
 
 
 def install_routes(page, posted: list[dict]) -> None:
+    deleted: list[str] = []
+    page.exposed_deleted_commands = deleted
+
     def command_handler(route):
         posted.append(json.loads(route.request.post_data or "{}"))
         route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+    def cancel_handler(route):
+        deleted.append(route.request.url)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"cancelled": True}),
+        )
 
     def claim_handler(route):
         route.fulfill(
@@ -157,12 +172,14 @@ def install_routes(page, posted: list[dict]) -> None:
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/controllers/web/fallback", claim_handler)
     page.route("**/world/commands", command_handler)
+    page.route("**/world/character/*/commands/*", cancel_handler)
 
 
 def connect_and_select(page) -> None:
     page.goto(f"{BASE_URL}/web-repl.html", wait_until="domcontentloaded")
     page.locator("#api-url").fill("/api")
     page.locator("#btn-connect").click()
+    expect(page.locator('label[for="player-select"]')).to_have_text("Character:")
     page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
     page.locator("#player-select").select_option(CHARACTER)
     page.wait_for_function(
@@ -179,6 +196,7 @@ def connect_and_select(page) -> None:
     expect(page.locator("#side-actions .side-row.unavailable")).to_contain_text("shout")
     page.locator("#repl-input").fill("queued")
     page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_contain_text("Next tick in")
     expect(page.locator("#repl-log")).to_contain_text("text=later")
 
 
@@ -222,6 +240,16 @@ def submit_tell_named_target(page, posted: list[dict]) -> None:
         raise AssertionError(f"tell command did not resolve visible target: {body!r}")
 
 
+def cancel_queued_command(page) -> None:
+    page.locator("#repl-input").fill("cancel queued-1")
+    with page.expect_response("**/world/character/*/commands/*"):
+        page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_contain_text("Cancelled queued-1.")
+    deleted = page.exposed_deleted_commands
+    if not deleted or "controller_id=web%3Arepl" not in deleted[-1] or "controller_generation=3" not in deleted[-1]:
+        raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
+
+
 def narrate_event(page) -> None:
     EVENTS["events"] = [
         {
@@ -250,6 +278,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        cancel_queued_command(page)
         narrate_event(page)
         submit_unavailable(page, posted)
         submit_say(page, posted)

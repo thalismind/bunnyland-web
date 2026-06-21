@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -77,6 +78,14 @@ CHARACTER_PROJECTION = {
             ],
         },
         {
+            "command_type": "move", "tool_name": "move", "title": "Move", "lane": "world",
+            "cost": {"action": 1, "focus": 0},
+            "arguments": [
+                {"key": "exit_id", "title": "exit", "kind": "entity", "required": True,
+                 "target_group": "exits"},
+            ],
+        },
+        {
             "command_type": "tell", "tool_name": "tell", "title": "Tell", "lane": "world",
             "cost": {"action": 1, "focus": 1},
             "arguments": [
@@ -92,6 +101,10 @@ CHARACTER_PROJECTION = {
 ROOM_PROJECTION = {"world_epoch": 5, "room": CHARACTER_PROJECTION["room"]}
 QUEUED = {
     "character_id": CHARACTER,
+    "world_epoch": 5,
+    "generated_at_unix": time.time(),
+    "next_tick_at_unix": time.time() + 45,
+    "tick_seconds": 10,
     "commands": [
         {
             "command_id": "queued-1",
@@ -128,6 +141,9 @@ def json_route(body):
 
 
 def install_routes(page, posted: list[dict]) -> None:
+    deleted: list[str] = []
+    page.exposed_deleted_commands = deleted
+
     def commands_handler(route):
         request = route.request
         if request.method == "POST":
@@ -135,6 +151,14 @@ def install_routes(page, posted: list[dict]) -> None:
             route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
         else:
             route.fulfill(status=200, content_type="application/json", body=json.dumps(QUEUED))
+
+    def cancel_handler(route):
+        deleted.append(route.request.url)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"cancelled": True}),
+        )
 
     def claim_handler(route):
         route.fulfill(
@@ -152,6 +176,7 @@ def install_routes(page, posted: list[dict]) -> None:
     page.route("**/world/character/*/commands", commands_handler)
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/commands", commands_handler)
+    page.route("**/world/character/*/commands/*", cancel_handler)
 
 
 def connect_and_select(page) -> None:
@@ -181,6 +206,7 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator("#actions-body")).to_contain_text("1 FP")
     expect(page.locator("#actions-body")).to_contain_text("not enough focus points")
     expect(page.locator("#actions-body")).to_contain_text("Queued actions")
+    expect(page.locator("#actions-body")).to_contain_text("next tick in")
     expect(page.locator("#actions-body")).to_contain_text("after lunch")
     expect(page.locator("#actions-body .verb.ready").nth(0)).to_contain_text("Say")
     expect(page.locator('.verb.unavailable.ready[data-tool="shout"]')).to_be_visible()
@@ -190,6 +216,34 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator('.verb.ready[data-tool="say"]')).to_have_count(0)
     page.locator("#action-filter-clear").click()
     expect(page.locator('.verb.ready[data-tool="say"]')).to_be_visible()
+
+
+def check_selected_sprite_preselects_target(page) -> None:
+    page.locator(".sprite").filter(has_text="Marlow").click()
+    page.locator('.verb.ready[data-tool="tell"]').click()
+    overlay = page.locator("#action-form-overlay")
+    overlay.wait_for(state="visible")
+    expect(overlay.locator("select.af-input")).to_have_value(OTHER)
+    page.keyboard.press("Escape")
+    expect(overlay).to_have_count(0)
+
+
+def check_door_click_queues_move(page, posted: list[dict]) -> None:
+    expect(page.locator(".door")).to_be_visible(timeout=15000)
+    with page.expect_response("**/world/commands"):
+        page.locator(".door").first.click()
+    if not posted or posted[-1]["command_type"] != "move":
+        raise AssertionError(f"door click did not post move: {posted!r}")
+    if posted[-1]["payload"] != {"exit_id": EXIT}:
+        raise AssertionError(f"door move payload wrong: {posted[-1]!r}")
+
+
+def check_queue_cancel(page) -> None:
+    with page.expect_response("**/world/character/*/commands/*"):
+        page.locator('.queued-action[data-cancel-command="queued-1"]').click()
+    deleted = page.exposed_deleted_commands
+    if not deleted or "controller_id=web%3A1" not in deleted[-1] or "controller_generation=1" not in deleted[-1]:
+        raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 
 
 def check_say_text_field(page, posted: list[dict]) -> None:
@@ -280,6 +334,9 @@ def main() -> None:
 
         connect_and_select(page)
         check_action_search_and_indicators(page)
+        check_selected_sprite_preselects_target(page)
+        check_door_click_queues_move(page, posted)
+        check_queue_cancel(page)
         check_say_text_field(page, posted)
         check_unavailable_action_can_queue(page, posted)
         check_tell_dropdown_and_text(page, posted)

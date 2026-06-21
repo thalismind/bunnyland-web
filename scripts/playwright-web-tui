@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -109,6 +110,9 @@ CHARACTER_PROJECTION = {
 QUEUED = {
     "character_id": CHARACTER,
     "world_epoch": 8,
+    "generated_at_unix": time.time(),
+    "next_tick_at_unix": time.time() + 45,
+    "tick_seconds": 10,
     "commands": [
         {
             "command_id": "queued-1",
@@ -146,9 +150,20 @@ def json_route(body):
 
 
 def install_routes(page, posted: list[dict]) -> None:
+    deleted: list[str] = []
+    page.exposed_deleted_commands = deleted
+
     def command_handler(route):
         posted.append(json.loads(route.request.post_data or "{}"))
         route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+    def cancel_handler(route):
+        deleted.append(route.request.url)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"cancelled": True}),
+        )
 
     def claim_handler(route):
         route.fulfill(
@@ -170,6 +185,7 @@ def install_routes(page, posted: list[dict]) -> None:
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/controllers/web/fallback", claim_handler)
     page.route("**/world/commands", command_handler)
+    page.route("**/world/character/*/commands/*", cancel_handler)
 
 
 def connect_and_select(page) -> None:
@@ -195,6 +211,7 @@ def connect_and_select(page) -> None:
     expect(page.locator("#verbs")).to_contain_text("not enough focus points")
     expect(page.locator("#queued")).to_contain_text("Remember")
     expect(page.locator("#queued")).to_contain_text("query: brass key")
+    expect(page.locator("#queued")).to_contain_text("next tick in")
     expect(page.locator("#verbs .option").nth(0)).to_contain_text("Move")
     expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_be_visible()
 
@@ -230,6 +247,26 @@ def submit_tell(page, posted: list[dict]) -> None:
         raise AssertionError(f"unexpected command body: {posted[-1]!r}")
 
 
+def preselect_selected_target(page) -> None:
+    page.locator(f'#members .option[data-entity="{OTHER}"]').click()
+    page.locator("#action-filter").fill("tell")
+    page.locator("#verbs .option").filter(has_text="Tell").click()
+    overlay = page.locator("#action-form-overlay")
+    overlay.wait_for(state="visible")
+    expect(overlay.locator("select.form-input")).to_have_value(OTHER)
+    page.keyboard.press("Escape")
+    expect(overlay).to_have_count(0)
+
+
+def click_door_queues_move(page, posted: list[dict]) -> None:
+    with page.expect_response("**/world/commands"):
+        page.locator("#doors .option").first.click()
+    if not posted or posted[-1]["command_type"] != "move":
+        raise AssertionError(f"door click did not queue move: {posted!r}")
+    if posted[-1]["payload"] != {"exit_id": EXIT}:
+        raise AssertionError(f"door move payload wrong: {posted[-1]!r}")
+
+
 def submit_unavailable(page, posted: list[dict]) -> None:
     page.locator("#action-filter").fill("shout")
     page.locator("#verbs .option.unavailable").filter(has_text="Shout").click()
@@ -258,6 +295,14 @@ def narrate_event(page) -> None:
     expect(page.locator("#activity")).to_contain_text("too tired")
 
 
+def cancel_queued_command(page) -> None:
+    with page.expect_response("**/world/character/*/commands/*"):
+        page.locator('#queued .option[data-cancel-command="queued-1"]').click()
+    deleted = page.exposed_deleted_commands
+    if not deleted or "controller_id=web%3Atui" not in deleted[-1] or "controller_generation=4" not in deleted[-1]:
+        raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
+
+
 def main() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -268,7 +313,10 @@ def main() -> None:
 
         connect_and_select(page)
         filter_actions(page)
+        preselect_selected_target(page)
         narrate_event(page)
+        cancel_queued_command(page)
+        click_door_queues_move(page, posted)
         submit_unavailable(page, posted)
         submit_tell(page, posted)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-tui.png"))
