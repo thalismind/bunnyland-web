@@ -186,6 +186,7 @@ def install_routes(page, posted: list[dict]) -> None:
 
     page.route("**/world/events/recent", json_route(EVENTS))
     page.route("**/world/characters", json_route(CHARACTER_LIST))
+    page.route("**/world/character/*/scene-image", json_route({"ok": True, "status": "queued"}))
     page.route("**/world/character/*", json_route(CHARACTER_PROJECTION))
     page.route("**/world/character/*/commands", json_route(QUEUED))
     page.route("**/world/controllers/web/claim", claim_handler)
@@ -269,6 +270,7 @@ def submit_go_direction(page, posted: list[dict]) -> None:
 
 
 def exercise_meta_commands(page) -> None:
+    page.evaluate("() => { window.openedSheetUrl = ''; window.open = (url) => { window.openedSheetUrl = url; return {}; }; }")
     commands = [
         ("help", "Commands:"),
         ("help say", "parameters: text"),
@@ -276,6 +278,9 @@ def exercise_meta_commands(page) -> None:
         ("look", "Parlor"),
         ("inventory", "a brass key"),
         ("points", "AP 5/5"),
+        ("image", "image requested"),
+        ("sheet", "Opened sheet:"),
+        ("profile Marlow", "Opened sheet:"),
         ("refresh", "Refreshed."),
         ("tell Ghost boo", "I don't see 'Ghost'"),
     ]
@@ -283,6 +288,10 @@ def exercise_meta_commands(page) -> None:
         page.locator("#repl-input").fill(line)
         page.locator("#btn-send").click()
         expect(page.locator("#repl-log")).to_contain_text(expected)
+
+    opened = page.evaluate("() => window.openedSheetUrl")
+    if "character-sheet.html?server=%2Fapi#character:2" not in opened:
+        raise AssertionError(f"profile command opened wrong URL: {opened!r}")
 
     page.locator("#repl-input").fill("clear")
     page.locator("#btn-send").click()

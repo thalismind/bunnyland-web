@@ -18,8 +18,14 @@ function loadBrowserAssets(files) {
     fetch: async () => ({ ok: true, json: async () => ({}) }),
     globalThis: null,
     history: { replaceState: () => {} },
-    location: { href: 'http://example.test/index.html', search: '', pathname: '/index.html' },
+    location: {
+      href: 'http://example.test/index.html',
+      origin: 'http://example.test',
+      pathname: '/index.html',
+      search: '',
+    },
     localStorage: new MapStorage(),
+    URL,
     URLSearchParams,
     window: null,
   };
@@ -98,6 +104,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   });
 
   assert.equal(projection.characterId, 'character:1');
+  assert.equal(projection.characterName, 'character:1');
   assert.equal(BunnylandPlay.actionIcon(projection.actions[0]), '💬');
   assert.equal(BunnylandPlay.actionIcon({ command_type: 'scan-network' }), '📡');
   assert.equal(BunnylandPlay.actionIcon({ command_type: 'unknown-action' }), '•');
@@ -172,6 +179,32 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
     nameFor: id => (id === 'character:1' ? 'Bun' : id),
   });
   assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event', icon: '👁️' });
+});
+
+test('BunnylandPlay builds character-sheet links and portrait state messages', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  assert.equal(
+    BunnylandPlay.characterSheetHref('http://server.test/api/', 'character:1'),
+    'character-sheet.html?server=http%3A%2F%2Fserver.test%2Fapi#character:1',
+  );
+  assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: { url: '/media/p.png' } }), 'Portrait ready.');
+  assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: {} }), 'Portrait pending.');
+  assert.equal(
+    BunnylandPlay.portraitStatusMessage({ portrait: {} }, 'requesting'),
+    'Requesting portrait...',
+  );
+  assert.equal(
+    BunnylandPlay.portraitStatusMessage({ portrait: {} }, 'queued'),
+    'Portrait generation queued.',
+  );
+  assert.equal(
+    BunnylandPlay.portraitStatusMessage({ portrait: {} }, 'failed'),
+    'Portrait generation unavailable.',
+  );
 });
 
 test('BunnylandPlay keeps browser client ids in localStorage', () => {

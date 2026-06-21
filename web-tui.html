@@ -244,6 +244,7 @@
     <select id="player-select"><option value="">— select to play —</option></select>
     <button id="btn-release-character" type="button" disabled>Release</button>
     <button id="btn-request-image" type="button" title="Request an image of your current scene">📷 Image</button>
+    <button id="btn-open-sheet" type="button" title="Open the selected or current character sheet">▣ Sheet</button>
     <label for="claim-fallback">Fallback:</label>
     <select id="claim-fallback">
       <option value="suspend">Suspend</option>
@@ -311,6 +312,7 @@ const {
   fetchRecentEvents,
   filterActions,
   formatPoints,
+  characterSheetHref,
   iconPreference,
   imageRequestMessage,
   persistentClientId,
@@ -370,6 +372,7 @@ class WebTui {
       }
     });
     document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
+    document.getElementById('btn-open-sheet').addEventListener('click', () => this._openSheet());
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
@@ -597,6 +600,31 @@ class WebTui {
     }
     this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
     await this.refresh();
+  }
+
+  _openSheet() {
+    if (!this.apiBase || !this.playerId) {
+      this.activityLines.push({ text: 'Select a character before opening a sheet.', kind: 'system' });
+      this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+      this.render();
+      return;
+    }
+    let characterId = this.playerId;
+    if (this.selectedId && this.selectedId !== this.playerId) {
+      const selected = (this.projection?.room?.entities || []).find(entity => entity.id === this.selectedId);
+      if (!selected || !(selected.is_character || selected.kind === 'character')) {
+        this.activityLines.push({ text: 'Select a visible character or clear the selection.', kind: 'rejection' });
+        this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+        this.render();
+        return;
+      }
+      characterId = this.selectedId;
+    }
+    const href = characterSheetHref(this.apiBase, characterId);
+    const opened = window.open(href, '_blank', 'noopener');
+    this.activityLines.push({ text: opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`, kind: 'system' });
+    this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+    this.render();
   }
 
   async _moveThroughExit(exit) {

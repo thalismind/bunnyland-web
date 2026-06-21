@@ -80,6 +80,7 @@
     }
     return {
       characterId: data.character_id,
+      characterName: data.character_name || data.character_id,
       worldEpoch: data.world_epoch || 0,
       room: data.room || {},
       inventory: data.inventory || [],
@@ -597,6 +598,24 @@
     return '👀 image requested';
   }
 
+  function characterSheetHref(apiBase, characterId, page = 'character-sheet.html') {
+    const url = new URL(page, location.href);
+    const normalized = BunnylandApi.normalizeBase(apiBase);
+    if (normalized) url.searchParams.set('server', normalized);
+    else url.searchParams.delete('server');
+    url.hash = characterId || '';
+    if (url.origin !== location.origin) return url.toString();
+    return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
+  }
+
+  function portraitStatusMessage(projection, requestState = '') {
+    if (projection?.portrait?.url) return 'Portrait ready.';
+    if (requestState === 'requesting') return 'Requesting portrait...';
+    if (requestState === 'queued') return 'Portrait generation queued.';
+    if (requestState === 'failed') return 'Portrait generation unavailable.';
+    return 'Portrait pending.';
+  }
+
   window.BunnylandPlay = {
     KIND_ICON,
     actionIcon,
@@ -624,6 +643,7 @@
     fetchRoomProjection,
     filterActions,
     formatPoints,
+    characterSheetHref,
     drainNarratedEvents,
     eventIcon,
     humanizeEventType,
@@ -637,6 +657,7 @@
     parseQueuedCommands,
     parseRoomProjection,
     persistentClientId,
+    portraitStatusMessage,
     playerControl,
     queuedCommandLabel,
     queuedCommandCost,

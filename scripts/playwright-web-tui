@@ -188,6 +188,7 @@ def install_routes(page, posted: list[dict]) -> None:
     page.route("**/world/events/recent", json_route(EVENTS))
     page.route("**/world/characters", json_route(CHARACTER_LIST))
     page.route("**/world/character/*/commands", json_route(QUEUED))
+    page.route("**/world/character/*/scene-image", json_route({"ok": True, "status": "queued"}))
     page.route("**/world/character/*", json_route(CHARACTER_PROJECTION))
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/controllers/web/fallback", claim_handler)
@@ -229,6 +230,21 @@ def filter_actions(page) -> None:
     expect(page.locator("#verbs")).not_to_contain_text("Move")
     page.locator("#action-filter-clear").click()
     expect(page.locator("#verbs")).to_contain_text("Remember")
+
+
+def use_image_and_sheet_buttons(page) -> None:
+    expect(page.locator("#btn-request-image")).to_contain_text("📷 Image")
+    expect(page.locator("#btn-open-sheet")).to_contain_text("▣ Sheet")
+
+    with page.expect_response("**/world/character/*/scene-image"):
+        page.locator("#btn-request-image").click()
+    expect(page.locator("#activity")).to_contain_text("image requested")
+
+    page.evaluate("() => { window.openedSheetUrl = ''; window.open = (url) => { window.openedSheetUrl = url; return {}; }; }")
+    page.locator("#btn-open-sheet").click()
+    opened = page.evaluate("() => window.openedSheetUrl")
+    if "character-sheet.html?server=%2Fapi#character:1" not in opened:
+        raise AssertionError(f"sheet button opened wrong URL: {opened!r}")
 
 
 def submit_tell(page, posted: list[dict]) -> None:
@@ -344,6 +360,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        use_image_and_sheet_buttons(page)
         filter_actions(page)
         preselect_selected_target(page)
         update_fallback_and_release(page)

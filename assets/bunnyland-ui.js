@@ -54,6 +54,13 @@
       supportsServer: true,
     },
     {
+      href: 'character-sheet.html',
+      title: 'Character Sheet',
+      label: 'Profile view',
+      description: 'Open a read-only character profile, portrait, room, inventory, and actions.',
+      supportsServer: true,
+    },
+    {
       href: 'world-generator.html',
       title: 'World Generator',
       label: 'Admin generator',

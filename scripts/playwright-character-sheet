@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland character sheet page."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+
+CHARACTER = "character:1"
+OTHER = "character:2"
+ROOM = "room:1"
+EXIT = "room:2"
+
+CHARACTER_LIST = {
+    "world_epoch": 8,
+    "characters": [
+        {"character_id": CHARACTER, "name": "Bun", "kind": "character"},
+        {"character_id": OTHER, "name": "Marlow", "kind": "character"},
+    ],
+}
+
+
+def projection(*, portrait_url: str = "") -> dict:
+    return {
+        "character_id": CHARACTER,
+        "character_name": "Bun",
+        "world_epoch": 8,
+        "portrait": {"url": portrait_url, "alpha_url": ""},
+        "room": {
+            "id": ROOM,
+            "title": "Parlor",
+            "exits": [{"id": EXIT, "direction": "north", "label": "Hallway"}],
+            "entities": [
+                {"id": CHARACTER, "name": "Bun", "kind": "character", "is_character": True},
+                {"id": OTHER, "name": "Marlow", "kind": "character", "is_character": True},
+            ],
+        },
+        "inventory": [{"id": "item:1", "label": "a brass key", "kind": "item"}],
+        "points": {"action": 5, "action_max": 5, "focus": 3, "focus_max": 3},
+        "controller": {"controller_id": "web:sheet", "generation": 2},
+        "target_groups": {
+            "characters": [{"id": OTHER, "label": "Marlow", "kind": "character"}],
+            "exits": [{"id": EXIT, "label": "north", "kind": "exit"}],
+        },
+        "actions": [
+            {
+                "command_type": "say",
+                "tool_name": "say",
+                "title": "Say",
+                "lane": "world",
+                "cost": {"action": 1, "focus": 0},
+                "arguments": [{"key": "text", "title": "text", "kind": "string"}],
+                "available": True,
+            },
+            {
+                "command_type": "shout",
+                "tool_name": "shout",
+                "title": "Shout",
+                "lane": "world",
+                "cost": {"action": 1, "focus": 4},
+                "arguments": [],
+                "available": False,
+                "unavailable_reason": "not enough focus points",
+            },
+        ],
+    }
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def install_routes(page, state: dict) -> None:
+    def character_projection(route):
+        body = projection(portrait_url="/media/portraits/bun.png" if state["ready"] else "")
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    def scene_image(route):
+        state["requested"] += 1
+        state["ready"] = True
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"ok": True, "status": "queued"}),
+        )
+
+    page.route(
+        "**/world/characters",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(CHARACTER_LIST),
+        ),
+    )
+    page.route("**/world/character/*/scene-image", scene_image)
+    page.route("**/world/character/*", character_projection)
+
+
+def main() -> None:
+    ensure_web_server(BASE_URL)
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("character-sheet")
+        browser = launch_browser(playwright)
+        page = coverage.new_page(browser, viewport={"width": 1280, "height": 800})
+        state = {"requested": 0, "ready": False}
+        install_routes(page, state)
+
+        page.goto(f"{BASE_URL}/character-sheet.html?server=/api#{CHARACTER}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
+
+        expect(page.locator("#character-name")).to_have_text("Bun")
+        expect(page.locator("#character-select")).to_have_value(CHARACTER)
+        expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
+        expect(page.locator("#portrait-status")).to_contain_text("Portrait generation")
+        expect(page.locator("#room-value")).to_have_text("Parlor")
+        expect(page.locator("#inventory")).to_contain_text("a brass key")
+        expect(page.locator("#visible-characters")).to_contain_text("Marlow")
+        expect(page.locator("#actions")).to_contain_text("Say")
+        expect(page.locator("#actions")).to_contain_text("not enough focus points")
+        if state["requested"] != 1:
+            raise AssertionError(f"missing portrait did not request scene image: {state!r}")
+
+        page.evaluate("() => window.app.refresh()")
+        page.wait_for_function("() => document.querySelector('#portrait-frame img')")
+        expect(page.locator("#portrait-status")).to_have_text("Portrait ready.")
+
+        page.locator("#character-select").select_option(OTHER)
+        page.wait_for_function("() => location.hash === '#character%3A2' || location.hash === '#character:2'")
+
+        page.locator("#btn-client-menu").click()
+        expect(page.locator("#client-menu-dialog")).to_contain_text("Character Sheet")
+        expect(page.locator("#client-menu-dialog .client-menu-item.active")).to_contain_text("Character Sheet")
+        href = page.locator("#client-menu-dialog a").filter(has_text="Web TUI").get_attribute("href")
+        if "server=%2Fapi" not in (href or ""):
+            raise AssertionError(f"client menu did not preserve server parameter: {href!r}")
+
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-sheet.png"))
+        coverage.close_browser(browser)
+
+    print("character_sheet=ok")
+
+
+if __name__ == "__main__":
+    main()
