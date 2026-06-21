@@ -192,9 +192,10 @@
 
     #action-filter-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 6px;
       margin-bottom: 4px;
+      align-items: center;
     }
     #action-filter {
       width: 100%;
@@ -204,6 +205,15 @@
       padding-left: 8px;
       padding-right: 8px;
     }
+    .icon-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      white-space: nowrap;
+    }
+    .action-icon { margin-right: 6px; }
 
     .verb-list { display: flex; flex-direction: column; gap: 4px; }
     .verb {
@@ -467,6 +477,7 @@ const {
   actionAvailable,
   actionCost,
   actionFields,
+  actionIcon,
   actionLane,
   actionTitle,
   actionTool,
@@ -484,11 +495,13 @@ const {
   fetchRecentEvents,
   fetchRoomProjection,
   filterActions,
+  iconPreference,
   playerControl,
   queuedCommandCost,
   queuedCommandDetail,
   queuedCommandName,
   queuedCountdownSeconds,
+  setIconPreference,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -506,6 +519,7 @@ const ROOM_WIDTH = 100;
 const ROOM_HEIGHT = 100;
 const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
 const CLIENT_ID_KEY = 'bunnyland.toon.clientId';
+const ICON_PREF_KEY = 'bunnyland.toon.showIcons';
 const FURNITURE_KINDS = new Set([
   'chair', 'table', 'bed', 'art', 'window', 'workstation', 'sofa', 'couch',
   'shelf', 'desk', 'lamp', 'rug', 'cabinet', 'dresser', 'stool', 'bench',
@@ -591,6 +605,7 @@ class RoomClient {
     this.followPlayer = true;
     this.debugBounds = false;
     this.actionFilter = '';
+    this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
     this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
@@ -647,6 +662,12 @@ class RoomClient {
     document.getElementById('actions-body').addEventListener('click', (e) => {
       if (e.target.id !== 'action-filter-clear') return;
       this.actionFilter = '';
+      this._renderActions();
+    });
+    document.getElementById('actions-body').addEventListener('change', (e) => {
+      if (e.target.id !== 'show-action-icons') return;
+      this.showActionIcons = e.target.checked;
+      setIconPreference(ICON_PREF_KEY, this.showActionIcons);
       this._renderActions();
     });
 
@@ -1398,6 +1419,8 @@ class RoomClient {
       `<div id="action-filter-row">` +
       `<input id="action-filter" type="text" value="${esc(this.actionFilter)}" placeholder="Search actions" spellcheck="false">` +
       `<button id="action-filter-clear" type="button">Clear</button>` +
+      `<label class="icon-toggle" title="Show action and activity icons">` +
+      `<input id="show-action-icons" type="checkbox"${this.showActionIcons ? ' checked' : ''}> Icons</label>` +
       `</div>`;
     const filteredActions = this._filteredActions();
     for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
@@ -1470,8 +1493,11 @@ class RoomClient {
     if (ready) classes.push('ready');
     if (!available) classes.push('unavailable');
 
+    const icon = this.showActionIcons
+      ? `<span class="action-icon">${esc(actionIcon(verb))}</span>`
+      : '';
     return `<div class="${classes.join(' ')}"${ready ? ` data-tool="${esc(actionTool(verb))}"` : ''} title="${esc(title)}">` +
-      `<span class="verb-name">${esc(actionTitle(verb))}</span>` +
+      `<span class="verb-name">${icon}${esc(actionTitle(verb))}</span>` +
       `<span class="verb-cost">${note}${cost}${reasonHtml}</span></div>`;
   }
 
@@ -1482,7 +1508,7 @@ class RoomClient {
     }
     const rows = this.activityLines.map(line =>
       `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">` +
-      `${esc(line.text)}</div>`).join('');
+      `${this.showActionIcons && line.icon ? `<span class="action-icon">${esc(line.icon)}</span>` : ''}${esc(line.text)}</div>`).join('');
     return `<div class="action-section-title">Activity</div><div class="activity-list">${rows}</div>`;
   }
 

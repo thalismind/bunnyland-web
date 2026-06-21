@@ -112,10 +112,20 @@
     #points-line .point-pip.zero { color: var(--bl-text-dim); }
     #action-filter-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 6px;
+      align-items: center;
     }
     #action-filter { width: 100%; min-width: 0; }
+    .icon-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      white-space: nowrap;
+    }
+    .action-icon { margin-right: 6px; }
 
     #verbs {
       flex: 1;
@@ -259,6 +269,9 @@
       <div id="action-filter-row">
         <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
         <button id="action-filter-clear" type="button">Clear</button>
+        <label class="icon-toggle" title="Show action and activity icons">
+          <input id="show-action-icons" type="checkbox" checked> Icons
+        </label>
       </div>
     </div>
     <div id="verbs"></div>
@@ -275,6 +288,7 @@
 BunnylandUI.initClientMenu();
 
 const {
+  actionIcon,
   actionArguments,
   actionAvailable,
   actionCommandType,
@@ -296,10 +310,12 @@ const {
   fetchRecentEvents,
   filterActions,
   formatPoints,
+  iconPreference,
   persistentClientId,
   playerControl,
   queuedCommandLabel,
   queuedCountdownSeconds,
+  setIconPreference,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -307,6 +323,7 @@ const {
 const POLL_INTERVAL_MS = 2000;
 const ACTIVITY_LIMIT = 8;
 const CLIENT_ID_KEY = 'bunnyland.webTui.clientId';
+const ICON_PREF_KEY = 'bunnyland.webTui.showIcons';
 
 class WebTui {
   constructor() {
@@ -320,6 +337,7 @@ class WebTui {
     this.control = null;
     this.selectedId = '';
     this.actionFilter = '';
+    this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
     this.activityLines = [];
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
@@ -359,6 +377,11 @@ class WebTui {
       this.actionFilter = '';
       document.getElementById('action-filter').value = '';
       this._renderActions();
+    });
+    document.getElementById('show-action-icons').addEventListener('change', (e) => {
+      this.showActionIcons = e.target.checked;
+      setIconPreference(ICON_PREF_KEY, this.showActionIcons);
+      this.render();
     });
   }
 
@@ -706,7 +729,12 @@ class WebTui {
     });
 
     document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
-      .map(line => `<div class="option activity ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${esc(line.text)}</span></div>`)
+      .map(line => {
+        const icon = this.showActionIcons && line.icon
+          ? `<span class="action-icon">${esc(line.icon)}</span>`
+          : '';
+        return `<div class="option activity ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${icon}${esc(line.text)}</span></div>`;
+      })
       .join('') : '<div class="empty">No recent activity.</div>';
   }
 
@@ -722,6 +750,7 @@ class WebTui {
 
     const esc = BunnylandUI.escapeHtml;
     const actions = this._filteredActions();
+    document.getElementById('show-action-icons').checked = this.showActionIcons;
     const html = [['Room actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
       const rows = actions.map((action, index) => ({ action, index }))
         .filter(item => actionLane(item.action) === lane)
@@ -757,8 +786,11 @@ class WebTui {
       ? '<span class="target-mark">⌖ target</span>'
       : '';
     const reasonHtml = reason ? `<span class="unavailable-reason">${esc(reason)}</span>` : '';
+    const icon = this.showActionIcons
+      ? `<span class="action-icon">${esc(actionIcon(action))}</span>`
+      : '';
     return `<button class="option${available ? '' : ' unavailable'}" type="button" ${ready ? `data-action-index="${index}"` : ''} title="${esc(reason || `Perform: ${actionTitle(action)}`)}">` +
-      `<span class="option-main">${esc(actionTitle(action))}</span>` +
+      `<span class="option-main">${icon}${esc(actionTitle(action))}</span>` +
       `<span class="verb-cost">${target}${costHtml}${reasonHtml}</span></button>`;
   }
 }

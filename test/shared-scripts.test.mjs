@@ -98,6 +98,9 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   });
 
   assert.equal(projection.characterId, 'character:1');
+  assert.equal(BunnylandPlay.actionIcon(projection.actions[0]), '💬');
+  assert.equal(BunnylandPlay.actionIcon({ command_type: 'scan-network' }), '📡');
+  assert.equal(BunnylandPlay.actionIcon({ command_type: 'unknown-action' }), '•');
   assert.equal(BunnylandPlay.filterActions(projection.actions, 'say')[0].command_type, 'say');
   assert.equal(BunnylandPlay.allTargets(projection).some(target => target.label === 'Lantern'), true);
   assert.deepEqual(
@@ -149,6 +152,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   assert.equal(drained.lines.length, 1);
   assert.match(drained.lines[0].text, /too tired/);
   assert.equal(drained.lines[0].kind, 'rejection');
+  assert.equal(drained.lines[0].icon, '⚠️');
 
   const system = BunnylandPlay.renderEventLine({
     event_type: 'ControllerChangedEvent',
@@ -158,6 +162,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
     nameFor: id => (id === 'character:1' ? 'Bun' : id),
   });
   assert.equal(system.kind, 'system');
+  assert.equal(system.icon, '🎮');
 
   const looked = BunnylandPlay.renderEventLine({
     event_type: 'RoomLookedEvent',
@@ -166,7 +171,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
     playerId: 'character:1',
     nameFor: id => (id === 'character:1' ? 'Bun' : id),
   });
-  assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event' });
+  assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event', icon: '👁️' });
 });
 
 test('BunnylandPlay keeps browser client ids in localStorage', () => {
@@ -181,6 +186,9 @@ test('BunnylandPlay keeps browser client ids in localStorage', () => {
 
   assert.equal(second, first);
   assert.equal(context.localStorage.getItem('bunnyland.test.clientId'), first);
+  assert.equal(BunnylandPlay.iconPreference('bunnyland.test.icons'), true);
+  BunnylandPlay.setIconPreference('bunnyland.test.icons', false);
+  assert.equal(BunnylandPlay.iconPreference('bunnyland.test.icons'), false);
 });
 
 test('BunnylandPlay parses queue timing and cancels commands with controller identity', async () => {

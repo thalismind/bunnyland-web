@@ -89,6 +89,16 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .icon-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 7px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      white-space: nowrap;
+    }
+    .action-icon { margin-right: 6px; }
     .side-list {
       display: flex;
       flex-direction: column;
@@ -187,6 +197,9 @@
     </div>
     <div class="side-section">
       <div class="side-title">Actions</div>
+      <label class="icon-toggle" title="Show action and event icons">
+        <input id="show-action-icons" type="checkbox" checked> Icons
+      </label>
       <div id="side-actions" class="side-empty">Pick a player to load available actions.</div>
     </div>
     <div class="side-section">
@@ -217,6 +230,7 @@
 BunnylandUI.initClientMenu();
 
 const {
+  actionIcon,
   actionArguments,
   actionAvailable,
   actionCost,
@@ -235,12 +249,14 @@ const {
   fetchQueuedCommands,
   fetchRecentEvents,
   formatPoints,
+  iconPreference,
   isReferenceArg,
   orderActionsByAvailability,
   persistentClientId,
   playerControl,
   queuedCountdownSeconds,
   resolveTargetName,
+  setIconPreference,
   suggestTargetNames,
   submitCommand,
   targetCandidates,
@@ -250,6 +266,7 @@ const {
 
 const POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
+const ICON_PREF_KEY = 'bunnyland.webRepl.showIcons';
 const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'cancel', 'clear'];
 
 function splitArgs(rest) {
@@ -281,6 +298,7 @@ class WebRepl {
     this.control = null;
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
+    this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
     this.history = [];
     this.historyIndex = 0;
     this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-repl');
@@ -310,6 +328,11 @@ class WebRepl {
     });
     document.getElementById('repl-input').addEventListener('keydown', (e) => this._inputKey(e));
     document.getElementById('repl-input').addEventListener('input', () => this._updateCompletions());
+    document.getElementById('show-action-icons').addEventListener('change', (e) => {
+      this.showActionIcons = e.target.checked;
+      setIconPreference(ICON_PREF_KEY, this.showActionIcons);
+      this.render();
+    });
     document.getElementById('repl-log').addEventListener('click', (e) => {
       const button = e.target.closest('.entity-link');
       if (!button) return;
@@ -780,7 +803,10 @@ class WebRepl {
     });
     this.seenEventIds = drained.seenIds;
     if (prime) return;
-    for (const line of drained.lines) this._write(line.text, line.kind || 'event');
+    for (const line of drained.lines) {
+      const prefix = this.showActionIcons && line.icon ? `${line.icon} ` : '';
+      this._write(`${prefix}${line.text}`, line.kind || 'event');
+    }
   }
 
   _nameFor(entityId) {
@@ -874,6 +900,7 @@ class WebRepl {
     const status = document.getElementById('side-status');
     const actions = document.getElementById('side-actions');
     const targets = document.getElementById('side-targets');
+    document.getElementById('show-action-icons').checked = this.showActionIcons;
     const player = this.characters.find(c => c.id === this.playerId);
     const pts = this.projection?.points || {};
     status.innerHTML = player
@@ -888,8 +915,11 @@ class WebRepl {
       if (cost.focus) parts.push(`${cost.focus} FP`);
       const reason = actionUnavailableReason(action);
       const meta = [parts.join(' + ') || 'free', reason].filter(Boolean).join(' - ');
+      const icon = this.showActionIcons
+        ? `<span class="action-icon">${BunnylandUI.escapeHtml(actionIcon(action))}</span>`
+        : '';
       return `<div class="side-row${actionAvailable(action) ? '' : ' unavailable'}" title="${BunnylandUI.escapeHtml(reason)}">` +
-        `<strong>${BunnylandUI.escapeHtml(actionTool(action))}</strong>` +
+        `<strong>${icon}${BunnylandUI.escapeHtml(actionTool(action))}</strong>` +
         `<span${reason ? ' class="reason"' : ''}>${BunnylandUI.escapeHtml(meta)}</span></div>`;
     }).join('');
     actions.innerHTML = actionRows || '<div class="side-empty">Pick a player to load available actions.</div>';

@@ -7,6 +7,48 @@
     bed: '🛏', art: '🖼', window: '🪟', other: '⬡',
   };
 
+  const ACTION_ICON_BY_COMMAND_TYPE = {
+    look: '👁️', inspect: '🔎', move: '➡️', take: '🤲', put: '📥',
+    drop: '📤', open: '🚪', close: '🚪', lock: '🔒', unlock: '🔓',
+    hold: '✊', unhold: '🫳', wear: '🧥', remove: '🧥', use: '🛠️',
+    write: '✍️', sleep: '💤', wake: '☀️', wait: '⏳', 'move-sprite': '🎯',
+    say: '💬', tell: '🗣️', 'take-note': '📝', remember: '🧠',
+    forget: '🧹', reflect: '💭', ignite: '🔥', extinguish: '🧯',
+    'water-crop': '💧', eat: '🍽️', drink: '💧', craft: '🛠️',
+    attack: '⚔️', defend: '🛡️', 'cast-spell': '✨', scan: '📡', jump: '🚀',
+  };
+
+  const ACTION_ICON_KEYWORDS = [
+    ['move', '➡️'], ['travel', '🧭'], ['enter', '🚪'], ['leave', '🚪'],
+    ['open', '🚪'], ['close', '🚪'], ['lock', '🔒'], ['unlock', '🔓'],
+    ['search', '🔎'], ['inspect', '🔎'], ['scan', '📡'], ['survey', '🗺️'],
+    ['study', '📚'], ['learn', '📚'], ['read', '📖'], ['write', '✍️'],
+    ['say', '💬'], ['tell', '🗣️'], ['ask', '❓'], ['remember', '🧠'],
+    ['reflect', '💭'], ['note', '📝'], ['take', '🤲'], ['collect', '🤲'],
+    ['claim', '🏳️'], ['drop', '📤'], ['put', '📥'], ['store', '📥'],
+    ['retrieve', '📤'], ['haul', '📦'], ['cargo', '📦'], ['deliver', '📦'],
+    ['buy', '🛒'], ['sell', '🏷️'], ['trade', '🤝'], ['pay', '💰'],
+    ['work', '💼'], ['job', '💼'], ['craft', '🛠️'], ['repair', '🛠️'],
+    ['build', '🏗️'], ['upgrade', '⬆️'], ['install', '🔧'], ['machine', '⚙️'],
+    ['power', '⚡'], ['water', '💧'], ['drink', '💧'], ['plant', '🌱'],
+    ['harvest', '🌾'], ['forage', '🌿'], ['egg', '🥚'], ['feed', '🍽️'],
+    ['eat', '🍽️'], ['potion', '⚗️'], ['chem', '⚗️'], ['heal', '🩹'],
+    ['treat', '🩹'], ['poison', '☠️'], ['radiation', '☢️'], ['sample', '🧪'],
+    ['mine', '⛏️'], ['salvage', '🔧'], ['quest', '📜'], ['faction', '🏳️'],
+    ['crime', '⚖️'], ['jail', '⚖️'], ['bounty', '⚖️'], ['attack', '⚔️'],
+    ['fight', '⚔️'], ['raid', '⚔️'], ['defeat', '⚔️'], ['defend', '🛡️'],
+    ['trap', '🪤'], ['sneak', '🥷'], ['hide', '🥷'], ['steal', '🫴'],
+    ['spell', '✨'], ['magic', '✨'], ['ritual', '✨'], ['dungeon', '🗝️'],
+    ['map', '🗺️'], ['recall', '🌀'], ['rest', '💤'], ['sleep', '💤'],
+    ['ship', '🚀'], ['orbit', '🪐'], ['drone', '🛰️'], ['ai', '🤖'],
+    ['network', '📡'], ['hack', '💻'], ['exploit', '💻'], ['terminal', '💻'],
+    ['credential', '🪪'], ['data', '💾'], ['evidence', '🧾'], ['camera', '📷'],
+    ['sensor', '📡'], ['implant', '🦾'], ['call', '📣'], ['signal', '📣'],
+    ['command', '📣'], ['assign', '📌'], ['set', '📌'], ['configure', '⚙️'],
+    ['resolve', '✅'], ['complete', '✅'], ['accept', '✅'], ['decline', '✋'],
+    ['cancel', '🚫'], ['release', '🫳'], ['clean', '🧼'], ['clear', '🧹'],
+  ];
+
   function parseCharacterList(data) {
     return {
       epoch: data?.world_epoch || 0,
@@ -121,6 +163,15 @@
     return String(action?.title || action?.tool_name || action?.command_type || 'Action');
   }
 
+  function actionIcon(action) {
+    if (action?.icon) return String(action.icon);
+    const commandType = actionCommandType(action).trim().toLowerCase().replaceAll('_', '-');
+    if (ACTION_ICON_BY_COMMAND_TYPE[commandType]) return ACTION_ICON_BY_COMMAND_TYPE[commandType];
+    const tokens = commandType.split('-');
+    const match = ACTION_ICON_KEYWORDS.find(([token]) => tokens.includes(token));
+    return match ? match[1] : '•';
+  }
+
   function actionTool(action) {
     return String(action?.tool_name || action?.command_type || 'action');
   }
@@ -225,6 +276,23 @@
       return clientId;
     } catch (_err) {
       return randomClientId(prefix);
+    }
+  }
+
+  function iconPreference(key, defaultValue = true) {
+    try {
+      const value = localStorage.getItem(key);
+      return value == null ? Boolean(defaultValue) : value !== 'false';
+    } catch (_err) {
+      return Boolean(defaultValue);
+    }
+  }
+
+  function setIconPreference(key, value) {
+    try {
+      localStorage.setItem(key, value ? 'true' : 'false');
+    } catch (_err) {
+      // Best-effort preference only.
     }
   }
 
@@ -420,6 +488,15 @@
     'WorldPauseStatusChangedEvent',
   ]);
 
+  const EVENT_ICON_BY_TYPE = {
+    ActorMovedEvent: '➡️',
+    RoomLookedEvent: '👁️',
+    CommandRejectedEvent: '⚠️',
+    ControllerChangedEvent: '🎮',
+    WorldPauseStatusChangedEvent: '⏸️',
+    CharacterClaimedEvent: '🎮',
+  };
+
   const EVENT_BASE_KEYS = new Set([
     'event_id', 'world_epoch', 'created_at', 'visibility', 'actor_id', 'room_id',
     'target_ids', 'causation_id', 'correlation_id', 'arrival_summary',
@@ -428,6 +505,13 @@
   function humanizeEventType(eventType) {
     const name = String(eventType || 'Event').replace(/Event$/, '');
     return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+  }
+
+  function eventIcon(eventType, event = {}) {
+    if (eventType === 'CommandRejectedEvent' && event.command_type) {
+      return actionIcon({ command_type: event.command_type });
+    }
+    return EVENT_ICON_BY_TYPE[eventType] || '•';
   }
 
   function perceivesEvent(event, { playerId = '', roomOf = () => null } = {}) {
@@ -448,10 +532,10 @@
     const eventType = String(data?.event_type || 'Event');
     if (eventType === 'ActorMovedEvent' && playerId &&
         event.actor_id === playerId && event.arrival_summary) {
-      return { text: String(event.arrival_summary), kind: 'event' };
+      return { text: String(event.arrival_summary), kind: 'event', icon: eventIcon(eventType, event) };
     }
     if (eventType === 'RoomLookedEvent' && event.summary) {
-      return { text: String(event.summary), kind: 'event' };
+      return { text: String(event.summary), kind: 'event', icon: eventIcon(eventType, event) };
     }
     const actor = event.actor_id ? nameFor(event.actor_id) : null;
     const details = [];
@@ -474,6 +558,7 @@
       kind: eventType === 'CommandRejectedEvent'
         ? 'rejection'
         : SYSTEM_EVENT_TYPES.has(eventType) ? 'system' : 'event',
+      icon: eventIcon(eventType, event),
     };
   }
 
@@ -504,6 +589,7 @@
 
   window.BunnylandPlay = {
     KIND_ICON,
+    actionIcon,
     actionArguments,
     actionAvailable,
     actionCommandType,
@@ -529,7 +615,9 @@
     filterActions,
     formatPoints,
     drainNarratedEvents,
+    eventIcon,
     humanizeEventType,
+    iconPreference,
     isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,
@@ -547,6 +635,7 @@
     renderEventLine,
     resolveTargetName,
     randomClientId,
+    setIconPreference,
     suggestTargetNames,
     submitCommand,
     targetCandidates,
