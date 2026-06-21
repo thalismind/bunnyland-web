@@ -489,7 +489,6 @@ const {
   queuedCommandDetail,
   queuedCommandName,
   queuedCountdownSeconds,
-  randomClientId,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -506,9 +505,7 @@ const POLL_INTERVAL_MS = 2000;  // how often the live view re-polls the player-f
 const ROOM_WIDTH = 100;
 const ROOM_HEIGHT = 100;
 const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
-const CLIENT_DB_NAME = 'bunnyland-toon';
-const CLIENT_DB_STORE = 'settings';
-const CLIENT_ID_KEY = 'client-id';
+const CLIENT_ID_KEY = 'bunnyland.toon.clientId';
 const FURNITURE_KINDS = new Set([
   'chair', 'table', 'bed', 'art', 'window', 'workstation', 'sofa', 'couch',
   'shelf', 'desk', 'lamp', 'rug', 'cabinet', 'dresser', 'stool', 'bench',
@@ -568,50 +565,8 @@ function legacyActionView(verb) {
   };
 }
 
-async function persistentClientId() {
-  if (!window.indexedDB) return persistentClientIdFallback();
-
-  return new Promise((resolve) => {
-    const open = indexedDB.open(CLIENT_DB_NAME, 1);
-    open.onupgradeneeded = () => {
-      open.result.createObjectStore(CLIENT_DB_STORE);
-    };
-    open.onerror = () => {
-      console.warn('Could not open IndexedDB for Bunnyland client id', open.error);
-      resolve(persistentClientIdFallback());
-    };
-    open.onsuccess = () => {
-      const db = open.result;
-      const tx = db.transaction(CLIENT_DB_STORE, 'readwrite');
-      const store = tx.objectStore(CLIENT_DB_STORE);
-      const get = store.get(CLIENT_ID_KEY);
-      get.onerror = () => {
-        console.warn('Could not read Bunnyland client id from IndexedDB', get.error);
-        resolve(persistentClientIdFallback());
-      };
-      get.onsuccess = () => {
-        const existing = typeof get.result === 'string' ? get.result : '';
-        const clientId = existing || randomClientId();
-        if (!existing) store.put(clientId, CLIENT_ID_KEY);
-        resolve(clientId);
-      };
-    };
-  });
-}
-
-function persistentClientIdFallback() {
-  const key = 'bunnyland.toon.clientId';
-  try {
-    let clientId = localStorage.getItem(key);
-    if (!clientId) {
-      clientId = randomClientId();
-      localStorage.setItem(key, clientId);
-    }
-    return clientId;
-  } catch (err) {
-    console.warn('Could not persist Bunnyland client id in localStorage', err);
-    return randomClientId();
-  }
+async function toonPersistentClientId() {
+  return BunnylandPlay.persistentClientId(CLIENT_ID_KEY, 'toon');
 }
 
 // ── The room client ────────────────────────────────────────────────────────────
@@ -641,7 +596,7 @@ class RoomClient {
     this._refreshTimer = null;
     this._pollTimer = null;
     this._clientId = null;
-    this._clientIdPromise = persistentClientId();
+    this._clientIdPromise = toonPersistentClientId();
     this._loadingOverlay = null;
     this._loadingTimers = [];
 

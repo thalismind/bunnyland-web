@@ -169,6 +169,20 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event' });
 });
 
+test('BunnylandPlay keeps browser client ids in localStorage', () => {
+  const context = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+  const { BunnylandPlay } = context;
+
+  const first = BunnylandPlay.persistentClientId('bunnyland.test.clientId', 'test');
+  const second = BunnylandPlay.persistentClientId('bunnyland.test.clientId', 'test');
+
+  assert.equal(second, first);
+  assert.equal(context.localStorage.getItem('bunnyland.test.clientId'), first);
+});
+
 test('BunnylandPlay parses queue timing and cancels commands with controller identity', async () => {
   const context = loadBrowserAssets([
     'assets/bunnyland-api.js',
