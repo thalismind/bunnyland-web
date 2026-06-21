@@ -95,13 +95,35 @@
     return `${normalizeBase(base).replace(/^http/, 'ws')}${path}`;
   }
 
+  function mediaUrl(base, url) {
+    if (!url) return '';
+    if (/^https?:\/\//.test(url)) return url;
+    return `${normalizeBase(base)}${url}`;
+  }
+
+  async function requestSceneImage(base, characterId) {
+    return sendJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image`, {
+      method: 'POST',
+    });
+  }
+
+  async function requestEventImage(base, recordId, extra = '') {
+    return sendJson(base, `/world/event/${encodeURIComponent(recordId)}/image`, {
+      method: 'POST',
+      body: JSON.stringify({ extra }),
+    });
+  }
+
   window.BunnylandApi = {
     applyConfigToInput,
     applyServerParam,
     jsonHeaders,
+    mediaUrl,
     normalizeBase,
     parseJsonResponse,
     promptBasicAuth,
+    requestEventImage,
+    requestSceneImage,
     sendAdmin,
     sendJson,
     serverFromUrl,

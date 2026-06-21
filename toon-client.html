@@ -166,6 +166,8 @@
       color: var(--bl-text);
     }
     #actions-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+    #player-portrait { display: block; width: 100%; border-bottom: 1px solid var(--bl-border); }
+    #player-portrait.hidden { display: none; }
     .action-section-title {
       font-size: var(--bl-text-xs);
       color: var(--bl-text-dim);
@@ -440,6 +442,7 @@
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
+    <button id="btn-request-image" title="Request an image of your character's current scene">📷 Image</button>
     <span class="toolbar-sep">|</span>
     <label><input type="checkbox" id="debug-bounds"> Bounds</label>
     <span class="toolbar-sep">|</span>
@@ -460,6 +463,7 @@
   </div>
   <div id="actions">
     <div id="actions-header">⚔ Actions</div>
+    <img id="player-portrait" class="hidden" alt="Your character's portrait">
     <div id="actions-body"></div>
   </div>
 </div>
@@ -496,6 +500,7 @@ const {
   fetchRoomProjection,
   filterActions,
   iconPreference,
+  imageRequestMessage,
   playerControl,
   queuedCommandCost,
   queuedCommandDetail,
@@ -650,6 +655,7 @@ class RoomClient {
       this._recenterOnPlayer();
       this.render();
     });
+    document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('debug-bounds').addEventListener('change', (e) => {
       this.debugBounds = e.target.checked;
       this.render();
@@ -1514,8 +1520,34 @@ class RoomClient {
 
   // ── Rendering ────────────────────────────────────────────────────────────────
 
+  async _requestImage() {
+    if (!this.apiBase || !this.playerId) {
+      this._setStatus('error', 'Select a character before requesting an image.');
+      return;
+    }
+    try {
+      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+      this._setStatus('live', imageRequestMessage(result));
+    } catch (err) {
+      this._setStatus('error', `📷 ${err.message || err}`);
+    }
+  }
+
+  _renderPortrait() {
+    const img = document.getElementById('player-portrait');
+    const url = this.characterProjection?.portrait?.url || '';
+    if (url) {
+      img.src = BunnylandApi.mediaUrl(this.apiBase, url);
+      img.classList.remove('hidden');
+    } else {
+      img.classList.add('hidden');
+      img.removeAttribute('src');
+    }
+  }
+
   render() {
     this._renderActions();
+    this._renderPortrait();
 
     const stage = document.getElementById('stage');
     const empty = document.getElementById('stage-empty');

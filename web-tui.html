@@ -243,6 +243,7 @@
     <label for="player-select">Character:</label>
     <select id="player-select"><option value="">— select to play —</option></select>
     <button id="btn-release-character" type="button" disabled>Release</button>
+    <button id="btn-request-image" type="button" title="Request an image of your current scene">📷 Image</button>
     <label for="claim-fallback">Fallback:</label>
     <select id="claim-fallback">
       <option value="suspend">Suspend</option>
@@ -311,6 +312,7 @@ const {
   filterActions,
   formatPoints,
   iconPreference,
+  imageRequestMessage,
   persistentClientId,
   playerControl,
   queuedCommandLabel,
@@ -367,6 +369,7 @@ class WebTui {
         this._dropPlayer();
       }
     });
+    document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
@@ -578,6 +581,21 @@ class WebTui {
       this.activityLines.push({ text: result.reason || 'Command rejected.', kind: 'rejection' });
       this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
     }
+    await this.refresh();
+  }
+
+  async _requestImage() {
+    if (!this.apiBase || !this.playerId) {
+      this.activityLines.push({ text: 'Select a character before requesting an image.', kind: 'system' });
+    } else {
+      try {
+        const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+        this.activityLines.push({ text: imageRequestMessage(result), kind: 'system' });
+      } catch (err) {
+        this.activityLines.push({ text: `📷 ${err.message || err}`, kind: 'rejection' });
+      }
+    }
+    this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
     await this.refresh();
   }
 

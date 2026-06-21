@@ -85,6 +85,7 @@
       inventory: data.inventory || [],
       points: data.points || {},
       controller: data.controller || null,
+      portrait: data.portrait || {},
       targetGroups,
       actions: data.actions || [],
     };
@@ -115,6 +116,7 @@
         kind: entity.kind || 'other',
         isCharacter: Boolean(entity.is_character),
         sprite: entity.sprite || {},
+        portrait: entity.portrait || {},
       })),
     };
   }
@@ -587,6 +589,14 @@
     return { lines, seenIds: current };
   }
 
+  function imageRequestMessage(result) {
+    if (!result || result.ok === false) {
+      return `📷 ${(result && result.reason) || 'image request failed'}`;
+    }
+    if (result.status === 'skipped') return '📸 image ready';
+    return '👀 image requested';
+  }
+
   window.BunnylandPlay = {
     KIND_ICON,
     actionIcon,
@@ -618,6 +628,7 @@
     eventIcon,
     humanizeEventType,
     iconPreference,
+    imageRequestMessage,
     isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,

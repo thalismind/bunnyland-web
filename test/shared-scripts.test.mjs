@@ -250,3 +250,51 @@ test('BunnylandTrace parses JSONL spans and formats durations', () => {
   assert.equal(BunnylandTrace.filterSpans(parsed.traces[0], { text: 'world' }).length, 1);
   assert.equal(BunnylandTrace.formatDuration(4000), '4us');
 });
+
+test('BunnylandApi builds media URLs and image-request requests', async () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  const { BunnylandApi } = context;
+
+  assert.equal(BunnylandApi.mediaUrl('http://s.test/', '/media/portraits/a.png'), 'http://s.test/media/portraits/a.png');
+  assert.equal(BunnylandApi.mediaUrl('http://s.test', 'https://cdn.test/x.png'), 'https://cdn.test/x.png');
+  assert.equal(BunnylandApi.mediaUrl('http://s.test', ''), '');
+
+  const calls = [];
+  context.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({ status: 'queued', url: '/media/events/x.png' }) };
+  };
+
+  const scene = await BunnylandApi.requestSceneImage('http://s.test/', 'character:1');
+  assert.equal(scene.status, 'queued');
+  assert.equal(calls[0].url, 'http://s.test/world/character/character%3A1/scene-image');
+  assert.equal(calls[0].options.method, 'POST');
+
+  await BunnylandApi.requestEventImage('http://s.test', 'rec:9', 'dramatic');
+  assert.equal(calls[1].url, 'http://s.test/world/event/rec%3A9/image');
+  assert.deepEqual(JSON.parse(calls[1].options.body), { extra: 'dramatic' });
+});
+
+test('BunnylandPlay exposes portraits and image-request messages', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  const projection = BunnylandPlay.parseCharacterProjection({
+    character_id: 'character:1',
+    portrait: { url: '/media/portraits/p.png', alpha_url: '/media/alpha/p.png' },
+    room: { id: 'room:1', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/media/portraits/m.png' } }] },
+  });
+  assert.equal(projection.portrait.url, '/media/portraits/p.png');
+
+  const room = BunnylandPlay.parseRoomProjection({
+    room: { id: 'room:1', title: 'Parlor', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/media/portraits/m.png' } }] },
+  });
+  assert.equal(room.entities[0].portrait.url, '/media/portraits/m.png');
+
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'queued' }), '👀 image requested');
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'skipped' }), '📸 image ready');
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: false, reason: 'no room' }), '📷 no room');
+  assert.equal(BunnylandPlay.imageRequestMessage(null), '📷 image request failed');
+});

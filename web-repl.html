@@ -250,6 +250,7 @@ const {
   fetchRecentEvents,
   formatPoints,
   iconPreference,
+  imageRequestMessage,
   isReferenceArg,
   orderActionsByAvailability,
   persistentClientId,
@@ -267,7 +268,7 @@ const {
 const POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
 const ICON_PREF_KEY = 'bunnyland.webRepl.showIcons';
-const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'refresh', 'queued', 'cancel', 'clear'];
+const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'image', 'img', 'refresh', 'queued', 'cancel', 'clear'];
 
 function splitArgs(rest) {
   const tokens = rest.trim().split(/\s+/).filter(Boolean);
@@ -540,7 +541,20 @@ class WebRepl {
       if (!rest) return this._write('Usage: play <player name>', 'error');
       return this.selectPlayer(rest);
     }
+    if (verb === 'image' || verb === 'img') return this._requestImage();
     return this._act(line);
+  }
+
+  async _requestImage() {
+    if (!this.apiBase || !this.playerId) {
+      return this._write('Pick a player first: play <name>.', 'error');
+    }
+    try {
+      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+      this._write(imageRequestMessage(result), 'ok');
+    } catch (err) {
+      this._write(`📷 ${err.message}`, 'error');
+    }
   }
 
   _writeHelp(topic) {
