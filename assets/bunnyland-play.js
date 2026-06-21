@@ -598,6 +598,31 @@
     return '👀 image requested';
   }
 
+  function imageCompletionFromMessage(message, base = '') {
+    const data = message?.data || message || {};
+    if (data.event_type !== 'ImageGenerationCompletedEvent') return null;
+    const event = data.event || {};
+    if (!event.url) return null;
+    return {
+      entityId: String(event.entity_id || ''),
+      purpose: String(event.purpose || ''),
+      url: BunnylandApi.mediaUrl(base, event.url),
+      alphaUrl: event.alpha_url ? BunnylandApi.mediaUrl(base, event.alpha_url) : '',
+      epoch: Number(event.world_epoch || 0),
+    };
+  }
+
+  function latestImageCompletion(messages, { base = '', purpose = '' } = {}) {
+    let best = null;
+    for (const message of messages || []) {
+      const image = imageCompletionFromMessage(message, base);
+      if (!image) continue;
+      if (purpose && image.purpose !== purpose) continue;
+      if (!best || image.epoch >= best.epoch) best = image;
+    }
+    return best;
+  }
+
   function characterSheetHref(apiBase, characterId, page = 'character-sheet.html') {
     const url = new URL(page, location.href);
     const normalized = BunnylandApi.normalizeBase(apiBase);
@@ -648,7 +673,9 @@
     eventIcon,
     humanizeEventType,
     iconPreference,
+    imageCompletionFromMessage,
     imageRequestMessage,
+    latestImageCompletion,
     isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,

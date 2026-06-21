@@ -315,6 +315,7 @@ const {
   characterSheetHref,
   iconPreference,
   imageRequestMessage,
+  latestImageCompletion,
   persistentClientId,
   playerControl,
   queuedCommandLabel,
@@ -542,6 +543,11 @@ class WebTui {
       nameFor: (id) => this._nameFor(id),
     });
     this.seenEventIds = drained.seenIds;
+    const image = latestImageCompletion(messages, { base: this.apiBase, purpose: 'event' });
+    if (image && image.url !== this._eventImageUrl) {
+      this._eventImageUrl = image.url;
+      if (!prime) this.activityLines.push({ text: `📸 scene image ready: ${image.url}`, kind: 'system' });
+    }
     if (prime) return;
     this.activityLines.push(...drained.lines);
     this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);

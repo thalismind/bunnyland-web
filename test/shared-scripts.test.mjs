@@ -331,3 +331,45 @@ test('BunnylandPlay exposes portraits and image-request messages', () => {
   assert.equal(BunnylandPlay.imageRequestMessage({ ok: false, reason: 'no room' }), '📷 no room');
   assert.equal(BunnylandPlay.imageRequestMessage(null), '📷 image request failed');
 });
+
+test('BunnylandPlay extracts and ranks image-completion events', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  const completed = {
+    data: {
+      event_type: 'ImageGenerationCompletedEvent',
+      event: {
+        event_id: 'e1', world_epoch: 5, entity_id: 'history:1', purpose: 'event',
+        url: '/media/events/a.png', alpha_url: '/media/alpha/a.png',
+      },
+    },
+  };
+  const img = BunnylandPlay.imageCompletionFromMessage(completed, 'http://s.test');
+  assert.equal(img.purpose, 'event');
+  assert.equal(img.url, 'http://s.test/media/events/a.png');
+  assert.equal(img.alphaUrl, 'http://s.test/media/alpha/a.png');
+  assert.equal(img.epoch, 5);
+
+  // Non-completion and url-less messages are ignored.
+  assert.equal(BunnylandPlay.imageCompletionFromMessage({ data: { event_type: 'SpeechSaidEvent' } }), null);
+  assert.equal(BunnylandPlay.imageCompletionFromMessage(
+    { data: { event_type: 'ImageGenerationCompletedEvent', event: { url: '' } } }), null);
+
+  const messages = [
+    completed,
+    { data: { event_type: 'ImageGenerationCompletedEvent',
+              event: { event_id: 'e2', world_epoch: 9, purpose: 'portrait', url: '/media/portraits/p.png' } } },
+    { data: { event_type: 'ImageGenerationCompletedEvent',
+              event: { event_id: 'e3', world_epoch: 12, purpose: 'event', url: '/media/events/b.png' } } },
+  ];
+  // Newest event-purpose image wins; portrait is filtered out.
+  const latest = BunnylandPlay.latestImageCompletion(messages, { base: 'http://s.test', purpose: 'event' });
+  assert.equal(latest.url, 'http://s.test/media/events/b.png');
+  assert.equal(latest.epoch, 12);
+  // Without a purpose filter, the newest overall wins.
+  assert.equal(BunnylandPlay.latestImageCompletion(messages).epoch, 12);
+  assert.equal(BunnylandPlay.latestImageCompletion([]), null);
+});
