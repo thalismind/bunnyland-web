@@ -297,6 +297,7 @@ const {
   filterActions,
   formatPoints,
   persistentClientId,
+  playerControl,
   queuedCommandLabel,
   queuedCountdownSeconds,
   submitCommand,
@@ -340,7 +341,14 @@ class WebTui {
       if (e.target.value) this.selectPlayer(e.target.value);
       else this._dropPlayer();
     });
-    document.getElementById('btn-release-character').addEventListener('click', () => this._dropPlayer());
+    document.getElementById('btn-release-character').addEventListener('click', async () => {
+      if (this.playerId && !this._playerControl()) {
+        this.control = await this._claimPlayer(this.playerId);
+        await this.refresh();
+      } else {
+        this._dropPlayer();
+      }
+    });
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
@@ -410,13 +418,7 @@ class WebTui {
         const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
         this.queuedCommands = queued?.commands || [];
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;
-        if (this.projection?.controller) {
-          this.control = {
-            characterId: this.playerId,
-            controllerId: this.projection.controller.controller_id,
-            generation: Number(this.projection.controller.generation || 0),
-          };
-        }
+        if (!this._playerControl()) this.control = null;
       }
       const events = await fetchRecentEvents(this.apiBase);
       this._drainEvents(events.events || [], { prime: !this.eventsPrimed });
@@ -473,6 +475,10 @@ class WebTui {
     } catch (err) {
       this._setStatus('err', `⚠ ${err.message || err}`);
     }
+  }
+
+  _playerControl() {
+    return playerControl(this.control, this.projection, this.playerId);
   }
 
   _setStatus(kind, text) {
@@ -663,7 +669,9 @@ class WebTui {
       .map(c => `<option value="${BunnylandUI.escapeHtml(c.id)}">${BunnylandUI.escapeHtml(c.name)}</option>`)
       .join('');
     select.value = this.playerId || '';
-    document.getElementById('btn-release-character').disabled = !this.playerId;
+    const release = document.getElementById('btn-release-character');
+    release.disabled = !this.playerId;
+    release.textContent = this.playerId && !this._playerControl() ? 'Claim' : 'Release';
   }
 
   _renderWorld() {

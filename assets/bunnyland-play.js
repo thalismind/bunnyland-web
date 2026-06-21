@@ -249,12 +249,12 @@
   }
 
   function playerControl(control, projection, playerId) {
-    if (control?.characterId === playerId) {
-      return { controllerId: control.controllerId, generation: control.generation };
-    }
-    const projected = projection?.controller;
-    if (projection?.characterId === playerId && projected) {
-      return { controllerId: projected.controller_id, generation: projected.generation };
+    const projected = projection?.characterId === playerId ? projection?.controller : null;
+    if (
+      control?.characterId === playerId &&
+      projected?.controller_id === control.controllerId
+    ) {
+      return { controllerId: control.controllerId, generation: Number(projected.generation || 0) };
     }
     return null;
   }

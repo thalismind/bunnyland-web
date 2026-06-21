@@ -372,6 +372,7 @@ class WebRepl {
       if (this.playerId) {
         const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
         this.projection = projection?.characterId === this.playerId ? projection : null;
+        if (!this._playerControl()) this.control = null;
         const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
         this.queuedCommands = queued?.characterId === this.playerId ? queued.commands : [];
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;

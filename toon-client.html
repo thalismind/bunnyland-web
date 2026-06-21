@@ -661,8 +661,13 @@ class RoomClient {
     document.getElementById('player-select').addEventListener('change', (e) => {
       this._selectPlayer(e.target.value);
     });
-    document.getElementById('btn-release-character').addEventListener('click', () => {
-      this._selectPlayer('');
+    document.getElementById('btn-release-character').addEventListener('click', async () => {
+      if (this.playerId && !this._playerControl()) {
+        await this._claimPlayer(this.playerId);
+        await this._refreshCharacterProjection({ render: true });
+      } else {
+        this._selectPlayer('');
+      }
     });
     document.getElementById('claim-fallback').addEventListener('change', () => {
       this._updateClaimFallback();
@@ -797,6 +802,7 @@ class RoomClient {
     try {
       const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
       this.characterProjection = projection?.characterId === this.playerId ? projection : null;
+      if (!this._playerControl()) this.control = null;
       if (this.followPlayer && this.characterProjection?.room?.id) {
         this.viewRoomId = this.characterProjection.room.id;
       }
@@ -1040,7 +1046,9 @@ class RoomClient {
       this.queueProjection = null;
       this.selectedId = '';
     }
-    document.getElementById('btn-release-character').disabled = !this.playerId;
+    const release = document.getElementById('btn-release-character');
+    release.disabled = !this.playerId;
+    release.textContent = this.playerId && !this._playerControl() ? 'Claim' : 'Release';
   }
 
   _selectPlayer(id) {

@@ -87,6 +87,7 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
       exits: [{ id: 'room:2', direction: 'north', label: 'Hallway' }],
     },
     inventory: [{ id: 'item:2', label: 'Lantern', kind: 'item' }],
+    controller: { controller_id: 'web:1', generation: 4 },
     target_groups: {
       inventory: [{ id: 'item:2', label: 'Lantern', kind: 'item' }],
     },
@@ -99,6 +100,30 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   assert.equal(projection.characterId, 'character:1');
   assert.equal(BunnylandPlay.filterActions(projection.actions, 'say')[0].command_type, 'say');
   assert.equal(BunnylandPlay.allTargets(projection).some(target => target.label === 'Lantern'), true);
+  assert.deepEqual(
+    plain(BunnylandPlay.playerControl(
+      { characterId: 'character:1', controllerId: 'web:1', generation: 4 },
+      projection,
+      'character:1',
+    )),
+    { controllerId: 'web:1', generation: 4 },
+  );
+  assert.deepEqual(
+    plain(BunnylandPlay.playerControl(
+      { characterId: 'character:1', controllerId: 'web:1', generation: 3 },
+      projection,
+      'character:1',
+    )),
+    { controllerId: 'web:1', generation: 4 },
+  );
+  assert.equal(
+    BunnylandPlay.playerControl(
+      { characterId: 'character:1', controllerId: 'web:2', generation: 3 },
+      projection,
+      'character:1',
+    ),
+    null,
+  );
   assert.equal(
     BunnylandPlay.resolveTargetName('brass', BunnylandPlay.allTargets(projection)).value,
     'item:1',
