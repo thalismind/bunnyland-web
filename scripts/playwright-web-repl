@@ -67,6 +67,22 @@ CHARACTER_PROJECTION = {
             "unavailable_reason": "not enough focus points",
         },
         {
+            "command_type": "move",
+            "tool_name": "move",
+            "title": "Move",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 0},
+            "arguments": [
+                {
+                    "key": "exit_id",
+                    "title": "exit",
+                    "kind": "entity",
+                    "required": True,
+                    "target_group": "exits",
+                },
+            ],
+        },
+        {
             "command_type": "say",
             "tool_name": "say",
             "title": "Say",
@@ -194,7 +210,7 @@ def connect_and_select(page) -> None:
     )
     expect(page.locator("#side-actions")).to_contain_text("say")
     expect(page.locator("#side-actions")).to_contain_text("not enough focus points")
-    expect(page.locator("#side-actions .side-row").nth(0)).to_contain_text("say")
+    expect(page.locator("#side-actions .side-row").filter(has_text="say")).to_be_visible()
     expect(page.locator("#side-actions .side-row.unavailable")).to_contain_text("shout")
     page.locator("#repl-input").fill("queued")
     page.locator("#btn-send").click()
@@ -242,6 +258,43 @@ def submit_tell_named_target(page, posted: list[dict]) -> None:
         raise AssertionError(f"tell command did not resolve visible target: {body!r}")
 
 
+def submit_go_direction(page, posted: list[dict]) -> None:
+    page.locator("#repl-input").fill("go north")
+    page.locator("#btn-send").click()
+    page.wait_for_function("() => document.querySelector('#repl-log')?.textContent.includes('» move')")
+    body = posted[-1]
+    if body["command_type"] != "move" or body["payload"] != {"exit_id": EXIT}:
+        raise AssertionError(f"go shorthand did not resolve an exit: {body!r}")
+
+
+def exercise_meta_commands(page) -> None:
+    commands = [
+        ("help", "Commands:"),
+        ("help say", "parameters: text"),
+        ("who", "Bun"),
+        ("look", "Parlor"),
+        ("inventory", "a brass key"),
+        ("points", "AP 5/5"),
+        ("refresh", "Refreshed."),
+        ("tell Ghost boo", "I don't see 'Ghost'"),
+    ]
+    for line, expected in commands:
+        page.locator("#repl-input").fill(line)
+        page.locator("#btn-send").click()
+        expect(page.locator("#repl-log")).to_contain_text(expected)
+
+    page.locator("#repl-input").fill("clear")
+    page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_have_text("")
+
+    page.locator("#repl-input").fill("play")
+    page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_contain_text("Usage: play")
+    page.locator("#repl-input").fill("play Missing")
+    page.locator("#btn-send").click()
+    expect(page.locator("#repl-log")).to_contain_text("No such player")
+
+
 def cancel_queued_command(page) -> None:
     page.locator("#repl-input").fill("cancel queued-1")
     with page.expect_response("**/world/character/*/commands/*"):
@@ -281,11 +334,13 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        exercise_meta_commands(page)
         cancel_queued_command(page)
         narrate_event(page)
         submit_unavailable(page, posted)
         submit_say(page, posted)
         submit_tell_named_target(page, posted)
+        submit_go_direction(page, posted)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-repl.png"))
         coverage.close_browser(browser)
 

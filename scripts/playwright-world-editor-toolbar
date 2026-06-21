@@ -2,6 +2,7 @@
 """Playwright checks for the Bunnyland world editor toolbar layout."""
 
 from pathlib import Path
+import json
 import os
 import shutil
 
@@ -85,6 +86,36 @@ def main() -> None:
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
             raise AssertionError("shared client menu does not include active welcome page")
+        page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+        page.locator("#btn-toggle-snapshot").click()
+        if not page.locator("#main.snapshot-hidden").is_visible():
+            raise AssertionError("snapshot toggle did not hide the preview pane")
+        if page.locator("#btn-toggle-snapshot").text_content() != "Show Snapshot":
+            raise AssertionError("snapshot toggle button did not switch to show state")
+        page.locator("#btn-toggle-snapshot").click()
+        if page.locator("#main.snapshot-hidden").count() != 0:
+            raise AssertionError("snapshot toggle did not restore the preview pane")
+        page.locator("#btn-new").click()
+        page.locator("#meta-seed").fill("toolbar-seed")
+        page.locator("#meta-generator").fill("toolbar-generator")
+        page.locator("#meta-epoch").fill("42")
+        snapshot = json.loads(page.locator("#json-output").input_value())
+        meta = {
+            "seed": snapshot["bunnyland"]["seed"],
+            "generator": snapshot["bunnyland"]["generator"],
+            "epoch": snapshot["metadata"]["epoch"],
+            "saved": snapshot["bunnyland"]["saved_at_epoch"],
+            "info": page.locator("#world-info").text_content(),
+        }
+        expected_meta = {
+            "seed": "toolbar-seed",
+            "generator": "toolbar-generator",
+            "epoch": 42,
+            "saved": 42,
+            "info": "1 entities · epoch 42",
+        }
+        if meta != expected_meta:
+            raise AssertionError(f"metadata controls did not update world state: {meta!r}")
         coverage.close_browser(browser)
 
     print("world_editor_toolbar=ok")
