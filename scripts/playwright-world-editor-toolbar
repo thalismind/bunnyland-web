@@ -106,6 +106,40 @@ def main() -> None:
             raise AssertionError("character sheet link should be readonly when disabled")
         if page.locator('#character-chat-link[aria-disabled="true"][tabindex="-1"]').count() != 1:
             raise AssertionError("character chat link should be readonly when disabled")
+        welcome_layout = page.evaluate(
+            """
+            () => {
+              const cards = Array.from(document.querySelectorAll('.info-card'));
+              const shortCards = cards
+                .map((card) => ({ title: card.querySelector('h3')?.textContent?.trim(), height: card.getBoundingClientRect().height }))
+                .filter((card) => card.height < 199);
+              const unalignedActions = cards
+                .map((card) => {
+                  const action = card.querySelector('.info-actions');
+                  if (!action) return null;
+                  const cardRect = card.getBoundingClientRect();
+                  const actionRect = action.getBoundingClientRect();
+                  return { title: card.querySelector('h3')?.textContent?.trim(), gap: cardRect.bottom - actionRect.bottom };
+                })
+                .filter(Boolean)
+                .filter((card) => Math.abs(card.gap - 14) > 1);
+              const textualOrder = ['cmd-tui', 'cmd-repl'].every((id) => {
+                const command = document.getElementById(id).closest('.cmd');
+                const text = command.parentElement.querySelector('p');
+                return Boolean(text.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING);
+              });
+              return { shortCards, unalignedActions, textualOrder };
+            }
+            """
+        )
+        if welcome_layout["shortCards"]:
+            raise AssertionError(f"welcome info cards should be at least 200px tall: {welcome_layout['shortCards']!r}")
+        if welcome_layout["unalignedActions"]:
+            raise AssertionError(
+                f"welcome info-card actions should align to the bottom: {welcome_layout['unalignedActions']!r}"
+            )
+        if not welcome_layout["textualOrder"]:
+            raise AssertionError("Textual client descriptions should appear above their uv run commands")
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
             raise AssertionError("shared client menu does not include active welcome page")
