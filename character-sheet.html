@@ -413,10 +413,6 @@
       <div id="inventory" class="sheet-empty">Select a character.</div>
     </div>
     <div class="section">
-      <div class="section-title">Exits</div>
-      <div id="exits" class="sheet-empty">Select a character.</div>
-    </div>
-    <div class="section">
       <div class="section-title">Available Actions</div>
       <div class="action-controls">
         <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
@@ -803,10 +799,6 @@ class CharacterSheetApp {
     const inventory = (this.projection?.inventory || [])
       .map(item => this._row(item.label || item.name || item.id, item.kind || 'item'));
     this._renderList('inventory', inventory, 'No inventory items.');
-
-    const exits = (room.exits || [])
-      .map(exit => this._row(exit.direction || exit.label || exit.id, exit.locked ? 'locked' : exit.label || exit.id));
-    this._renderList('exits', exits, 'No visible exits.');
 
     const actionFilter = this.actionFilter.trim().toLowerCase();
     const actions = orderActionsByAvailability(this.projection?.actions || [])

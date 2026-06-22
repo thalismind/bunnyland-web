@@ -227,6 +227,8 @@ def main() -> None:
         expect(page.locator("#injuries")).to_contain_text("left paw")
         expect(page.locator("#notes")).to_contain_text("The tunnel roof is groaning")
         expect(page.locator("#room-value")).to_have_text("Parlor")
+        expect(page.locator("#exits")).to_have_count(0)
+        expect(page.locator(".section-title", has_text="Exits")).to_have_count(0)
         expect(page.locator("#inventory")).to_contain_text("a brass key")
         expect(page.locator("#visible-characters")).to_contain_text("Marlow")
         expect(page.locator("#actions")).to_contain_text("Say")
