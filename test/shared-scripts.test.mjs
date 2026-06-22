@@ -376,6 +376,32 @@ test('BunnylandPlay extracts and ranks image-completion events', () => {
   assert.equal(BunnylandPlay.latestImageCompletion([]), null);
 });
 
+test('BunnylandPlay builds inventory entries for the carried-items pane', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  const projection = {
+    inventory: [
+      { id: 'item:1', label: 'Brass Key', kind: 'item' },
+      { id: 'item:2', kind: 'food' },
+    ],
+  };
+  const entries = BunnylandPlay.inventoryEntries(projection);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].id, 'item:1');
+  assert.equal(entries[0].label, 'Brass Key');
+  assert.equal(entries[0].kind, 'item');
+  assert.equal(entries[0].icon, '✦');
+  // A missing label falls back to the id; the icon comes from the kind.
+  assert.equal(entries[1].label, 'item:2');
+  assert.equal(entries[1].icon, '🍎');
+  // No inventory (or no projection) yields no rows.
+  assert.equal(BunnylandPlay.inventoryEntries({}).length, 0);
+  assert.equal(BunnylandPlay.inventoryEntries(null).length, 0);
+});
+
 test('BunnylandPlay extracts and ranks image-failure events', () => {
   const { BunnylandPlay } = loadBrowserAssets([
     'assets/bunnyland-api.js',

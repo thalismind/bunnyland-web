@@ -20,7 +20,7 @@
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto minmax(120px, auto) auto minmax(72px, auto) auto minmax(96px, 1fr);
+      grid-template-rows: auto minmax(120px, auto) auto minmax(72px, auto) auto minmax(72px, auto) auto minmax(96px, 1fr);
       border-right: 1px solid var(--bl-border);
       overflow: hidden;
     }
@@ -41,7 +41,7 @@
       font-size: var(--bl-text-md);
       font-weight: bold;
     }
-    #doors-title, #activity-title, #queued-title { border-top: 1px solid var(--bl-border); }
+    #doors-title, #inventory-title, #activity-title, #queued-title { border-top: 1px solid var(--bl-border); }
 
     .option-list {
       min-height: 0;
@@ -263,6 +263,8 @@
     <div id="members" class="option-list"></div>
     <div id="doors-title" class="pane-title">Doors</div>
     <div id="doors" class="option-list"></div>
+    <div id="inventory-title" class="pane-title">Inventory</div>
+    <div id="inventory" class="option-list"></div>
     <div id="activity-title" class="pane-title">Activity</div>
     <div id="activity" class="option-list"></div>
   </section>
@@ -316,6 +318,7 @@ const {
   characterSheetHref,
   iconPreference,
   imageRequestMessage,
+  inventoryEntries,
   latestImageCompletion,
   latestImageFailure,
   IMAGE_AFFORDANCE,
@@ -796,6 +799,19 @@ class WebTui {
       .join('') : '<div class="empty">No visible exits.</div>';
     document.querySelectorAll('#doors .option[data-exit-index]').forEach(button => {
       button.addEventListener('click', () => this._moveThroughExit(exits[Number(button.dataset.exitIndex)]));
+    });
+
+    const carried = inventoryEntries(this.projection);
+    document.getElementById('inventory').innerHTML = carried.length ? carried
+      .map(item => `<button class="option" type="button" data-entity="${esc(item.id)}">` +
+        `<span class="option-main">${esc(item.icon)} ${esc(item.label)}</span>` +
+        `<span class="option-meta">${esc(item.kind)}</span></button>`)
+      .join('') : `<div class="empty">${this.playerId ? 'Nothing carried.' : 'Select a character above.'}</div>`;
+    document.querySelectorAll('#inventory .option[data-entity]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.selectedId = button.dataset.entity;
+        this._renderWorld();
+      });
     });
 
     document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines

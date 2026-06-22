@@ -602,6 +602,17 @@
     return { lines, seenIds: current };
   }
 
+  function inventoryEntries(projection) {
+    // Normalize a character projection's carried items into display rows (id, label, kind,
+    // icon). Shared by the inventory views so every client lists the same thing the same way.
+    return (projection?.inventory || []).map(item => ({
+      id: item.id,
+      label: item.label || item.id,
+      kind: item.kind || '',
+      icon: entityIcon(item),
+    }));
+  }
+
   function imageRequestMessage(result) {
     if (!result || result.ok === false) {
       return `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${(result && result.reason) || 'image request failed'}`;
@@ -712,6 +723,7 @@
     imageCompletionFromMessage,
     imageFailureFromMessage,
     imageRequestMessage,
+    inventoryEntries,
     latestImageCompletion,
     latestImageFailure,
     isReferenceArg,
