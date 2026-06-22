@@ -242,6 +242,23 @@
   --bl-secondary-wash-strong: rgba(133, 117, 31, 0.22);
 }
 
+:root {
+  --bl-action-point-icon: #f59e0b;
+  --bl-focus-point-icon: #3b82f6;
+}
+
+.bl-point-icon {
+  line-height: 1;
+}
+
+.bl-point-icon-action {
+  color: var(--bl-action-point-icon);
+}
+
+.bl-point-icon-focus {
+  color: var(--bl-focus-point-icon);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {

@@ -175,18 +175,31 @@ def main() -> None:
         expect(page.locator("#character-select")).to_have_value(CHARACTER)
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
         expect(page.locator("#portrait-status")).to_contain_text("Portrait generation")
+        stat_labels = page.locator(".identity-grid .stat-label").evaluate_all(
+            "(nodes) => nodes.map((node) => node.textContent.trim())"
+        )
+        if stat_labels[:2] != ["Kind", "Species"]:
+            raise AssertionError(f"unexpected character identity order: {stat_labels!r}")
+        expect(page.locator("#kind-value")).to_have_text("character")
         expect(page.locator("#species-value")).to_have_text("hare")
         expect(page.locator("#status-pills")).to_contain_text("tense")
+        expect(page.locator("#controller-value").locator("xpath=ancestor::div[contains(@class, 'stat')][1]")).to_have_class(
+            "stat stat-wide"
+        )
         expect(page.locator("#controller-value")).to_contain_text("web: Toon Client")
         expect(page.locator("#controller-value .stat-detail")).to_contain_text("browser tab")
         expect(page.locator("#controller-value .stat-detail")).to_contain_text("web:sheet gen 2")
+        expect(page.locator("#initiative-value")).to_have_text("2")
         expect(page.locator("#ap-value")).to_contain_text("⚡")
         expect(page.locator("#ap-value")).to_contain_text("5 / 5 points")
+        expect(page.locator("#ap-value .bl-point-icon-action")).to_have_css("color", "rgb(245, 158, 11)")
         expect(page.locator("#fp-value")).to_contain_text("✦")
         expect(page.locator("#fp-value")).to_contain_text("3 / 3 points")
+        expect(page.locator("#fp-value .bl-point-icon-focus")).to_have_css("color", "rgb(59, 130, 246)")
         assert "v=character-sheet-ecs" in page.locator('script[src*="bunnyland-play.js"]').get_attribute("src")
         expect(page.locator("#sheet-overview")).to_contain_text("Dusty from a long patrol")
         expect(page.locator("#vitals")).to_contain_text("Health")
+        expect(page.locator("#vitals")).not_to_contain_text("Initiative")
         expect(page.locator("#needs")).to_contain_text("Hunger")
         expect(page.locator("#affect")).to_contain_text("Stress")
         expect(page.locator("#profile")).to_contain_text("Scout")

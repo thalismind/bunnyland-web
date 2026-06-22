@@ -113,6 +113,10 @@
       background: var(--bl-bg-subtle);
     }
 
+    .stat-wide {
+      grid-column: 1 / -1;
+    }
+
     .stat-label {
       color: var(--bl-text-dim);
       font-size: var(--bl-text-xs);
@@ -135,7 +139,6 @@
     }
 
     .stat-icon {
-      color: var(--bl-accent-strong);
       font-size: var(--bl-text-md);
       line-height: 1;
     }
@@ -305,20 +308,24 @@
     <div id="status-pills" class="pill-row"></div>
     <div class="identity-grid">
       <div class="stat">
-        <div class="stat-label">Species</div>
-        <div class="stat-value" id="species-value">-</div>
-      </div>
-      <div class="stat">
         <div class="stat-label">Kind</div>
         <div class="stat-value" id="kind-value">-</div>
       </div>
       <div class="stat">
+        <div class="stat-label">Species</div>
+        <div class="stat-value" id="species-value">-</div>
+      </div>
+      <div class="stat stat-wide">
         <div class="stat-label">Controller</div>
         <div class="stat-value" id="controller-value">-</div>
       </div>
       <div class="stat">
         <div class="stat-label">Room</div>
         <div class="stat-value" id="room-value">-</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Initiative</div>
+        <div class="stat-value" id="initiative-value">-</div>
       </div>
       <div class="stat">
         <div class="stat-label">Action Points</div>
@@ -665,11 +672,21 @@ class CharacterSheetApp {
       `<div class="stat-detail">${BunnylandUI.escapeHtml(detail)}</div>`;
   }
 
-  _renderPointsValue(icon, current, maximum) {
+  _renderPointsValue(icon, iconClass, current, maximum) {
     return '<div class="stat-main">' +
-      `<span class="stat-icon" aria-hidden="true">${BunnylandUI.escapeHtml(icon)}</span>` +
+      `<span class="stat-icon bl-point-icon ${BunnylandUI.escapeHtml(iconClass)}" aria-hidden="true">${BunnylandUI.escapeHtml(icon)}</span>` +
       `<span>${formatPoints(current)} / ${formatPoints(maximum)} points</span>` +
       '</div>';
+  }
+
+  _metricByLabel(rows, label) {
+    const wanted = String(label || '').toLowerCase();
+    return (rows || []).find(row => String(row?.label || '').toLowerCase() === wanted) || null;
+  }
+
+  _metricText(metric) {
+    if (!metric) return '-';
+    return metric.text || String(metric.value ?? '-');
   }
 
   render() {
@@ -681,22 +698,25 @@ class CharacterSheetApp {
 
     const pts = this.projection?.points || {};
     const sheet = this.projection?.sheet || {};
+    const vitals = sheet.vitals || [];
+    const initiative = this._metricByLabel(vitals, 'Initiative');
     const controller = this.projection?.controller;
     const room = this.projection?.room || {};
     document.getElementById('species-value').textContent = sheet.species || '-';
     document.getElementById('kind-value').textContent = sheet.kind || '-';
     document.getElementById('controller-value').innerHTML = this._renderControllerValue(controller);
     document.getElementById('room-value').textContent = room.title || room.id || '-';
+    document.getElementById('initiative-value').textContent = this.projection ? this._metricText(initiative) : '-';
     document.getElementById('ap-value').innerHTML = this.projection
-      ? this._renderPointsValue('⚡', pts.action, pts.action_max)
+      ? this._renderPointsValue('⚡', 'bl-point-icon-action', pts.action, pts.action_max)
       : '-';
     document.getElementById('fp-value').innerHTML = this.projection
-      ? this._renderPointsValue('✦', pts.focus, pts.focus_max)
+      ? this._renderPointsValue('✦', 'bl-point-icon-focus', pts.focus, pts.focus_max)
       : '-';
     this._renderPills('status-pills', this.projection ? sheet.status || [] : []);
 
     this._renderOverview(sheet);
-    this._renderMetrics('vitals', sheet.vitals || [], 'No vitals recorded.');
+    this._renderMetrics('vitals', vitals.filter(row => row !== initiative), 'No vitals recorded.');
     this._renderMetrics('needs', sheet.needs || [], 'No needs recorded.');
     this._renderMetrics('affect', sheet.affect || [], 'No mood values recorded.');
     this._renderEntries('profile', sheet.profile || [], 'No profile entries.');
