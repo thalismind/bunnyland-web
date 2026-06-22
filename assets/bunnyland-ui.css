@@ -337,6 +337,21 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .toolbar-sep { color: var(--bl-border); }
 
+.toolbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bl-text);
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.toolbar-brand img {
+  width: 20px;
+  height: 20px;
+  image-rendering: pixelated;
+}
+
 .nav-link,
 .toolbar-link {
   color: var(--bl-accent);
