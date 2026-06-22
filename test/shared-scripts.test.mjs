@@ -375,3 +375,62 @@ test('BunnylandPlay extracts and ranks image-completion events', () => {
   assert.equal(BunnylandPlay.latestImageCompletion(messages).epoch, 12);
   assert.equal(BunnylandPlay.latestImageCompletion([]), null);
 });
+
+test('BunnylandPlay extracts and ranks image-failure events', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  const failed = {
+    data: {
+      event_type: 'ImageGenerationFailedEvent',
+      event: {
+        event_id: 'f1', world_epoch: 4, entity_id: 'history:1', purpose: 'event',
+        reason: 'comfyui exploded',
+      },
+    },
+  };
+  const failure = BunnylandPlay.imageFailureFromMessage(failed);
+  assert.equal(failure.purpose, 'event');
+  assert.equal(failure.reason, 'comfyui exploded');
+  assert.equal(failure.epoch, 4);
+
+  // Completions and other events are ignored; a missing reason gets a default.
+  assert.equal(BunnylandPlay.imageFailureFromMessage(
+    { data: { event_type: 'ImageGenerationCompletedEvent' } }), null);
+  assert.equal(BunnylandPlay.imageFailureFromMessage(
+    { data: { event_type: 'ImageGenerationFailedEvent', event: {} } }).reason,
+    'image generation failed');
+
+  const messages = [
+    failed,
+    { data: { event_type: 'ImageGenerationFailedEvent',
+              event: { event_id: 'f2', world_epoch: 8, purpose: 'portrait', reason: 'no model' } } },
+    { data: { event_type: 'ImageGenerationFailedEvent',
+              event: { event_id: 'f3', world_epoch: 11, purpose: 'event', reason: 'timeout' } } },
+  ];
+  // Newest event-purpose failure wins; portrait is filtered out.
+  assert.equal(BunnylandPlay.latestImageFailure(messages, { purpose: 'event' }).reason, 'timeout');
+  // Without a purpose filter, the newest overall wins.
+  assert.equal(BunnylandPlay.latestImageFailure(messages).epoch, 11);
+  assert.equal(BunnylandPlay.latestImageFailure([]), null);
+});
+
+test('BunnylandPlay image affordance mirrors the server iconography', () => {
+  const { BunnylandPlay } = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+
+  // Must stay in lockstep with src/bunnyland/imagegen/affordance.py.
+  assert.equal(BunnylandPlay.IMAGE_AFFORDANCE.REQUEST_EMOJI, '📷');
+  assert.equal(BunnylandPlay.IMAGE_AFFORDANCE.ACK_EMOJI, '👀');
+  assert.equal(BunnylandPlay.IMAGE_AFFORDANCE.DELIVER_EMOJI, '📸');
+  assert.equal(BunnylandPlay.IMAGE_AFFORDANCE.FAIL_EMOJI, '⚠️');
+  assert.equal(BunnylandPlay.IMAGE_AFFORDANCE.REQUEST_LABEL, 'Request image');
+  // The shared request-status message uses those constants.
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'skipped' }), '📸 image ready');
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'queued' }), '👀 image requested');
+  assert.equal(BunnylandPlay.imageRequestMessage({ ok: false, reason: 'off' }), '📷 off');
+});

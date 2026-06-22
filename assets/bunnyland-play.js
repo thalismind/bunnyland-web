@@ -7,6 +7,17 @@
     bed: '🛏', art: '🖼', window: '🪟', other: '⬡',
   };
 
+  // Mirror of the server's imagegen/affordance.py so the camera gesture reads the same
+  // everywhere: the request/ack/deliver/fail emoji and the button label are one source of
+  // truth shared by every web client. Keep these in lockstep with affordance.py.
+  const IMAGE_AFFORDANCE = {
+    REQUEST_EMOJI: '📷',
+    ACK_EMOJI: '👀',
+    DELIVER_EMOJI: '📸',
+    FAIL_EMOJI: '⚠️',
+    REQUEST_LABEL: 'Request image',
+  };
+
   const ACTION_ICON_BY_COMMAND_TYPE = {
     look: '👁️', inspect: '🔎', move: '➡️', take: '🤲', put: '📥',
     drop: '📤', open: '🚪', close: '🚪', lock: '🔒', unlock: '🔓',
@@ -593,10 +604,10 @@
 
   function imageRequestMessage(result) {
     if (!result || result.ok === false) {
-      return `📷 ${(result && result.reason) || 'image request failed'}`;
+      return `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${(result && result.reason) || 'image request failed'}`;
     }
-    if (result.status === 'skipped') return '📸 image ready';
-    return '👀 image requested';
+    if (result.status === 'skipped') return `${IMAGE_AFFORDANCE.DELIVER_EMOJI} image ready`;
+    return `${IMAGE_AFFORDANCE.ACK_EMOJI} image requested`;
   }
 
   function imageCompletionFromMessage(message, base = '') {
@@ -624,6 +635,29 @@
     return best;
   }
 
+  function imageFailureFromMessage(message) {
+    const data = message?.data || message || {};
+    if (data.event_type !== 'ImageGenerationFailedEvent') return null;
+    const event = data.event || {};
+    return {
+      entityId: String(event.entity_id || ''),
+      purpose: String(event.purpose || ''),
+      reason: String(event.reason || 'image generation failed'),
+      epoch: Number(event.world_epoch || 0),
+    };
+  }
+
+  function latestImageFailure(messages, { purpose = '' } = {}) {
+    let best = null;
+    for (const message of messages || []) {
+      const failure = imageFailureFromMessage(message);
+      if (!failure) continue;
+      if (purpose && failure.purpose !== purpose) continue;
+      if (!best || failure.epoch >= best.epoch) best = failure;
+    }
+    return best;
+  }
+
   function characterSheetHref(apiBase, characterId, page = 'character-sheet.html') {
     const url = new URL(page, location.href);
     const normalized = BunnylandApi.normalizeBase(apiBase);
@@ -644,6 +678,7 @@
 
   window.BunnylandPlay = {
     KIND_ICON,
+    IMAGE_AFFORDANCE,
     actionIcon,
     actionArguments,
     actionAvailable,
@@ -675,8 +710,10 @@
     humanizeEventType,
     iconPreference,
     imageCompletionFromMessage,
+    imageFailureFromMessage,
     imageRequestMessage,
     latestImageCompletion,
+    latestImageFailure,
     isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,

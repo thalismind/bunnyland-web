@@ -176,6 +176,7 @@
     </select>
     <label for="claim-timeout">Timeout:</label>
     <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <button id="btn-request-image" type="button" title="Request an image of your character's current scene">📷 Image</button>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
 </div>
@@ -255,6 +256,8 @@ const {
   iconPreference,
   imageRequestMessage,
   latestImageCompletion,
+  latestImageFailure,
+  IMAGE_AFFORDANCE,
   isReferenceArg,
   orderActionsByAvailability,
   persistentClientId,
@@ -327,6 +330,7 @@ class WebRepl {
     });
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('prompt-row').addEventListener('submit', (e) => {
       e.preventDefault();
       this.dispatchInput();
@@ -558,7 +562,7 @@ class WebRepl {
       const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
       this._write(imageRequestMessage(result), 'ok');
     } catch (err) {
-      this._write(`📷 ${err.message}`, 'error');
+      this._write(`${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${err.message}`, 'error');
     }
   }
 
@@ -850,8 +854,16 @@ class WebRepl {
       this._eventImageUrl = image.url;
       if (!prime) {
         this._writeHtml(
-          `📸 scene image ready: <a href="${encodeURI(image.url)}" target="_blank" rel="noopener">view image</a>`
+          `${IMAGE_AFFORDANCE.DELIVER_EMOJI} scene image ready: `
+          + `<a href="${encodeURI(image.url)}" target="_blank" rel="noopener">view image</a>`
         );
+      }
+    }
+    const failure = latestImageFailure(messages, { purpose: 'event' });
+    if (failure && failure.epoch !== this._eventImageFailureEpoch) {
+      this._eventImageFailureEpoch = failure.epoch;
+      if (!prime) {
+        this._write(`${IMAGE_AFFORDANCE.FAIL_EMOJI} image request failed: ${failure.reason}`, 'error');
       }
     }
     if (prime) return;

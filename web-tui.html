@@ -316,6 +316,8 @@ const {
   iconPreference,
   imageRequestMessage,
   latestImageCompletion,
+  latestImageFailure,
+  IMAGE_AFFORDANCE,
   persistentClientId,
   playerControl,
   queuedCommandLabel,
@@ -546,7 +548,22 @@ class WebTui {
     const image = latestImageCompletion(messages, { base: this.apiBase, purpose: 'event' });
     if (image && image.url !== this._eventImageUrl) {
       this._eventImageUrl = image.url;
-      if (!prime) this.activityLines.push({ text: `📸 scene image ready: ${image.url}`, kind: 'system' });
+      if (!prime) {
+        this.activityLines.push({
+          text: `${IMAGE_AFFORDANCE.DELIVER_EMOJI} scene image ready: ${image.url}`,
+          kind: 'system',
+        });
+      }
+    }
+    const failure = latestImageFailure(messages, { purpose: 'event' });
+    if (failure && failure.epoch !== this._eventImageFailureEpoch) {
+      this._eventImageFailureEpoch = failure.epoch;
+      if (!prime) {
+        this.activityLines.push({
+          text: `${IMAGE_AFFORDANCE.FAIL_EMOJI} image request failed: ${failure.reason}`,
+          kind: 'rejection',
+        });
+      }
     }
     if (prime) return;
     this.activityLines.push(...drained.lines);
@@ -601,7 +618,7 @@ class WebTui {
         const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
         this.activityLines.push({ text: imageRequestMessage(result), kind: 'system' });
       } catch (err) {
-        this.activityLines.push({ text: `📷 ${err.message || err}`, kind: 'rejection' });
+        this.activityLines.push({ text: `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${err.message || err}`, kind: 'rejection' });
       }
     }
     this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);

@@ -451,6 +451,7 @@
   <div class="toolbar-row" id="toolbar-row2">
     <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
     <button id="btn-request-image" title="Request an image of your character's current scene">📷 Image</button>
+    <button id="btn-open-sheet" title="Open the selected or current character sheet">▣ Sheet</button>
     <span class="toolbar-sep">|</span>
     <label><input type="checkbox" id="debug-bounds"> Bounds</label>
     <span class="toolbar-sep">|</span>
@@ -509,9 +510,12 @@ const {
   fetchRecentEvents,
   fetchRoomProjection,
   filterActions,
+  characterSheetHref,
   iconPreference,
   imageRequestMessage,
   latestImageCompletion,
+  latestImageFailure,
+  IMAGE_AFFORDANCE,
   playerControl,
   queuedCommandCost,
   queuedCommandDetail,
@@ -667,6 +671,7 @@ class RoomClient {
       this.render();
     });
     document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
+    document.getElementById('btn-open-sheet').addEventListener('click', () => this._openSheet());
     document.getElementById('event-image').addEventListener('click', () => {
       if (this._eventImageUrl) this._openLightbox(this._eventImageUrl);
     });
@@ -1549,14 +1554,35 @@ class RoomClient {
       // A reused scene comes back with its url immediately; show it at once.
       if (result.url) this._showEventImage(BunnylandApi.mediaUrl(this.apiBase, result.url), true);
     } catch (err) {
-      this._setStatus('error', `📷 ${err.message || err}`);
+      this._setStatus('error', `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${err.message || err}`);
     }
+  }
+
+  _openSheet() {
+    if (!this.apiBase || !this.playerId) {
+      this._setStatus('error', 'Select a character before opening a sheet.');
+      return;
+    }
+    // Open the selected sprite's sheet when it is a character, otherwise your own.
+    let characterId = this.playerId;
+    if (this.selectedId && this.selectedId !== this.playerId
+        && (this.characterList || []).some(c => c.id === this.selectedId)) {
+      characterId = this.selectedId;
+    }
+    const href = characterSheetHref(this.apiBase, characterId);
+    const opened = window.open(href, '_blank', 'noopener');
+    this._setStatus(opened ? 'live' : 'error', opened ? 'Opened character sheet.' : `Sheet URL: ${href}`);
   }
 
   _updateEventImage(messages) {
     // Surface the latest requested scene image (carried on the recent-events feed).
     const latest = latestImageCompletion(messages, { base: this.apiBase, purpose: 'event' });
     if (latest && latest.url) this._showEventImage(latest.url, false);
+    const failure = latestImageFailure(messages, { purpose: 'event' });
+    if (failure && failure.epoch !== this._eventImageFailureEpoch) {
+      this._eventImageFailureEpoch = failure.epoch;
+      this._setStatus('error', `${IMAGE_AFFORDANCE.FAIL_EMOJI} image request failed: ${failure.reason}`);
+    }
   }
 
   _showEventImage(url, openLightbox) {
