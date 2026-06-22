@@ -310,6 +310,33 @@
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
     }
+    .inventory-list { display: flex; flex-direction: column; gap: 4px; }
+    .inventory-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 9px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-surface);
+      font-size: var(--bl-text-sm);
+      color: var(--bl-text);
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .inventory-item:hover { background: var(--bl-surface-hover); border-color: var(--bl-accent); }
+    .inventory-item.selected { border-color: var(--bl-accent); }
+    .inventory-item .verb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .inventory-item-kind { flex: 0 0 auto; color: var(--bl-text-dim); font-size: var(--bl-text-xs); }
+    .inventory-empty {
+      padding: 6px 8px;
+      border: 1px dashed var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
     .activity-list { display: flex; flex-direction: column; gap: 6px; }
     .activity-row {
       padding: 6px 8px;
@@ -512,6 +539,7 @@ const {
   characterSheetHref,
   iconPreference,
   imageRequestMessage,
+  inventoryEntries,
   latestImageCompletion,
   latestImageFailure,
   IMAGE_AFFORDANCE,
@@ -1458,6 +1486,7 @@ class RoomClient {
       html += rows || '<div class="queued-empty">No matching actions.</div>';
       html += '</div>';
     }
+    html += this._inventoryHtml(esc);
     html += this._queuedActionsHtml(this._playerQueuedCommands(), esc);
     html += this._activityHtml(esc);
     body.innerHTML = html;
@@ -1465,6 +1494,12 @@ class RoomClient {
     for (const el of body.querySelectorAll('.verb.ready[data-tool]')) {
       const action = this._availableActions().find(item => actionTool(item) === el.dataset.tool);
       el.addEventListener('click', () => this._doAction(action));
+    }
+    for (const el of body.querySelectorAll('[data-inventory-id]')) {
+      el.addEventListener('click', () => {
+        this.selectedId = el.dataset.inventoryId;
+        this.render();
+      });
     }
     for (const el of body.querySelectorAll('[data-cancel-command]')) {
       el.addEventListener('click', () => this._cancelQueuedCommand(el.dataset.cancelCommand));
@@ -1527,6 +1562,25 @@ class RoomClient {
     return `<div class="${classes.join(' ')}"${ready ? ` data-tool="${esc(actionTool(verb))}"` : ''} title="${esc(title)}">` +
       `<span class="verb-name">${icon}${esc(actionTitle(verb))}</span>` +
       `<span class="verb-cost">${note}${cost}${reasonHtml}</span></div>`;
+  }
+
+  // Inventory: the carried items from the character projection, shared with the other
+  // clients via inventoryEntries so every client lists the same thing the same way.
+  // Clicking an item selects it, so it can be picked as the target of a drop/use/eat verb.
+  _inventoryHtml(esc) {
+    const items = this.playerId ? inventoryEntries(this.characterProjection) : [];
+    if (!items.length) {
+      return '<div class="action-section-title">Inventory</div>' +
+        `<div class="inventory-empty">${this.playerId ? 'Nothing carried.' : 'Select a character to see what they carry.'}</div>`;
+    }
+    const rows = items.map((item) => {
+      const icon = this.showActionIcons ? `<span class="action-icon">${esc(item.icon)}</span>` : '';
+      const selected = item.id === this.selectedId ? ' selected' : '';
+      return `<button class="inventory-item${selected}" type="button" data-inventory-id="${esc(item.id)}" title="Select ${esc(item.label)}">` +
+        `<span class="verb-name">${icon}${esc(item.label)}</span>` +
+        `<span class="inventory-item-kind">${esc(item.kind)}</span></button>`;
+    }).join('');
+    return `<div class="action-section-title">Inventory</div><div class="inventory-list">${rows}</div>`;
   }
 
   _activityHtml(esc) {
