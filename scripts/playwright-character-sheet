@@ -176,6 +176,23 @@ def main() -> None:
         expect(page.locator("#character-select")).to_have_value(CHARACTER)
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
         expect(page.locator("#portrait-status")).to_contain_text("Portrait generation")
+        page.evaluate(
+            """() => {
+                window.app.projection.characterName = 'Dr. Bun';
+                window.app.render();
+            }"""
+        )
+        expect(page).to_have_title("Bunnyland Character Sheet: Dr. Bun")
+        expect(page.locator("#character-name")).to_have_text("Dr. Bun")
+        expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
+        page.evaluate(
+            """() => {
+                window.app.projection.characterName = 'Bun';
+                window.app.render();
+            }"""
+        )
+        expect(page).to_have_title("Bunnyland Character Sheet: Bun")
+        expect(page.locator("#character-name")).to_have_text("Bun")
         stat_labels = page.locator(".identity-grid .stat-label").evaluate_all(
             "(nodes) => nodes.map((node) => node.textContent.trim())"
         )

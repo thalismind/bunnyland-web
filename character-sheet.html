@@ -623,7 +623,11 @@ class CharacterSheetApp {
 
   _initials() {
     const name = this._characterName() || '?';
-    return name.split(/\s+/).filter(Boolean).slice(0, 2)
+    const initialName = name.replace(
+      /^(?:(?:mr|mrs|ms|miss|mx|dr|doctor|prof|sir|dame|lord|lady|rev|fr|hon|capt|cpt|lt|sgt|col|gen|adm|judge)\.?\s+)+/i,
+      '',
+    ).trim() || name;
+    return initialName.split(/\s+/).filter(Boolean).slice(0, 2)
       .map(part => part[0]?.toUpperCase() || '')
       .join('') || '?';
   }
