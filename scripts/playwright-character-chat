@@ -168,6 +168,12 @@ def submit_message(page, text: str) -> None:
         page.locator("#btn-send").click()
 
 
+def submit_message_with_enter(page, text: str) -> None:
+    page.locator("#chat-input").fill(text)
+    with page.expect_response("**/world/character/*/chat"):
+        page.locator("#chat-input").press("Enter")
+
+
 def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
     submit_message(page, "hello")
     expect(page.locator("#transcript")).to_contain_text("hello")
@@ -193,6 +199,22 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
         },
     ]:
         raise AssertionError(f"chat history was not persisted: {state!r}")
+
+
+def assert_keyboard_submit_behavior(page, posted: list[dict]) -> None:
+    page.locator("#chat-input").fill("line one")
+    page.locator("#chat-input").press("Shift+Enter")
+    page.locator("#chat-input").type("line two")
+    if page.locator("#chat-input").input_value() != "line one\nline two":
+        raise AssertionError("Shift+Enter did not insert a newline")
+    before = len(posted)
+    submit_message_with_enter(page, "enter submit")
+    if len(posted) != before + 1:
+        raise AssertionError("Enter did not submit the current chat message")
+    if posted[-1]["payload"]["message"] != "enter submit":
+        raise AssertionError(f"Enter submitted the wrong payload: {posted[-1]['payload']!r}")
+    if page.locator("#chat-input").input_value() != "":
+        raise AssertionError("Enter submit did not clear the composer")
 
 
 def assert_queued_action_block_and_followup(page) -> None:
@@ -305,6 +327,7 @@ def main() -> None:
 
         connect(page)
         assert_initial_send_and_persistence(page, posted)
+        assert_keyboard_submit_behavior(page, posted)
         assert_queued_action_block_and_followup(page)
         assert_markdown_rendering_without_html(page)
         assert_bounded_history_payload(page, posted)

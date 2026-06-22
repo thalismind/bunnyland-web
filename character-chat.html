@@ -654,6 +654,11 @@
       setStatus(err.message, false);
     });
   });
+  els.input.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    els.form.requestSubmit();
+  });
   els.markdown.checked = markdownEnabled;
   els.markdown.addEventListener('change', () => {
     markdownEnabled = els.markdown.checked;
