@@ -87,16 +87,22 @@
     }
     .option.selected { border-color: var(--bl-accent); background: var(--bl-bg-subtle); }
     .activity-row {
-      padding: 4px 8px;
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 5px 8px;
       border-left: 2px solid var(--bl-border-muted);
-      color: var(--bl-text-soft);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      color: var(--bl-text);
       font-size: var(--bl-text-sm);
       line-height: 1.35;
+      white-space: normal;
     }
-    .activity-row.kind-system { color: var(--bl-text-dim); }
+    .activity-row.kind-system { color: var(--bl-text); }
     .activity-row.kind-rejection {
       border-left-color: var(--bl-warn);
-      color: var(--bl-warn);
+      color: var(--bl-text);
     }
     .empty {
       color: var(--bl-text-muted);

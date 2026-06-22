@@ -373,6 +373,12 @@ def narrate_event(page) -> None:
     expect(page.locator("#activity")).to_contain_text("too tired")
     expect(page.locator("#activity .activity-row").filter(has_text="too tired")).to_be_visible()
     expect(page.locator("#activity .option")).to_have_count(0)
+    row_width = page.locator("#activity .activity-row").filter(has_text="too tired").evaluate(
+        "row => row.getBoundingClientRect().width"
+    )
+    pane_width = page.locator("#activity").evaluate("pane => pane.getBoundingClientRect().width")
+    if row_width < pane_width * 0.9:
+        raise AssertionError(f"activity row collapsed: row={row_width}, pane={pane_width}")
 
 
 def cancel_queued_command(page) -> None:
