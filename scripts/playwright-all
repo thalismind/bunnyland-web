@@ -86,6 +86,7 @@ run_regression script-editor scripts/playwright-script-editor
 run_regression behavior-editor scripts/playwright-behavior-editor
 run_regression discord-link scripts/playwright-discord-link
 run_regression toon-action-form scripts/playwright-toon-action-form
+run_regression character-chat scripts/playwright-character-chat
 run_regression character-sheet scripts/playwright-character-sheet
 run_regression web-tui scripts/playwright-web-tui
 run_regression web-repl scripts/playwright-web-repl

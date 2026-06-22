@@ -59,6 +59,17 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
   assert.equal(BunnylandApi.socketUrl('https://server.test/api/', '/world/updates'), 'wss://server.test/api/world/updates');
 });
 
+test('Character chat page is in the client menu and sends bounded local history', () => {
+  const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
+  const page = fs.readFileSync('character-chat.html', 'utf8');
+
+  assert.match(ui, /character-chat\.html/);
+  assert.match(page, /const HISTORY_LIMIT = 24/);
+  assert.match(page, /history: state\.messages\.slice\(-HISTORY_LIMIT\)/);
+  assert.match(page, /localStorage\.setItem\(storageKey\(characterId\)/);
+  assert.match(page, /\/world\/character\/\$\{encodeURIComponent\(selectedId\)\}\/chat/);
+});
+
 test('BunnylandWorld parses snapshots and editor search tokens', () => {
   const { BunnylandWorld } = loadBrowserAssets(['assets/bunnyland-world.js']);
 

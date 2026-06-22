@@ -54,6 +54,13 @@
       supportsServer: true,
     },
     {
+      href: 'character-chat.html',
+      title: 'Character Chat',
+      label: 'In-character chat',
+      description: 'Chat with server-enabled LLM characters through their limited action tools.',
+      supportsServer: true,
+    },
+    {
       href: 'character-sheet.html',
       title: 'Character Sheet',
       label: 'Profile view',

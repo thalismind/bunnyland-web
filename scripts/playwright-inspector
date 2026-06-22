@@ -85,6 +85,7 @@ def main() -> None:
             "Toon Client",
             "Web TUI",
             "Web REPL",
+            "Character Chat",
             "Character Sheet",
             "World Generator",
             "World Inspector",
@@ -106,6 +107,9 @@ def main() -> None:
         repl_href = page.locator('.client-menu-item[href^="web-repl.html"]').get_attribute("href")
         if not repl_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in repl_href:
             raise AssertionError(f"web repl menu link did not preserve server URL: {repl_href!r}")
+        chat_href = page.locator('.client-menu-item[href^="character-chat.html"]').get_attribute("href")
+        if not chat_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in chat_href:
+            raise AssertionError(f"character chat menu link did not preserve server URL: {chat_href!r}")
         page.keyboard.press("Escape")
         prompt_calls = page.evaluate("window.__promptCalls")
         if prompt_calls:

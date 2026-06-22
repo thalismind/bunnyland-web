@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Playwright regression test for the Bunnyland character chat page."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+CLIENT_ID = "character-chat-client-1"
+CHARACTER = "character:1"
+OTHER = "character:2"
+HISTORY_KEY = f"bunnyland.characterChat.history.{CLIENT_ID}.{CHARACTER}"
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def json_route(body):
+    def handler(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    return handler
+
+
+def install_routes(page, posted: list[dict]) -> None:
+    page.route(
+        "**/world/chat/status",
+        json_route(
+            {
+                "ok": True,
+                "schema_version": 1,
+                "world_epoch": 9,
+                "enabled": True,
+                "allowed_tools": ["look", "say", "wait"],
+            }
+        ),
+    )
+    page.route(
+        "**/world/characters",
+        json_route(
+            {
+                "world_epoch": 9,
+                "characters": [
+                    {"character_id": CHARACTER, "name": "Juniper", "kind": "character"},
+                    {"character_id": OTHER, "name": "Hazel", "kind": "character"},
+                ],
+            }
+        ),
+    )
+
+    def chat_handler(route):
+        payload = json.loads(route.request.post_data or "{}")
+        posted.append(
+            {
+                "url": route.request.url,
+                "payload": payload,
+            }
+        )
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "ok": True,
+                    "schema_version": 1,
+                    "world_epoch": 10,
+                    "character_id": CHARACTER,
+                    "reply": f"reply to {payload['message']}",
+                    "action": {"tool": "look", "status": "executed"},
+                }
+            ),
+        )
+
+    page.route("**/world/character/*/chat", chat_handler)
+
+
+def connect(page) -> None:
+    page.goto(f"{BASE_URL}/character-chat.html", wait_until="domcontentloaded")
+    page.locator("#api-url").fill("/api")
+    page.locator("#btn-connect").click()
+    page.wait_for_function("() => document.querySelectorAll('.character-row').length === 2")
+    expect(page.locator("#api-status")).to_contain_text("Connected")
+    expect(page.locator("#character-list")).to_contain_text("Juniper")
+    expect(page.locator("#character-list")).to_contain_text("Hazel")
+    expect(page.locator("#status-line")).to_contain_text("Chatting with Juniper")
+
+
+def submit_message(page, text: str) -> None:
+    page.locator("#chat-input").fill(text)
+    with page.expect_response("**/world/character/*/chat"):
+        page.locator("#btn-send").click()
+
+
+def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
+    submit_message(page, "hello")
+    expect(page.locator("#transcript")).to_contain_text("hello")
+    expect(page.locator("#transcript")).to_contain_text("reply to hello")
+    expect(page.locator("#status-line")).to_contain_text("look: executed")
+    assert posted[-1]["url"].endswith("/world/character/character%3A1/chat")
+    payload = posted[-1]["payload"]
+    if payload["client_id"] != CLIENT_ID or payload["history"] != []:
+        raise AssertionError(f"unexpected initial chat payload: {payload!r}")
+    state = page.evaluate(
+        """(key) => JSON.parse(localStorage.getItem(key))""",
+        HISTORY_KEY,
+    )
+    if state["messages"][-2:] != [
+        {"role": "user", "text": "hello"},
+        {"role": "character", "text": "reply to hello"},
+    ]:
+        raise AssertionError(f"chat history was not persisted: {state!r}")
+
+
+def assert_bounded_history_payload(page, posted: list[dict]) -> None:
+    page.evaluate(
+        """(key) => {
+          const messages = Array.from({ length: 30 }, (_, index) => ({
+            role: index % 2 === 0 ? 'user' : 'character',
+            text: `old ${index}`,
+          }));
+          localStorage.setItem(key, JSON.stringify({ summary: 'old summary', messages }));
+        }""",
+        HISTORY_KEY,
+    )
+    submit_message(page, "bounded")
+    payload = posted[-1]["payload"]
+    if payload["history_summary"] != "old summary" or len(payload["history"]) != 24:
+        raise AssertionError(f"bounded history payload was wrong: {payload!r}")
+    if payload["history"][0]["text"] != "old 6" or payload["history"][-1]["text"] != "old 29":
+        raise AssertionError(f"bounded history window was wrong: {payload['history']!r}")
+
+
+def assert_character_selection(page, posted: list[dict]) -> None:
+    page.locator(f'.character-row[data-id="{OTHER}"]').click()
+    expect(page.locator("#status-line")).to_contain_text("Chatting with Hazel")
+    expect(page.locator("#transcript")).to_contain_text("No local chat history")
+    submit_message(page, "hazel hello")
+    if not posted[-1]["url"].endswith("/world/character/character%3A2/chat"):
+        raise AssertionError(f"Hazel chat used wrong URL: {posted[-1]['url']!r}")
+    expect(page.locator("#transcript")).to_contain_text("hazel hello")
+    expect(page.locator("#transcript")).to_contain_text("reply to hazel hello")
+
+
+def assert_mobile_layout(page) -> None:
+    page.set_viewport_size({"width": 390, "height": 760})
+    page.wait_for_timeout(100)
+    main_grid = page.locator("#main").evaluate(
+        "node => getComputedStyle(node).gridTemplateColumns"
+    )
+    if "," in main_grid or len(main_grid.split()) > 1:
+        raise AssertionError(f"mobile chat layout still has multiple columns: {main_grid!r}")
+    input_box = page.locator("#chat-input").bounding_box()
+    send_box = page.locator("#btn-send").bounding_box()
+    if not input_box or not send_box or input_box["x"] + input_box["width"] > send_box["x"]:
+        raise AssertionError("mobile composer controls overlap")
+
+
+def main() -> None:
+    ensure_web_server(BASE_URL)
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("character-chat")
+        browser = launch_browser(playwright)
+        page = coverage.new_page(browser, viewport={"width": 1280, "height": 800})
+        page.add_init_script(
+            f"""
+            localStorage.setItem('bunnyland.clientMenu.seen', '1');
+            localStorage.setItem('bunnyland.characterChat.clientId', {json.dumps(CLIENT_ID)});
+            """
+        )
+        posted: list[dict] = []
+        install_routes(page, posted)
+
+        connect(page)
+        assert_initial_send_and_persistence(page, posted)
+        assert_bounded_history_payload(page, posted)
+        assert_character_selection(page, posted)
+        assert_mobile_layout(page)
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-chat.png"))
+        coverage.close_browser(browser)
+
+    print("character_chat=ok")
+
+
+if __name__ == "__main__":
+    main()
