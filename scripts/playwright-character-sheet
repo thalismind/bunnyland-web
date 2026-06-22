@@ -171,6 +171,7 @@ def main() -> None:
         expect(page.locator("#portrait-status")).to_contain_text("Portrait generation")
         expect(page.locator("#species-value")).to_have_text("hare")
         expect(page.locator("#status-pills")).to_contain_text("tense")
+        assert "v=character-sheet-ecs" in page.locator('script[src*="bunnyland-play.js"]').get_attribute("src")
         expect(page.locator("#sheet-overview")).to_contain_text("Dusty from a long patrol")
         expect(page.locator("#vitals")).to_contain_text("Health")
         expect(page.locator("#needs")).to_contain_text("Hunger")
