@@ -118,6 +118,11 @@ specific conventions.
 
 - List rows use icon, primary label, and muted metadata. Long names should ellipsize in
   list panes.
+- Clickable rows should look actionable: use hover/selected states, pointer cursors, and
+  clear affordances only when clicking changes selection, navigation, or command state.
+- Passive feed rows, logs, and activity entries must not reuse clickable row styling. Make
+  the row secondary with subdued background or border treatment, but keep the text at
+  normal readable contrast unless the content itself is disabled or unavailable.
 - Empty states should be visible where a section matters, such as queued actions.
 - Inspector sections should be collapsible and data-dense. Use links for entity ids and
   targets so users can navigate without copying ids.
