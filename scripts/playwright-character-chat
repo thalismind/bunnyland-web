@@ -71,6 +71,14 @@ def install_routes(page, posted: list[dict]) -> None:
 
     def chat_handler(route):
         payload = json.loads(route.request.post_data or "{}")
+        reply = f"reply to {payload['message']}"
+        if payload.get("message") == "markdown":
+            reply = (
+                "**bold reply** with `code` and [safe link](https://example.test/path).\n\n"
+                "<img src=x onerror=alert(1)> should stay text.\n\n"
+                "[unsafe](javascript:alert(1)) should not become a link.\n\n"
+                "```html\n<b>literal</b>\n```"
+            )
         posted.append(
             {
                 "url": route.request.url,
@@ -86,7 +94,7 @@ def install_routes(page, posted: list[dict]) -> None:
                     "schema_version": 1,
                     "world_epoch": 10,
                     "character_id": CHARACTER,
-                    "reply": f"reply to {payload['message']}",
+                    "reply": reply,
                     "action": {"tool": "look", "status": "executed"},
                 }
             ),
@@ -130,6 +138,21 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
         {"role": "character", "text": "reply to hello"},
     ]:
         raise AssertionError(f"chat history was not persisted: {state!r}")
+
+
+def assert_markdown_rendering_without_html(page) -> None:
+    submit_message(page, "markdown")
+    expect(page.locator("#transcript strong")).to_contain_text("bold reply")
+    expect(page.locator("#transcript code").first).to_contain_text("code")
+    expect(page.locator('#transcript a[href="https://example.test/path"]')).to_contain_text(
+        "safe link"
+    )
+    expect(page.locator("#transcript")).to_contain_text("<img src=x onerror=alert(1)>")
+    expect(page.locator("#transcript pre code")).to_contain_text("<b>literal</b>")
+    if page.locator("#transcript img").count() != 0:
+        raise AssertionError("raw HTML image tag was rendered in chat transcript")
+    if page.locator("#transcript a[href^='javascript:']").count() != 0:
+        raise AssertionError("unsafe javascript URL was rendered in chat transcript")
 
 
 def assert_bounded_history_payload(page, posted: list[dict]) -> None:
@@ -194,6 +217,7 @@ def main() -> None:
 
         connect(page)
         assert_initial_send_and_persistence(page, posted)
+        assert_markdown_rendering_without_html(page)
         assert_bounded_history_payload(page, posted)
         assert_character_selection(page, posted)
         assert_mobile_layout(page)
