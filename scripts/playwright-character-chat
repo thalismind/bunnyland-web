@@ -52,7 +52,17 @@ def install_routes(page, posted: list[dict]) -> None:
                 "schema_version": 1,
                 "world_epoch": 9,
                 "enabled": True,
-                "allowed_tools": ["look", "say", "wait"],
+                "allowed_tools": [
+                    "forget",
+                    "inspect",
+                    "look",
+                    "reflect",
+                    "remember",
+                    "say",
+                    "take_note",
+                    "tell",
+                    "wait",
+                ],
             }
         ),
     )
@@ -142,6 +152,7 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
 
 def assert_markdown_rendering_without_html(page) -> None:
     submit_message(page, "markdown")
+    expect(page.locator("#markdown-toggle")).to_be_checked()
     expect(page.locator("#transcript strong")).to_contain_text("bold reply")
     expect(page.locator("#transcript code").first).to_contain_text("code")
     expect(page.locator('#transcript a[href="https://example.test/path"]')).to_contain_text(
@@ -153,6 +164,19 @@ def assert_markdown_rendering_without_html(page) -> None:
         raise AssertionError("raw HTML image tag was rendered in chat transcript")
     if page.locator("#transcript a[href^='javascript:']").count() != 0:
         raise AssertionError("unsafe javascript URL was rendered in chat transcript")
+    page.locator("#markdown-toggle").uncheck()
+    expect(page.locator("#transcript")).to_contain_text("**bold reply**")
+    expect(page.locator("#transcript")).to_contain_text("[safe link](https://example.test/path)")
+    if page.locator("#transcript strong").count() != 0:
+        raise AssertionError("markdown strong tag remained after disabling markdown rendering")
+    if page.locator("#transcript a").count() != 0:
+        raise AssertionError("markdown links remained after disabling markdown rendering")
+    if page.locator("#transcript img").count() != 0:
+        raise AssertionError("raw HTML image tag was rendered with markdown disabled")
+    if page.evaluate("() => localStorage.getItem('bunnyland.characterChat.markdown')") != "0":
+        raise AssertionError("markdown toggle preference was not persisted")
+    page.locator("#markdown-toggle").check()
+    expect(page.locator("#transcript strong")).to_contain_text("bold reply")
 
 
 def assert_bounded_history_payload(page, posted: list[dict]) -> None:

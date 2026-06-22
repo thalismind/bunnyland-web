@@ -7,6 +7,17 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 190px; }
+    .toolbar-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      white-space: nowrap;
+    }
+    .toolbar-toggle input {
+      margin: 0;
+    }
     #main {
       display: grid;
       grid-template-columns: 260px minmax(0, 1fr);
@@ -80,6 +91,9 @@
       color: var(--bl-text-soft);
       line-height: 1.45;
       white-space: normal;
+    }
+    .message.plain {
+      white-space: pre-wrap;
     }
     .message.user {
       margin-left: auto;
@@ -174,6 +188,10 @@
     <label for="api-url">Server:</label>
     <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect" type="button">Connect Live</button>
+    <label class="toolbar-toggle" for="markdown-toggle">
+      <input type="checkbox" id="markdown-toggle" checked>
+      Markdown
+    </label>
     <span id="api-status">○ Offline</span>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
@@ -203,15 +221,18 @@
 
   const CLIENT_ID_KEY = 'bunnyland.characterChat.clientId';
   const HISTORY_PREFIX = 'bunnyland.characterChat.history.';
+  const MARKDOWN_KEY = 'bunnyland.characterChat.markdown';
   const HISTORY_LIMIT = 24;
   let base = '';
   let clientId = '';
   let characters = [];
   let selectedId = '';
+  let markdownEnabled = localStorage.getItem(MARKDOWN_KEY) !== '0';
 
   const els = {
     apiUrl: document.getElementById('api-url'),
     connect: document.getElementById('btn-connect'),
+    markdown: document.getElementById('markdown-toggle'),
     status: document.getElementById('api-status'),
     list: document.getElementById('character-list'),
     transcript: document.getElementById('transcript'),
@@ -329,6 +350,10 @@
     return blocks.join('');
   }
 
+  function renderMessageText(value) {
+    return markdownEnabled ? renderMarkdown(value) : escapeHtml(value);
+  }
+
   function storageKey(characterId) {
     return `${HISTORY_PREFIX}${clientId}.${characterId}`;
   }
@@ -384,7 +409,7 @@
       return;
     }
     els.transcript.innerHTML = state.messages.map(message => `
-      <div class="message ${message.role === 'user' ? 'user' : 'character'}">${renderMarkdown(message.text)}</div>
+      <div class="message ${message.role === 'user' ? 'user' : 'character'} ${markdownEnabled ? '' : 'plain'}">${renderMessageText(message.text)}</div>
     `).join('');
     els.transcript.scrollTop = els.transcript.scrollHeight;
   }
@@ -458,6 +483,12 @@
       els.line.textContent = err.message;
       setStatus(err.message, false);
     });
+  });
+  els.markdown.checked = markdownEnabled;
+  els.markdown.addEventListener('change', () => {
+    markdownEnabled = els.markdown.checked;
+    localStorage.setItem(MARKDOWN_KEY, markdownEnabled ? '1' : '0');
+    renderTranscript();
   });
 
   BunnylandUI.initTheme();
