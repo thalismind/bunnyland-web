@@ -127,6 +127,26 @@
       overflow-wrap: anywhere;
     }
 
+    .stat-main {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .stat-icon {
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-md);
+      line-height: 1;
+    }
+
+    .stat-detail {
+      margin-top: 2px;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+      overflow-wrap: anywhere;
+    }
+
     .section {
       margin-bottom: 18px;
     }
@@ -301,11 +321,11 @@
         <div class="stat-value" id="room-value">-</div>
       </div>
       <div class="stat">
-        <div class="stat-label">Action</div>
+        <div class="stat-label">Action Points</div>
         <div class="stat-value" id="ap-value">-</div>
       </div>
       <div class="stat">
-        <div class="stat-label">Focus</div>
+        <div class="stat-label">Focus Points</div>
         <div class="stat-value" id="fp-value">-</div>
       </div>
     </div>
@@ -631,6 +651,27 @@ class CharacterSheetApp {
     target.innerHTML = chunks.length ? chunks.join('') : 'No character notes.';
   }
 
+  _renderControllerValue(controller) {
+    if (!controller) return '-';
+    const kind = controller.kind ? `${controller.kind}: ` : '';
+    const label = controller.name || controller.kind || 'Controller';
+    const detail = [
+      controller.detail || '',
+      `${controller.controller_id || ''} gen ${controller.generation ?? 0}`.trim(),
+    ].filter(Boolean).join(' · ');
+    return '<div class="stat-main">' +
+      `<span>${BunnylandUI.escapeHtml(kind + label)}</span>` +
+      '</div>' +
+      `<div class="stat-detail">${BunnylandUI.escapeHtml(detail)}</div>`;
+  }
+
+  _renderPointsValue(icon, current, maximum) {
+    return '<div class="stat-main">' +
+      `<span class="stat-icon" aria-hidden="true">${BunnylandUI.escapeHtml(icon)}</span>` +
+      `<span>${formatPoints(current)} / ${formatPoints(maximum)} points</span>` +
+      '</div>';
+  }
+
   render() {
     this._syncSelector();
     this._renderPortrait();
@@ -644,15 +685,13 @@ class CharacterSheetApp {
     const room = this.projection?.room || {};
     document.getElementById('species-value').textContent = sheet.species || '-';
     document.getElementById('kind-value').textContent = sheet.kind || '-';
-    document.getElementById('controller-value').textContent = controller
-      ? `${controller.controller_id} gen ${controller.generation}`
-      : '-';
+    document.getElementById('controller-value').innerHTML = this._renderControllerValue(controller);
     document.getElementById('room-value').textContent = room.title || room.id || '-';
-    document.getElementById('ap-value').textContent = this.projection
-      ? `${formatPoints(pts.action)} / ${formatPoints(pts.action_max)}`
+    document.getElementById('ap-value').innerHTML = this.projection
+      ? this._renderPointsValue('⚡', pts.action, pts.action_max)
       : '-';
-    document.getElementById('fp-value').textContent = this.projection
-      ? `${formatPoints(pts.focus)} / ${formatPoints(pts.focus_max)}`
+    document.getElementById('fp-value').innerHTML = this.projection
+      ? this._renderPointsValue('✦', pts.focus, pts.focus_max)
       : '-';
     this._renderPills('status-pills', this.projection ? sheet.status || [] : []);
 

@@ -70,7 +70,7 @@
     },
     {
       href: 'inspector.html',
-      title: 'Inspector',
+      title: 'World Inspector',
       label: 'Graph client',
       description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
       supportsServer: true,

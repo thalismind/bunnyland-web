@@ -87,7 +87,7 @@ def main() -> None:
             "Web REPL",
             "Character Sheet",
             "World Generator",
-            "Inspector",
+            "World Inspector",
             "World Editor",
             "Script Editor",
             "Behavior Editor",
