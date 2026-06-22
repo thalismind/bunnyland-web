@@ -85,6 +85,27 @@ def main() -> None:
         welcome_text = page.locator("body").text_content()
         if "Discord" not in welcome_text or "Textual TUI" not in welcome_text:
             raise AssertionError("welcome page is missing alternate player input options")
+        if "Character Sheet" not in welcome_text or "Character Chat" not in welcome_text:
+            raise AssertionError("welcome page is missing character feature cards")
+        section_order = page.evaluate(
+            """
+            () => {
+              const terminal = document.getElementById('terminal-title').closest('section');
+              const characters = document.getElementById('characters-title').closest('section');
+              return Boolean(terminal.compareDocumentPosition(characters) & Node.DOCUMENT_POSITION_FOLLOWING);
+            }
+            """
+        )
+        if not section_order:
+            raise AssertionError("character section should follow the terminal section")
+        if page.locator('#character-sheet-card.feature-disabled').count() != 1:
+            raise AssertionError("character sheet card should be disabled without health features")
+        if page.locator('#character-chat-card.feature-disabled').count() != 1:
+            raise AssertionError("character chat card should be disabled without health features")
+        if page.locator('#character-sheet-link[aria-disabled="true"][tabindex="-1"]').count() != 1:
+            raise AssertionError("character sheet link should be readonly when disabled")
+        if page.locator('#character-chat-link[aria-disabled="true"][tabindex="-1"]').count() != 1:
+            raise AssertionError("character chat link should be readonly when disabled")
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
             raise AssertionError("shared client menu does not include active welcome page")
