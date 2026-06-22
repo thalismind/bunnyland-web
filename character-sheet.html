@@ -308,17 +308,18 @@
 </head>
 <body>
 <div id="toolbar">
-  <div class="toolbar-row">
+  <div class="toolbar-row" id="toolbar-row1">
     <span class="toolbar-brand"><img src="favicon.png" alt=""> Bunnyland Character Sheet</span>
     <span class="toolbar-sep">|</span>
     <label for="api-url">Server:</label>
     <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect" type="button">Connect Live</button>
     <span id="api-status">○ Offline</span>
-    <span class="toolbar-sep">|</span>
-    <label for="character-select">Character:</label>
-    <select id="character-select"><option value="">- choose -</option></select>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
+    <label for="character-select">Character:</label>
+    <select id="character-select"><option value="">— choose a character —</option></select>
   </div>
 </div>
 

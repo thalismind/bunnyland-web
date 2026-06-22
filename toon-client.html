@@ -435,10 +435,15 @@
     <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
-    <span class="toolbar-sep">|</span>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+  <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
     <select id="player-select"><option value="">— select to play —</option></select>
     <button id="btn-release-character" type="button" disabled>Release</button>
+    <button id="btn-request-image" title="Request an image of your character's current scene">📷 Image</button>
+    <button id="btn-open-sheet" title="Open the selected or current character sheet">▣ Sheet</button>
+    <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
     <label for="claim-fallback">Fallback:</label>
     <select id="claim-fallback">
       <option value="suspend">Suspend</option>
@@ -446,12 +451,6 @@
     </select>
     <label for="claim-timeout">Timeout:</label>
     <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
-    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
-  </div>
-  <div class="toolbar-row" id="toolbar-row2">
-    <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
-    <button id="btn-request-image" title="Request an image of your character's current scene">📷 Image</button>
-    <button id="btn-open-sheet" title="Open the selected or current character sheet">▣ Sheet</button>
     <span class="toolbar-sep">|</span>
     <label><input type="checkbox" id="debug-bounds"> Bounds</label>
     <span class="toolbar-sep">|</span>
