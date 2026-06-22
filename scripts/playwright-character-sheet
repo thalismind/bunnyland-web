@@ -171,6 +171,7 @@ def main() -> None:
         page.goto(f"{BASE_URL}/character-sheet.html?server=/api#{CHARACTER}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
 
+        expect(page).to_have_title("Bunnyland Character Sheet: Bun")
         expect(page.locator("#character-name")).to_have_text("Bun")
         expect(page.locator("#character-select")).to_have_value(CHARACTER)
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
@@ -213,6 +214,16 @@ def main() -> None:
         expect(page.locator("#visible-characters")).to_contain_text("Marlow")
         expect(page.locator("#actions")).to_contain_text("Say")
         expect(page.locator("#actions")).to_contain_text("not enough focus points")
+        expect(page.locator("#actions")).to_have_css("overflow-y", "auto")
+        page.locator("#action-filter").fill("shout")
+        expect(page.locator("#actions")).to_contain_text("Shout")
+        expect(page.locator("#actions")).not_to_contain_text("Say")
+        page.locator("#action-filter").fill("missing")
+        expect(page.locator("#actions")).to_have_text("No matching actions.")
+        page.locator("#action-filter-clear").click()
+        expect(page.locator("#action-filter")).to_have_value("")
+        expect(page.locator("#actions")).to_contain_text("Say")
+        expect(page.locator("#actions")).to_contain_text("Shout")
         if state["requested"] != 1:
             raise AssertionError(f"missing portrait did not request scene image: {state!r}")
 
@@ -231,6 +242,8 @@ def main() -> None:
             raise AssertionError(f"client menu did not preserve server parameter: {href!r}")
 
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-sheet.png"))
+        page.evaluate("() => window.app.selectCharacter('', { updateHash: true })")
+        expect(page).to_have_title("Bunnyland Character Sheet")
         coverage.close_browser(browser)
 
     print("character_sheet=ok")

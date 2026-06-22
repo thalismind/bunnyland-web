@@ -168,9 +168,32 @@
       letter-spacing: 0.5px;
     }
 
+    .action-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    #action-filter {
+      width: 100%;
+      min-width: 0;
+    }
+
+    #action-filter-clear {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
     .sheet-list {
       display: grid;
       gap: 6px;
+    }
+
+    #actions {
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 2px;
     }
 
     .sheet-row {
@@ -394,6 +417,10 @@
     </div>
     <div class="section">
       <div class="section-title">Available Actions</div>
+      <div class="action-controls">
+        <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
+        <button id="action-filter-clear" type="button">Clear</button>
+      </div>
       <div id="actions" class="sheet-empty">Select a character.</div>
     </div>
     <div id="status-note"></div>
@@ -421,6 +448,7 @@ const {
 } = BunnylandPlay;
 
 const POLL_INTERVAL_MS = 2000;
+const DOCUMENT_TITLE_BASE = 'Bunnyland Character Sheet';
 
 class CharacterSheetApp {
   constructor() {
@@ -430,6 +458,7 @@ class CharacterSheetApp {
     this.selectedId = this._hashCharacterId();
     this.projection = null;
     this.portraitState = '';
+    this.actionFilter = '';
     this._requestedPortraits = new Set();
     this._failedPortraits = new Set();
     this._pollTimer = null;
@@ -447,6 +476,16 @@ class CharacterSheetApp {
     });
     document.getElementById('character-select').addEventListener('change', (event) => {
       this.selectCharacter(event.target.value, { updateHash: true });
+    });
+    document.getElementById('action-filter').addEventListener('input', (event) => {
+      this.actionFilter = event.target.value;
+      this.render();
+    });
+    document.getElementById('action-filter-clear').addEventListener('click', () => {
+      this.actionFilter = '';
+      document.getElementById('action-filter').value = '';
+      this.render();
+      document.getElementById('action-filter').focus();
     });
     window.addEventListener('hashchange', () => {
       const id = this._hashCharacterId();
@@ -575,6 +614,12 @@ class CharacterSheetApp {
       this.selectedId;
   }
 
+  _titleCharacterName() {
+    return this.projection?.characterName ||
+      this.characters.find(character => character.id === this.selectedId)?.name ||
+      '';
+  }
+
   _initials() {
     const name = this._characterName() || '?';
     return name.split(/\s+/).filter(Boolean).slice(0, 2)
@@ -689,10 +734,27 @@ class CharacterSheetApp {
     return metric.text || String(metric.value ?? '-');
   }
 
+  _actionMatchesFilter(action, filter) {
+    if (!filter) return true;
+    const cost = actionCost(action);
+    const text = [
+      actionTitle(action),
+      action.command_type || '',
+      action.tool_name || '',
+      actionLane(action),
+      action.unavailable_reason || '',
+      cost.action ? `${cost.action} AP` : '',
+      cost.focus ? `${cost.focus} FP` : '',
+    ].join(' ').toLowerCase();
+    return text.includes(filter);
+  }
+
   render() {
     this._syncSelector();
     this._renderPortrait();
     const name = this._characterName();
+    const titleName = this._titleCharacterName();
+    document.title = titleName ? `${DOCUMENT_TITLE_BASE}: ${titleName}` : DOCUMENT_TITLE_BASE;
     document.getElementById('character-name').textContent = name || 'No character selected';
     document.getElementById('character-id').textContent = this.selectedId || 'Connect to a server, then choose a character.';
 
@@ -741,7 +803,9 @@ class CharacterSheetApp {
       .map(exit => this._row(exit.direction || exit.label || exit.id, exit.locked ? 'locked' : exit.label || exit.id));
     this._renderList('exits', exits, 'No visible exits.');
 
+    const actionFilter = this.actionFilter.trim().toLowerCase();
     const actions = orderActionsByAvailability(this.projection?.actions || [])
+      .filter(action => this._actionMatchesFilter(action, actionFilter))
       .map(action => {
         const cost = actionCost(action);
         const parts = [];
@@ -753,7 +817,7 @@ class CharacterSheetApp {
           `<strong>${BunnylandUI.escapeHtml(actionTitle(action))}</strong>` +
           `<span>${BunnylandUI.escapeHtml(reason || meta)}</span></div>`;
       });
-    this._renderList('actions', actions, 'No actions available.');
+    this._renderList('actions', actions, actionFilter ? 'No matching actions.' : 'No actions available.');
   }
 }
 
