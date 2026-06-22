@@ -98,6 +98,22 @@ CHARACTER_PROJECTION = {
             ],
         },
         {
+            "command_type": "use_item",
+            "tool_name": "use-item",
+            "title": "Use Item",
+            "lane": "world",
+            "cost": {"action": 1, "focus": 0},
+            "arguments": [
+                {
+                    "key": "target_id",
+                    "title": "item",
+                    "kind": "entity",
+                    "required": True,
+                    "target_group": "inventory",
+                },
+            ],
+        },
+        {
             "command_type": "remember",
             "tool_name": "remember",
             "title": "Remember",
@@ -281,6 +297,22 @@ def preselect_selected_target(page) -> None:
     expect(overlay).to_have_count(0)
 
 
+def preselect_inventory_target(page) -> None:
+    page.locator(f'#members .option[data-entity="{OTHER}"]').click()
+    expect(page.locator(f'#members .option.selected[data-entity="{OTHER}"]')).to_be_visible()
+    page.locator('#inventory .option[data-entity="item:1"]').click()
+    expect(page.locator('#inventory .option.selected[data-entity="item:1"]')).to_be_visible()
+    expect(page.locator(f'#members .option.selected[data-entity="{OTHER}"]')).to_have_count(0)
+    page.locator("#action-filter").fill("use")
+    page.locator("#verbs .option").filter(has_text="Use Item").click()
+    overlay = page.locator("#action-form-overlay")
+    overlay.wait_for(state="visible")
+    expect(overlay.locator("select.form-input")).to_have_value("item:1")
+    page.keyboard.press("Escape")
+    expect(overlay).to_have_count(0)
+    page.locator("#action-filter-clear").click()
+
+
 def update_fallback_and_release(page) -> None:
     page.locator("#claim-timeout").fill("17")
     with page.expect_response("**/world/controllers/web/fallback"):
@@ -339,6 +371,8 @@ def narrate_event(page) -> None:
     ]
     page.evaluate("() => window.app.refresh()")
     expect(page.locator("#activity")).to_contain_text("too tired")
+    expect(page.locator("#activity .activity-row").filter(has_text="too tired")).to_be_visible()
+    expect(page.locator("#activity .option")).to_have_count(0)
 
 
 def cancel_queued_command(page) -> None:
@@ -363,6 +397,7 @@ def main() -> None:
         use_image_and_sheet_buttons(page)
         filter_actions(page)
         preselect_selected_target(page)
+        preselect_inventory_target(page)
         update_fallback_and_release(page)
         narrate_event(page)
         cancel_queued_command(page)

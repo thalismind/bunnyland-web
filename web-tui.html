@@ -86,9 +86,18 @@
       white-space: nowrap;
     }
     .option.selected { border-color: var(--bl-accent); background: var(--bl-bg-subtle); }
-    .option.activity { cursor: default; }
-    .option.activity.kind-system .option-main { color: var(--bl-text-dim); }
-    .option.activity.kind-rejection .option-main { color: var(--bl-warn); }
+    .activity-row {
+      padding: 4px 8px;
+      border-left: 2px solid var(--bl-border-muted);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+      line-height: 1.35;
+    }
+    .activity-row.kind-system { color: var(--bl-text-dim); }
+    .activity-row.kind-rejection {
+      border-left-color: var(--bl-warn);
+      color: var(--bl-warn);
+    }
     .empty {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);
@@ -841,9 +850,12 @@ class WebTui {
 
     const carried = inventoryEntries(this.projection);
     document.getElementById('inventory').innerHTML = carried.length ? carried
-      .map(item => `<button class="option" type="button" data-entity="${esc(item.id)}">` +
+      .map(item => {
+        const selected = item.id === this.selectedId ? ' selected' : '';
+        return `<button class="option${selected}" type="button" data-entity="${esc(item.id)}">` +
         `<span class="option-main">${esc(item.icon)} ${esc(item.label)}</span>` +
-        `<span class="option-meta">${esc(item.kind)}</span></button>`)
+        `<span class="option-meta">${esc(item.kind)}</span></button>`;
+      })
       .join('') : `<div class="empty">${this.playerId ? 'Nothing carried.' : 'Select a character above.'}</div>`;
     document.querySelectorAll('#inventory .option[data-entity]').forEach(button => {
       button.addEventListener('click', () => {
@@ -857,7 +869,7 @@ class WebTui {
         const icon = this.showActionIcons && line.icon
           ? `<span class="action-icon">${esc(line.icon)}</span>`
           : '';
-        return `<div class="option activity ${line.kind ? `kind-${esc(line.kind)}` : ''}"><span class="option-main">${icon}${esc(line.text)}</span></div>`;
+        return `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">${icon}${esc(line.text)}</div>`;
       })
       .join('') : '<div class="empty">No recent activity.</div>';
   }
