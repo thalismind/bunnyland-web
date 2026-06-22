@@ -534,6 +534,22 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-color: var(--bl-accent);
 }
 
+/* Help modal (shares the client-menu chrome) */
+.help-section-title {
+  color: var(--bl-accent-strong);
+  font-size: var(--bl-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 10px 2px;
+}
+
+.help-intro {
+  margin: 6px 10px 2px;
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+  line-height: 1.45;
+}
+
 #world-info,
 #status,
 #save-status,

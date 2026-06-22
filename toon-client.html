@@ -463,6 +463,7 @@
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+    <button id="btn-help" type="button" title="Help — controls &amp; commands (press ?)" aria-label="Help">?</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
@@ -552,6 +553,50 @@ const {
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
+
+BunnylandUI.initHelp({
+  title: 'Bunnyland Toon — controls',
+  intro: 'Bunnyland Toon is the visual client: your character and everything in the room are '
+    + 'drawn on a stage you click around in.',
+  sections: [
+    {
+      title: 'Playing',
+      items: [
+        { label: 'Pick a character', desc: 'Choose one from the Character selector, then move and act as them. Release hands it back.', key: 'Character' },
+      ],
+    },
+    {
+      title: 'Moving',
+      items: [
+        { label: 'Move', desc: 'Click anywhere on the stage, or use the arrow keys / WASD.', key: '← ↑ ↓ → / WASD' },
+        { label: 'Change rooms', desc: 'Click a 🚪 door to walk through it (or peek into it while spectating).' },
+        { label: 'Follow', desc: "Re-centre the view on your character's room.", key: '⌖ Follow' },
+      ],
+    },
+    {
+      title: 'Acting',
+      items: [
+        { label: 'Room & focus actions', desc: 'Each verb shows its AP / FP cost and is disabled when you cannot afford it.' },
+        { label: 'Queued actions', desc: 'Actions you cannot afford yet are queued and run on the next tick. Click one to cancel it.' },
+      ],
+    },
+    {
+      title: 'Scene image',
+      items: [
+        { label: 'Request an image', desc: "Generate an image of your character's current scene.", key: `${IMAGE_AFFORDANCE.REQUEST_EMOJI} Image` },
+        { label: 'When it is ready', desc: `${IMAGE_AFFORDANCE.DELIVER_EMOJI} the image appears in the sidebar — click it to enlarge. ${IMAGE_AFFORDANCE.FAIL_EMOJI} shows in the status bar if it fails.` },
+      ],
+    },
+    {
+      title: 'More',
+      items: [
+        { label: 'Character sheet', desc: "Open the selected (or your own) character's sheet.", key: '▣ Sheet' },
+        { label: 'Inventory', desc: "Lists what you're carrying; click an item to select it as a verb's target." },
+        { label: 'Switch clients / theme', desc: 'The client menu lists every client and editor and sets the theme.', key: 'Menu' },
+      ],
+    },
+  ],
+});
 
 // Compass direction → unit edge offset, mirroring the Inspector's room layout.
 const DIR_EDGE = {

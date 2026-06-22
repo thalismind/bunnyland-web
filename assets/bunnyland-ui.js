@@ -327,6 +327,89 @@
     return { open: openClientMenu, close: closeClientMenu };
   }
 
+  // Whether a keyboard event originated in a field the user is typing into, so a global
+  // shortcut like "?" never hijacks a real keystroke (e.g. typing a query into a filter).
+  function isEditableTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable === true;
+  }
+
+  function ensureHelpDialog() {
+    let dialog = document.getElementById('help-dialog');
+    if (dialog) return dialog;
+    dialog = document.createElement('div');
+    dialog.id = 'help-dialog';
+    dialog.className = 'client-menu-backdrop hidden';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'help-dialog-title');
+    document.body.appendChild(dialog);
+    return dialog;
+  }
+
+  function renderHelp(dialog, { title, intro, sections }) {
+    const sectionHtml = (sections || []).map((section) => `
+      <div class="help-section-title">${escapeHtml(section.title)}</div>
+      ${(section.items || []).map((item) => `
+        <div class="client-menu-item">
+          <span class="client-menu-item-main">
+            <span class="client-menu-item-title">${escapeHtml(item.label)}</span>
+            ${item.desc ? `<span class="client-menu-item-desc">${escapeHtml(item.desc)}</span>` : ''}
+          </span>
+          ${item.key ? `<span class="client-menu-item-label">${escapeHtml(item.key)}</span>` : ''}
+        </div>
+      `).join('')}
+    `).join('');
+    dialog.innerHTML = `
+      <div class="client-menu-card">
+        <div class="client-menu-header">
+          <div>
+            <div class="client-menu-kicker">Bunnyland</div>
+            <div id="help-dialog-title" class="client-menu-title">${escapeHtml(title || 'Controls & commands')}</div>
+          </div>
+          <button class="client-menu-close" type="button" aria-label="Close help">x</button>
+        </div>
+        <div class="client-menu-list">
+          ${intro ? `<p class="help-intro">${escapeHtml(intro)}</p>` : ''}
+          ${sectionHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // A shared help modal: the GUI clients (toon, web-tui) have no typed "help" command, so
+  // surface their controls and iconography here. Opens from a toolbar button and the "?"
+  // key (ignored while typing), matching the terminal TUI's "?" help binding.
+  function initHelp({ title, intro, sections = [], buttonId = 'btn-help' } = {}) {
+    const open = () => {
+      const dialog = ensureHelpDialog();
+      renderHelp(dialog, { title, intro, sections });
+      dialog.classList.remove('hidden');
+      dialog.querySelector('.client-menu-close')?.focus();
+    };
+    const close = () => document.getElementById('help-dialog')?.classList.add('hidden');
+
+    const button = document.getElementById(buttonId);
+    if (button) button.addEventListener('click', () => open());
+
+    document.addEventListener('click', (event) => {
+      const dialog = document.getElementById('help-dialog');
+      if (!dialog || dialog.classList.contains('hidden')) return;
+      if (event.target === dialog || event.target.closest('.client-menu-close')) close();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key !== '?' || isEditableTarget(event.target)) return;
+      event.preventDefault();
+      const dialog = document.getElementById('help-dialog');
+      if (dialog && !dialog.classList.contains('hidden')) close();
+      else open();
+    });
+
+    return { open, close };
+  }
+
   function bindSearchDropdown(root, { options, value = '', onChange = null, emptyLabel = 'No matches' }) {
     const input = root.querySelector('.search-dropdown-input');
     const hidden = root.querySelector('.search-dropdown-value');
@@ -423,6 +506,7 @@
     escapeHtml,
     currentTheme,
     initClientMenu,
+    initHelp,
     initTheme,
     loadConfig,
     normalizeTheme,

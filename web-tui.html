@@ -240,6 +240,7 @@
     <button id="btn-connect">Connect Live</button>
     <span id="api-status">○ Offline</span>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+    <button id="btn-help" type="button" title="Help — controls &amp; commands (press ?)" aria-label="Help">?</button>
   </div>
   <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
@@ -330,6 +331,43 @@ const {
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
+
+BunnylandUI.initHelp({
+  title: 'Bunnyland Web TUI — controls',
+  intro: 'The Web TUI is a list-based client: rooms, exits, characters and your inventory '
+    + 'are shown as lists you click to act on.',
+  sections: [
+    {
+      title: 'Playing',
+      items: [
+        { label: 'Pick a character', desc: 'Choose one from the Character selector, then act as them. Release hands it back.', key: 'Character' },
+      ],
+    },
+    {
+      title: 'Acting',
+      items: [
+        { label: 'Actions', desc: 'Each verb shows its AP / FP cost; click one and fill in any target or text it needs.' },
+        { label: 'Change rooms', desc: 'Click an exit in the Doors list to move (or queue) through it.' },
+        { label: 'Inventory', desc: "Lists what you're carrying; click an item to select it as a verb's target." },
+        { label: 'Queued actions', desc: 'Actions you cannot afford yet run on the next tick. Click one to cancel it.' },
+      ],
+    },
+    {
+      title: 'Scene image',
+      items: [
+        { label: 'Request an image', desc: "Generate an image of your character's current scene.", key: `${IMAGE_AFFORDANCE.REQUEST_EMOJI} Image` },
+        { label: 'When it is ready', desc: `${IMAGE_AFFORDANCE.DELIVER_EMOJI} a link appears in the activity log. ${IMAGE_AFFORDANCE.FAIL_EMOJI} shows there if it fails.` },
+      ],
+    },
+    {
+      title: 'More',
+      items: [
+        { label: 'Character sheet', desc: "Open the selected (or your own) character's sheet.", key: '▣ Sheet' },
+        { label: 'Switch clients / theme', desc: 'The client menu lists every client and editor and sets the theme.', key: 'Menu' },
+      ],
+    },
+  ],
+});
 
 const POLL_INTERVAL_MS = 2000;
 const ACTIVITY_LIMIT = 8;
