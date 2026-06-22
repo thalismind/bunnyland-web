@@ -65,9 +65,10 @@ test('Character chat page is in the client menu and sends bounded local history'
 
   assert.match(ui, /character-chat\.html/);
   assert.match(page, /const HISTORY_LIMIT = 24/);
-  assert.match(page, /history: state\.messages\.slice\(-HISTORY_LIMIT\)/);
+  assert.match(page, /history: historyForPayload\(state\.messages\)/);
+  assert.match(page, /chat\/pending\/\$\{encodeURIComponent\(commandId\)\}/);
   assert.match(page, /localStorage\.setItem\(storageKey\(characterId\)/);
-  assert.match(page, /\/world\/character\/\$\{encodeURIComponent\(selectedId\)\}\/chat/);
+  assert.match(page, /\/world\/character\/\$\{encodeURIComponent\(characterId\)\}\/chat/);
 });
 
 test('BunnylandWorld parses snapshots and editor search tokens', () => {

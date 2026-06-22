@@ -150,6 +150,42 @@
     .message a {
       color: var(--bl-accent);
     }
+    .action-message {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      max-width: 760px;
+      margin: 0 0 10px;
+      padding: 7px 10px;
+      border: 1px solid var(--bl-border);
+      border-left: 3px solid var(--bl-accent);
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-strong);
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+      line-height: 1.35;
+    }
+    .action-message .action-icon {
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--bl-radius-sm);
+      background: var(--bl-bg-subtle);
+      color: var(--bl-text);
+    }
+    .action-message strong {
+      color: var(--bl-text-soft);
+      font-weight: 600;
+    }
+    .action-message.rejected {
+      border-left-color: var(--bl-error);
+    }
+    .action-message.executed {
+      border-left-color: var(--bl-ok);
+    }
     #status-line {
       padding: 7px 12px;
       border-top: 1px solid var(--bl-border);
@@ -188,11 +224,11 @@
     <label for="api-url">Server:</label>
     <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect" type="button">Connect Live</button>
+    <span id="api-status">○ Offline</span>
     <label class="toolbar-toggle" for="markdown-toggle">
       <input type="checkbox" id="markdown-toggle" checked>
       Markdown
     </label>
-    <span id="api-status">○ Offline</span>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
 </div>
@@ -223,11 +259,13 @@
   const HISTORY_PREFIX = 'bunnyland.characterChat.history.';
   const MARKDOWN_KEY = 'bunnyland.characterChat.markdown';
   const HISTORY_LIMIT = 24;
+  const PENDING_POLL_MS = 2000;
   let base = '';
   let clientId = '';
   let characters = [];
   let selectedId = '';
   let markdownEnabled = localStorage.getItem(MARKDOWN_KEY) !== '0';
+  const pendingPolls = new Map();
 
   const els = {
     apiUrl: document.getElementById('api-url'),
@@ -381,6 +419,79 @@
     }
   }
 
+  function historyForPayload(messages) {
+    return (messages || [])
+      .filter(message => (message.role === 'user' || message.role === 'character') && message.text)
+      .map(message => ({ role: message.role, text: message.text }))
+      .slice(-HISTORY_LIMIT);
+  }
+
+  function appendMessage(characterId, message) {
+    const state = loadState(characterId);
+    state.messages = [...state.messages, message].slice(-HISTORY_LIMIT);
+    saveState(characterId, state);
+  }
+
+  function actionSummary(action) {
+    const tool = action.tool || 'action';
+    if (action.status === 'queued') {
+      return `${tool} queued as a game action. Results will appear here when it finishes.`;
+    }
+    if (action.status === 'executed') {
+      return `${tool} finished.`;
+    }
+    if (action.status === 'rejected') {
+      return `${tool} failed${action.reason ? `: ${action.reason}` : '.'}`;
+    }
+    return `${tool}: ${action.status || 'pending'}`;
+  }
+
+  function actionCommandType(tool) {
+    return String(tool || 'action').trim().toLowerCase().replaceAll('_', '-');
+  }
+
+  function actionIcon(action) {
+    return BunnylandPlay.actionIcon({
+      command_type: actionCommandType(action.tool),
+      tool_name: action.tool || 'action',
+    });
+  }
+
+  function upsertActionMessage(characterId, action) {
+    if (!action.tool) return;
+    const state = loadState(characterId);
+    const commandId = action.command_id || '';
+    const next = {
+      role: 'action',
+      text: actionSummary(action),
+      command_id: commandId,
+      action,
+    };
+    const index = commandId
+      ? state.messages.findIndex(message => message.role === 'action' && message.command_id === commandId)
+      : -1;
+    if (index >= 0) state.messages[index] = next;
+    else state.messages = [...state.messages, next].slice(-HISTORY_LIMIT);
+    saveState(characterId, state);
+  }
+
+  function appendPendingReply(characterId, commandId, reply) {
+    if (!reply) return;
+    const state = loadState(characterId);
+    if (state.messages.some(message => message.role === 'character' && message.command_id === commandId)) {
+      return;
+    }
+    state.messages = [
+      ...state.messages,
+      { role: 'character', text: reply, command_id: commandId },
+    ].slice(-HISTORY_LIMIT);
+    saveState(characterId, state);
+  }
+
+  function pendingKey(characterId, commandId) {
+    return `${characterId}:${commandId}`;
+  }
+
   function currentName() {
     return characters.find(character => character.character_id === selectedId)?.name || 'Character';
   }
@@ -408,9 +519,16 @@
       els.transcript.innerHTML = '<div class="side-empty">No local chat history for this character.</div>';
       return;
     }
-    els.transcript.innerHTML = state.messages.map(message => `
-      <div class="message ${message.role === 'user' ? 'user' : 'character'} ${markdownEnabled ? '' : 'plain'}">${renderMessageText(message.text)}</div>
-    `).join('');
+    els.transcript.innerHTML = state.messages.map(message => {
+      if (message.role === 'action') {
+        const action = message.action || {};
+        return `<div class="action-message ${escapeHtml(action.status || '')}" data-command-id="${escapeHtml(message.command_id || '')}">` +
+          `<span class="action-icon" aria-hidden="true">${escapeHtml(actionIcon(action))}</span>` +
+          `<span><strong>${escapeHtml(action.tool || 'action')}</strong> · ${escapeHtml(message.text || actionSummary(action))}</span>` +
+          `</div>`;
+      }
+      return `<div class="message ${message.role === 'user' ? 'user' : 'character'} ${markdownEnabled ? '' : 'plain'}">${renderMessageText(message.text)}</div>`;
+    }).join('');
     els.transcript.scrollTop = els.transcript.scrollHeight;
   }
 
@@ -430,33 +548,84 @@
     selectedId = selectedId || characters[0]?.character_id || '';
     renderCharacters();
     renderTranscript();
+    resumePendingPolls();
     setStatus(`Connected · tools: ${(status.allowed_tools || []).join(', ') || 'none'}`);
     els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'No characters available.';
   }
 
+  function resumePendingPolls() {
+    for (const character of characters) {
+      const state = loadState(character.character_id);
+      for (const message of state.messages) {
+        if (message.role === 'action' && message.action?.status === 'queued' && message.command_id) {
+          startPendingPoll(character.character_id, message.command_id);
+        }
+      }
+    }
+  }
+
+  function startPendingPoll(characterId, commandId) {
+    if (!base || !clientId || !characterId || !commandId) return;
+    const key = pendingKey(characterId, commandId);
+    if (pendingPolls.has(key)) return;
+    const poll = async () => {
+      try {
+        const response = await BunnylandApi.sendJson(
+          base,
+          `/world/character/${encodeURIComponent(characterId)}/chat/pending/${encodeURIComponent(commandId)}?client_id=${encodeURIComponent(clientId)}`,
+        );
+        if (response.action?.tool) {
+          upsertActionMessage(characterId, response.action);
+        }
+        if (response.complete) {
+          pendingPolls.delete(key);
+          appendPendingReply(characterId, commandId, response.reply || '');
+          if (selectedId === characterId) {
+            renderTranscript();
+            els.line.textContent = response.action?.tool ? `${response.action.tool}: ${response.action.status}` : 'Action finished.';
+          }
+          return;
+        }
+        if (selectedId === characterId) {
+          renderTranscript();
+          els.line.textContent = response.action?.tool ? `${response.action.tool}: ${response.action.status}` : 'Waiting for action result...';
+        }
+        pendingPolls.set(key, window.setTimeout(poll, PENDING_POLL_MS));
+      } catch (err) {
+        pendingPolls.delete(key);
+        if (selectedId === characterId) els.line.textContent = err.message;
+      }
+    };
+    pendingPolls.set(key, window.setTimeout(poll, PENDING_POLL_MS));
+  }
+
   async function send(message) {
     if (!base || !selectedId) return;
+    const characterId = selectedId;
     const state = loadState(selectedId);
     const payload = {
       client_id: clientId,
       message,
       history_summary: state.summary || '',
-      history: state.messages.slice(-HISTORY_LIMIT),
+      history: historyForPayload(state.messages),
     };
-    state.messages = [...state.messages, { role: 'user', text: message }].slice(-HISTORY_LIMIT);
-    saveState(selectedId, state);
+    appendMessage(characterId, { role: 'user', text: message });
     renderTranscript();
     els.line.textContent = 'Waiting for reply...';
     const response = await BunnylandApi.sendJson(
       base,
-      `/world/character/${encodeURIComponent(selectedId)}/chat`,
+      `/world/character/${encodeURIComponent(characterId)}/chat`,
       { method: 'POST', body: JSON.stringify(payload) },
     );
-    const next = loadState(selectedId);
-    next.messages = [...next.messages, { role: 'character', text: response.reply || '' }].slice(-HISTORY_LIMIT);
-    saveState(selectedId, next);
-    renderTranscript();
     const action = response.action || {};
+    if (response.reply) appendMessage(characterId, { role: 'character', text: response.reply || '' });
+    if (action.tool) {
+      upsertActionMessage(characterId, action);
+      if (action.status === 'queued' && action.command_id) {
+        startPendingPoll(characterId, action.command_id);
+      }
+    }
+    renderTranscript();
     els.line.textContent = action.tool ? `${action.tool}: ${action.status}${action.reason ? ` · ${action.reason}` : ''}` : 'Reply received.';
   }
 
@@ -472,6 +641,7 @@
     selectedId = row.dataset.id || '';
     renderCharacters();
     renderTranscript();
+    resumePendingPolls();
     els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character.';
   });
   els.form.addEventListener('submit', event => {

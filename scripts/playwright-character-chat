@@ -79,9 +79,40 @@ def install_routes(page, posted: list[dict]) -> None:
         ),
     )
 
+    def pending_handler(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "ok": True,
+                    "schema_version": 1,
+                    "world_epoch": 11,
+                    "character_id": CHARACTER,
+                    "command_id": "cmd-remember-1",
+                    "complete": True,
+                    "reply": "I remember the greenhouse warning.",
+                    "action": {
+                        "tool": "remember",
+                        "command_id": "cmd-remember-1",
+                        "status": "executed",
+                        "result_events": [
+                            {
+                                "event_type": "NotesSearchedEvent",
+                                "results": ["greenhouse warning"],
+                            }
+                        ],
+                    },
+                }
+            ),
+        )
+
+    page.route("**/world/character/*/chat/pending/*", pending_handler)
+
     def chat_handler(route):
         payload = json.loads(route.request.post_data or "{}")
         reply = f"reply to {payload['message']}"
+        action = {"tool": "look", "status": "executed"}
         if payload.get("message") == "markdown":
             reply = (
                 "**bold reply** with `code` and [safe link](https://example.test/path).\n\n"
@@ -89,6 +120,13 @@ def install_routes(page, posted: list[dict]) -> None:
                 "[unsafe](javascript:alert(1)) should not become a link.\n\n"
                 "```html\n<b>literal</b>\n```"
             )
+        elif payload.get("message") == "queued":
+            reply = "I will try that when I can."
+            action = {
+                "tool": "remember",
+                "command_id": "cmd-remember-1",
+                "status": "queued",
+            }
         posted.append(
             {
                 "url": route.request.url,
@@ -105,7 +143,7 @@ def install_routes(page, posted: list[dict]) -> None:
                     "world_epoch": 10,
                     "character_id": CHARACTER,
                     "reply": reply,
-                    "action": {"tool": "look", "status": "executed"},
+                    "action": action,
                 }
             ),
         )
@@ -135,6 +173,7 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
     expect(page.locator("#transcript")).to_contain_text("hello")
     expect(page.locator("#transcript")).to_contain_text("reply to hello")
     expect(page.locator("#status-line")).to_contain_text("look: executed")
+    expect(page.locator(".action-message.executed")).to_contain_text("look")
     assert posted[-1]["url"].endswith("/world/character/character%3A1/chat")
     payload = posted[-1]["payload"]
     if payload["client_id"] != CLIENT_ID or payload["history"] != []:
@@ -143,17 +182,40 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
         """(key) => JSON.parse(localStorage.getItem(key))""",
         HISTORY_KEY,
     )
-    if state["messages"][-2:] != [
+    if state["messages"][-3:] != [
         {"role": "user", "text": "hello"},
         {"role": "character", "text": "reply to hello"},
+        {
+            "role": "action",
+            "text": "look finished.",
+            "command_id": "",
+            "action": {"tool": "look", "status": "executed"},
+        },
     ]:
         raise AssertionError(f"chat history was not persisted: {state!r}")
+
+
+def assert_queued_action_block_and_followup(page) -> None:
+    submit_message(page, "queued")
+    action = page.locator('.action-message[data-command-id="cmd-remember-1"]')
+    expect(action).to_contain_text("remember")
+    expect(action).to_contain_text("queued as a game action")
+    expect(action.locator(".action-icon")).to_contain_text("🧠")
+    expect(page.locator("#status-line")).to_contain_text("remember: queued")
+    page.wait_for_function(
+        """() => document.querySelector('[data-command-id="cmd-remember-1"]')?.classList.contains('executed')""",
+        timeout=5000,
+    )
+    expect(action).to_contain_text("finished")
+    expect(page.locator("#transcript")).to_contain_text("I remember the greenhouse warning.")
 
 
 def assert_markdown_rendering_without_html(page) -> None:
     submit_message(page, "markdown")
     expect(page.locator("#markdown-toggle")).to_be_checked()
-    expect(page.locator("#transcript strong")).to_contain_text("bold reply")
+    expect(page.locator("#transcript .message strong", has_text="bold reply")).to_contain_text(
+        "bold reply"
+    )
     expect(page.locator("#transcript code").first).to_contain_text("code")
     expect(page.locator('#transcript a[href="https://example.test/path"]')).to_contain_text(
         "safe link"
@@ -167,16 +229,18 @@ def assert_markdown_rendering_without_html(page) -> None:
     page.locator("#markdown-toggle").uncheck()
     expect(page.locator("#transcript")).to_contain_text("**bold reply**")
     expect(page.locator("#transcript")).to_contain_text("[safe link](https://example.test/path)")
-    if page.locator("#transcript strong").count() != 0:
+    if page.locator("#transcript .message strong").count() != 0:
         raise AssertionError("markdown strong tag remained after disabling markdown rendering")
-    if page.locator("#transcript a").count() != 0:
+    if page.locator("#transcript .message a").count() != 0:
         raise AssertionError("markdown links remained after disabling markdown rendering")
-    if page.locator("#transcript img").count() != 0:
+    if page.locator("#transcript .message img").count() != 0:
         raise AssertionError("raw HTML image tag was rendered with markdown disabled")
     if page.evaluate("() => localStorage.getItem('bunnyland.characterChat.markdown')") != "0":
         raise AssertionError("markdown toggle preference was not persisted")
     page.locator("#markdown-toggle").check()
-    expect(page.locator("#transcript strong")).to_contain_text("bold reply")
+    expect(page.locator("#transcript .message strong", has_text="bold reply")).to_contain_text(
+        "bold reply"
+    )
 
 
 def assert_bounded_history_payload(page, posted: list[dict]) -> None:
@@ -241,6 +305,7 @@ def main() -> None:
 
         connect(page)
         assert_initial_send_and_persistence(page, posted)
+        assert_queued_action_block_and_followup(page)
         assert_markdown_rendering_without_html(page)
         assert_bounded_history_payload(page, posted)
         assert_character_selection(page, posted)
