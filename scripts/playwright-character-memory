@@ -7,6 +7,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -20,9 +21,12 @@ from playwright_server import ensure_web_server
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-character-memory.png"
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SERVER_REPO = REPO_ROOT.parent / "bunnyland-server"
-ADMIN_TOKEN = "character-memory-secret"
+ADMIN_TOKEN = os.environ.get("BUNNYLAND_MEMORY_ADMIN_TOKEN", "character-memory-secret")
+SERVER_IMAGE = os.environ.get(
+    "BUNNYLAND_MEMORY_SERVER_IMAGE",
+    "ghcr.io/thalismind/bunnyland-server:main",
+)
+SERVER_CONTAINER_NAME: str | None = None
 
 
 def reserve_port() -> int:
@@ -31,20 +35,37 @@ def reserve_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def api_get(api_url: str, path: str) -> dict:
+def api_request(
+    api_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict | None = None,
+) -> dict:
+    data = None
+    headers = {"X-Bunnyland-Admin-Token": ADMIN_TOKEN}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
         f"{api_url}{path}",
-        headers={"X-Bunnyland-Admin-Token": ADMIN_TOKEN},
+        data=data,
+        headers=headers,
+        method=method,
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def wait_for_api(api_url: str, proc: subprocess.Popen, timeout: float = 45.0) -> None:
+def api_get(api_url: str, path: str) -> dict:
+    return api_request(api_url, path)
+
+
+def wait_for_api(api_url: str, proc: subprocess.Popen | None, timeout: float = 45.0) -> None:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
     while time.monotonic() < deadline:
-        if proc.poll() is not None:
+        if proc is not None and proc.poll() is not None:
             raise RuntimeError(f"character memory API exited early with code {proc.returncode}")
         try:
             api_get(api_url, "/health")
@@ -55,30 +76,52 @@ def wait_for_api(api_url: str, proc: subprocess.Popen, timeout: float = 45.0) ->
     raise RuntimeError(f"timed out waiting for {api_url}/health: {last_error}")
 
 
-def start_memory_api() -> tuple[str, subprocess.Popen]:
-    if not SERVER_REPO.exists():
-        raise RuntimeError(f"server repo not found at {SERVER_REPO}")
+def start_memory_api() -> tuple[str, subprocess.Popen | None]:
+    override = os.environ.get("BUNNYLAND_MEMORY_API_URL")
+    if override:
+        api_url = override.rstrip("/")
+        wait_for_api(api_url, None)
+        return api_url, None
+
+    global SERVER_CONTAINER_NAME
     port = int(os.environ.get("BUNNYLAND_MEMORY_API_PORT") or reserve_port())
     api_url = f"http://127.0.0.1:{port}"
     log_path = Path(os.environ.get("BUNNYLAND_MEMORY_API_LOG", "/tmp/bunnyland-character-memory-api.log"))
     log = log_path.open("w", encoding="utf-8")
+    SERVER_CONTAINER_NAME = f"bunnyland-memory-{port}"
     proc = subprocess.Popen(
         [
-            "uv",
+            "docker",
             "run",
-            "--extra",
-            "server",
-            "python",
-            str(REPO_ROOT / "scripts" / "character_memory_api_fixture.py"),
-            "--port",
-            str(port),
-            "--admin-token",
-            ADMIN_TOKEN,
+            "--rm",
+            "--name",
+            SERVER_CONTAINER_NAME,
+            "-p",
+            f"127.0.0.1:{port}:8765",
+            "-e",
+            f"BUNNYLAND_ADMIN_TOKEN={ADMIN_TOKEN}",
+            SERVER_IMAGE,
+            "bunnyland",
+            "serve",
+            "--generator",
+            os.environ.get("BUNNYLAND_MEMORY_GENERATOR", "apartment-demo"),
+            "--seed",
+            os.environ.get("BUNNYLAND_MEMORY_SEED", "character memory playwright"),
+            "--ticks",
+            "0",
+            "--tick-seconds",
+            os.environ.get("BUNNYLAND_MEMORY_TICK_SECONDS", "0.2"),
+            "--api-host",
+            "0.0.0.0",
+            "--api-port",
+            "8765",
+            "--claim-timeout-seconds",
+            "0",
+            "--memory-backend",
+            "in-memory",
         ],
-        cwd=SERVER_REPO,
         stdout=log,
         stderr=subprocess.STDOUT,
-        env=os.environ.copy(),
     )
     try:
         wait_for_api(api_url, proc)
@@ -91,6 +134,68 @@ def start_memory_api() -> tuple[str, subprocess.Popen]:
             proc.wait(timeout=10)
         raise
     return api_url, proc
+
+
+def select_memory_character(api_url: str) -> dict:
+    body = api_get(api_url, "/admin/memory/characters")
+    for character in body.get("characters", []):
+        collection = character.get("private_collection") or ""
+        if collection:
+            return {
+                "id": character["character_id"],
+                "name": character.get("name") or character["character_id"],
+                "collection": collection,
+            }
+    raise RuntimeError(f"server returned no memory-enabled characters: {body!r}")
+
+
+def claim_character(api_url: str, character_id: str) -> dict:
+    return api_request(
+        api_url,
+        "/world/controllers/web/claim",
+        method="POST",
+        body={
+            "character_id": character_id,
+            "client_id": "character-memory-playwright",
+            "label": "character-memory-test",
+            "fallback_controller": "suspend",
+            "timeout_seconds": 300,
+        },
+    )
+
+
+def seed_memory_note(api_url: str, character: dict) -> str:
+    claim = claim_character(api_url, character["id"])
+    command_id = "character-memory-note"
+    response = api_request(
+        api_url,
+        "/world/commands",
+        method="POST",
+        body={
+            "character_id": character["id"],
+            "controller_id": claim["controller_id"],
+            "controller_generation": claim["controller_generation"],
+            "command_type": "take-note",
+            "payload": {"text": "Berries grow north.", "tags": ["forage"]},
+            "cost": {"focus": 1},
+            "lane": "focus",
+            "on_insufficient_points": "deny",
+            "command_id": command_id,
+        },
+    )
+    if not response.get("queued"):
+        raise RuntimeError(f"take-note was rejected: {response!r}")
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        documents = api_get(
+            api_url,
+            f"/admin/memory/collections/{character['collection']}/documents",
+        ).get("documents", [])
+        for document in documents:
+            if document.get("document") == "Berries grow north.":
+                return document["id"]
+        time.sleep(0.5)
+    raise RuntimeError("seeded memory note did not appear")
 
 
 def launch_browser(playwright):
@@ -121,13 +226,13 @@ def assert_(condition, message) -> None:
         raise AssertionError(message)
 
 
-def test_memory_editor_flow(page, api_url: str) -> None:
+def test_memory_editor_flow(page, api_url: str, character: dict, document_id: str) -> None:
     expect(page.locator("#api-status")).to_have_text("live")
-    expect(page.locator("#character-list")).to_contain_text("Juniper")
+    expect(page.locator("#character-list")).to_contain_text(character["name"])
 
-    page.locator('.collection-row[data-collection="juniper-private"]').click()
-    expect(page.locator("#document-list")).to_contain_text("note-1")
-    page.locator('.document-row[data-document="note-1"]').click()
+    page.locator(f'.collection-row[data-collection="{character["collection"]}"]').click()
+    expect(page.locator("#document-list")).to_contain_text(document_id)
+    page.locator(f'.document-row[data-document="{document_id}"]').click()
     expect(page.locator("#document-text")).to_have_value("Berries grow north.")
 
     page.locator("#document-text").fill("Berries grow north by the old basin.")
@@ -141,10 +246,11 @@ def test_memory_editor_flow(page, api_url: str) -> None:
     assert_(not page.locator("#btn-save-document").is_disabled(), "save stayed disabled")
     page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
-    saved = api_get(api_url, "/admin/memory/collections/juniper-private/documents")
-    assert_(saved["documents"][0]["document"] == "Berries grow north by the old basin.",
+    saved = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    saved_document = next(doc for doc in saved["documents"] if doc["id"] == document_id)
+    assert_(saved_document["document"] == "Berries grow north by the old basin.",
             f"document was not patched: {saved!r}")
-    assert_(saved["documents"][0]["metadata"] == {
+    assert_(saved_document["metadata"] == {
         "source": "admin",
         "tags": ["edited"],
         "created_at_epoch": 6,
@@ -153,8 +259,9 @@ def test_memory_editor_flow(page, api_url: str) -> None:
     page.on("dialog", lambda dialog: dialog.accept())
     page.locator("#btn-delete-document").click()
     expect(page.locator("#document-list")).to_contain_text("No matching documents.")
-    after_delete = api_get(api_url, "/admin/memory/collections/juniper-private/documents")
-    assert_(after_delete["documents"] == [], f"document was not deleted: {after_delete!r}")
+    after_delete = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    assert_(all(doc["id"] != document_id for doc in after_delete["documents"]),
+            f"document was not deleted: {after_delete!r}")
 
 
 def test_client_menu_active(page) -> None:
@@ -178,6 +285,8 @@ def main() -> None:
     failures = []
     api_url, api_proc = start_memory_api()
     try:
+        character = select_memory_character(api_url)
+        document_id = seed_memory_note(api_url, character)
         with sync_playwright() as playwright:
             coverage = PlaywrightCoverage("character-memory")
             browser = launch_browser(playwright)
@@ -185,7 +294,7 @@ def main() -> None:
                 page = fresh_page(browser, coverage, api_url)
                 try:
                     if test is test_memory_editor_flow:
-                        test(page, api_url)
+                        test(page, api_url, character, document_id)
                     else:
                         test(page)
                     print(f"{test.__name__}=ok")
@@ -198,12 +307,20 @@ def main() -> None:
                     coverage.close_page(page)
             coverage.close_browser(browser)
     finally:
-        api_proc.terminate()
-        try:
-            api_proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            api_proc.kill()
-            api_proc.wait(timeout=10)
+        if api_proc is not None:
+            api_proc.terminate()
+            try:
+                api_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                api_proc.kill()
+                api_proc.wait(timeout=10)
+        if SERVER_CONTAINER_NAME:
+            subprocess.run(
+                ["docker", "stop", SERVER_CONTAINER_NAME],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
 
     if failures:
         raise SystemExit("character memory regressions:\n  " + "\n  ".join(failures))
@@ -211,4 +328,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        log_path = Path(os.environ.get("BUNNYLAND_MEMORY_API_LOG", "/tmp/bunnyland-character-memory-api.log"))
+        if log_path.exists():
+            print(f"\n--- character memory server log: {log_path} ---", file=sys.stderr)
+            print(log_path.read_text(encoding="utf-8", errors="replace")[-8000:], file=sys.stderr)
+        raise exc
