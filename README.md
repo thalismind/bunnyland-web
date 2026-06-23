@@ -33,7 +33,10 @@ similar to Chrome's memory snapshot tools.
 6. Open `/behavior-editor.html` to author behavior-tree JSON for behavioral controllers, and
    optionally connect to a live server to register it.
 
-7. Open `/trace-analyzer.html` to inspect JSON or JSONL trace artifacts produced by the
+7. Open `/character-memory.html` to inspect and edit character memory documents on a live
+   server.
+
+8. Open `/trace-analyzer.html` to inspect JSON or JSONL trace artifacts produced by the
    release regression tests.
 
 Sample snapshots live in [`examples/`](examples/) — `nested-inventory.json` shows the
@@ -155,6 +158,10 @@ uses for persistence.
 It loads enabled generators from the server, accepts a seed/prompt and room budget, calls
 the reset generation endpoint, keeps a websocket open, polls snapshots during generation,
 and highlights entity ids that appear in the latest snapshot.
+
+**Character memory** — `character-memory.html` is an admin page for inspecting memory-enabled
+characters, selecting their private or shared memory collections, and editing document text
+plus raw JSON metadata.
 
 **Behavior editor** — `behavior-editor.html` authors the behavior trees that drive
 `behavioral` controllers. Build a tree from `sequence`/`selector` composites and

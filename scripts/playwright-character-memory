@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Playwright regression tests for the Bunnyland character memory admin page."""
+
+from pathlib import Path
+import json
+import os
+import shutil
+import socket
+import subprocess
+import time
+import urllib.error
+import urllib.request
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
+SCREENSHOT = SCREENSHOT_DIR / "bunnyland-character-memory.png"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SERVER_REPO = REPO_ROOT.parent / "bunnyland-server"
+ADMIN_TOKEN = "character-memory-secret"
+
+
+def reserve_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def api_get(api_url: str, path: str) -> dict:
+    request = urllib.request.Request(
+        f"{api_url}{path}",
+        headers={"X-Bunnyland-Admin-Token": ADMIN_TOKEN},
+    )
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def wait_for_api(api_url: str, proc: subprocess.Popen, timeout: float = 45.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"character memory API exited early with code {proc.returncode}")
+        try:
+            api_get(api_url, "/health")
+            return
+        except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
+            last_error = exc
+            time.sleep(0.5)
+    raise RuntimeError(f"timed out waiting for {api_url}/health: {last_error}")
+
+
+def start_memory_api() -> tuple[str, subprocess.Popen]:
+    if not SERVER_REPO.exists():
+        raise RuntimeError(f"server repo not found at {SERVER_REPO}")
+    port = int(os.environ.get("BUNNYLAND_MEMORY_API_PORT") or reserve_port())
+    api_url = f"http://127.0.0.1:{port}"
+    log_path = Path(os.environ.get("BUNNYLAND_MEMORY_API_LOG", "/tmp/bunnyland-character-memory-api.log"))
+    log = log_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        [
+            "uv",
+            "run",
+            "--extra",
+            "server",
+            "python",
+            str(REPO_ROOT / "scripts" / "character_memory_api_fixture.py"),
+            "--port",
+            str(port),
+            "--admin-token",
+            ADMIN_TOKEN,
+        ],
+        cwd=SERVER_REPO,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        env=os.environ.copy(),
+    )
+    try:
+        wait_for_api(api_url, proc)
+    except Exception:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+        raise
+    return api_url, proc
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def fresh_page(browser, coverage: PlaywrightCoverage, api_url: str):
+    page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+    page.goto(
+        f"{BASE_URL}/character-memory.html?server={api_url}&admin_token={ADMIN_TOKEN}",
+        wait_until="networkidle",
+    )
+    return page
+
+
+def assert_(condition, message) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def test_memory_editor_flow(page, api_url: str) -> None:
+    expect(page.locator("#api-status")).to_have_text("live")
+    expect(page.locator("#character-list")).to_contain_text("Juniper")
+
+    page.locator('.collection-row[data-collection="juniper-private"]').click()
+    expect(page.locator("#document-list")).to_contain_text("note-1")
+    page.locator('.document-row[data-document="note-1"]').click()
+    expect(page.locator("#document-text")).to_have_value("Berries grow north.")
+
+    page.locator("#document-text").fill("Berries grow north by the old basin.")
+    page.locator("#metadata-json").fill("{bad json")
+    assert_(page.locator("#btn-save-document").is_disabled(), "invalid metadata did not block save")
+    expect(page.locator("#metadata-error")).not_to_have_text("")
+
+    page.locator("#metadata-json").fill(
+        json.dumps({"source": "admin", "tags": ["edited"], "created_at_epoch": 6}, indent=2)
+    )
+    assert_(not page.locator("#btn-save-document").is_disabled(), "save stayed disabled")
+    page.locator("#btn-save-document").click()
+    expect(page.locator("#editor-status")).to_have_text("Ready.")
+    saved = api_get(api_url, "/admin/memory/collections/juniper-private/documents")
+    assert_(saved["documents"][0]["document"] == "Berries grow north by the old basin.",
+            f"document was not patched: {saved!r}")
+    assert_(saved["documents"][0]["metadata"] == {
+        "source": "admin",
+        "tags": ["edited"],
+        "created_at_epoch": 6,
+    }, f"metadata was not patched: {saved!r}")
+
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.locator("#btn-delete-document").click()
+    expect(page.locator("#document-list")).to_contain_text("No matching documents.")
+    after_delete = api_get(api_url, "/admin/memory/collections/juniper-private/documents")
+    assert_(after_delete["documents"] == [], f"document was not deleted: {after_delete!r}")
+
+
+def test_client_menu_active(page) -> None:
+    page.locator("#btn-client-menu").click()
+    active = page.locator(".client-menu-item.active")
+    active.wait_for()
+    href = active.get_attribute("href") or ""
+    assert_(href.startswith("character-memory.html"), f"active menu item is {href!r}")
+    page.keyboard.press("Escape")
+
+
+TESTS = [
+    test_memory_editor_flow,
+    test_client_menu_active,
+]
+
+
+def main() -> None:
+    ensure_web_server(BASE_URL)
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    failures = []
+    api_url, api_proc = start_memory_api()
+    try:
+        with sync_playwright() as playwright:
+            coverage = PlaywrightCoverage("character-memory")
+            browser = launch_browser(playwright)
+            for test in TESTS:
+                page = fresh_page(browser, coverage, api_url)
+                try:
+                    if test is test_memory_editor_flow:
+                        test(page, api_url)
+                    else:
+                        test(page)
+                    print(f"{test.__name__}=ok")
+                except AssertionError as err:
+                    failures.append(f"{test.__name__}: {err}")
+                    print(f"{test.__name__}=FAIL {err}")
+                finally:
+                    if test is TESTS[0]:
+                        page.screenshot(path=str(SCREENSHOT))
+                    coverage.close_page(page)
+            coverage.close_browser(browser)
+    finally:
+        api_proc.terminate()
+        try:
+            api_proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            api_proc.kill()
+            api_proc.wait(timeout=10)
+
+    if failures:
+        raise SystemExit("character memory regressions:\n  " + "\n  ".join(failures))
+    print(f"character_memory=ok ({len(TESTS)} checks)")
+
+
+if __name__ == "__main__":
+    main()

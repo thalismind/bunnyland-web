@@ -92,6 +92,14 @@
       admin: true,
     },
     {
+      href: 'character-memory.html',
+      title: 'Character Memory',
+      label: 'Memory editor',
+      description: 'Inspect and edit character memory collections on a live server.',
+      supportsServer: true,
+      admin: true,
+    },
+    {
       href: 'script-editor.html',
       title: 'Script Editor',
       label: 'Automation scripts',

@@ -35,6 +35,12 @@
   }
 
   function jsonHeaders(authHeader = null) {
+    if (authHeader && String(authHeader).startsWith('Token ')) {
+      return {
+        'Content-Type': 'application/json',
+        'X-Bunnyland-Admin-Token': String(authHeader).slice(6),
+      };
+    }
     return {
       'Content-Type': 'application/json',
       ...(authHeader ? { Authorization: authHeader } : {}),

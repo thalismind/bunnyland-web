@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bunnyland Character Memory</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <style>
+    #api-url { width: 240px; }
+    #memory-search { width: 100%; }
+    #main {
+      grid-template-columns: minmax(280px, 360px) minmax(360px, 1fr) minmax(360px, 460px);
+    }
+    .character-row,
+    .document-row {
+      width: 100%;
+      text-align: left;
+      border: 0;
+      border-bottom: 1px solid var(--bl-bg-row);
+      border-radius: 0;
+      padding: 8px 10px;
+      background: transparent;
+      color: var(--bl-text);
+      cursor: pointer;
+    }
+    .character-row:hover,
+    .document-row:hover {
+      background: var(--bl-bg-row);
+    }
+    .collection-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      border: 0;
+      border-radius: 0;
+      padding: 5px 10px 5px 22px;
+      background: transparent;
+      color: var(--bl-text-soft);
+      text-align: left;
+      cursor: pointer;
+    }
+    .collection-row:hover,
+    .collection-row.active,
+    .document-row.active {
+      background: var(--bl-accent-wash);
+      color: var(--bl-text);
+    }
+    .row-title {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--bl-text-sm);
+      font-weight: bold;
+    }
+    .row-subtitle {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+      margin-top: 2px;
+    }
+    .collection-scope {
+      min-width: 48px;
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-xs);
+      text-transform: uppercase;
+    }
+    #document-editor {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      gap: 8px;
+      padding: 10px;
+    }
+    #document-editor label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-height: 0;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+      font-weight: bold;
+    }
+    #document-text {
+      min-height: 160px;
+      flex: 1;
+      resize: vertical;
+    }
+    #metadata-json {
+      min-height: 160px;
+      flex: 1;
+      resize: vertical;
+      font-family: var(--bl-font-mono);
+      font-size: var(--bl-text-sm);
+    }
+    #editor-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #btn-delete-document {
+      color: var(--bl-danger);
+      border-color: var(--bl-danger);
+    }
+    #metadata-error {
+      min-height: 18px;
+      color: var(--bl-danger);
+      font-size: var(--bl-text-xs);
+    }
+    .empty {
+      padding: 18px 14px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
+    @media (max-width: 1050px) {
+      #main { grid-template-columns: minmax(260px, 340px) minmax(420px, 1fr); }
+      #editor-pane { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="toolbar-row">
+    <span class="toolbar-brand"><img src="favicon.png" alt=""> Bunnyland Character Memory</span>
+    <span class="toolbar-sep">|</span>
+    <label for="api-url">Server:</label>
+    <input type="text" id="api-url" value="/api/" spellcheck="false">
+    <button id="btn-connect">Connect</button>
+    <button id="btn-refresh" disabled>Refresh</button>
+    <span id="api-status">offline</span>
+    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+  </div>
+</div>
+
+<div id="main" class="app-grid">
+  <section class="pane" id="characters-pane">
+    <div class="pane-header">
+      <div class="pane-title">Characters</div>
+      <span class="pane-count" id="character-count">0</span>
+    </div>
+    <div class="pane-body" id="character-list">
+      <div class="empty">Connect to load characters.</div>
+    </div>
+  </section>
+
+  <section class="pane" id="documents-pane">
+    <div class="pane-header">
+      <div class="pane-title">Documents</div>
+      <span class="pane-count" id="document-count">0</span>
+    </div>
+    <div class="pane-body">
+      <div class="control-stack">
+        <input id="memory-search" type="search" placeholder="Search id, source, tags, or text" spellcheck="false">
+      </div>
+      <div id="document-list"><div class="empty">Select a collection.</div></div>
+    </div>
+  </section>
+
+  <section class="pane" id="editor-pane">
+    <div class="pane-header">
+      <div class="pane-title">Editor</div>
+      <span class="pane-count" id="selected-document-id">No document</span>
+    </div>
+    <div id="document-editor">
+      <label for="document-text">Document
+        <textarea id="document-text" disabled spellcheck="true"></textarea>
+      </label>
+      <label for="metadata-json">Metadata JSON
+        <textarea id="metadata-json" disabled spellcheck="false"></textarea>
+      </label>
+      <div id="metadata-error"></div>
+      <div id="editor-actions">
+        <button id="btn-save-document" disabled>Save</button>
+        <button id="btn-delete-document" disabled>Delete</button>
+        <span id="editor-status">Select a document.</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="assets/bunnyland-ui.js"></script>
+<script src="assets/bunnyland-api.js"></script>
+<script>
+'use strict';
+
+BunnylandUI.initClientMenu();
+
+const esc = BunnylandUI.escapeHtml;
+
+class CharacterMemoryApp {
+  constructor() {
+    this.base = '';
+    this.authHeader = this._adminHeaderFromUrl();
+    this.characters = [];
+    this.documents = [];
+    this.collection = '';
+    this.selectedDocument = null;
+    this.originalText = '';
+    this.originalMetadata = '';
+    this._bind();
+    this._loadConfig();
+    this._readUrl();
+    this._renderCharacters();
+    this._renderDocuments();
+    this._renderEditor();
+  }
+
+  _bind() {
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      if (this.base) this.disconnect();
+      else this.connect(document.getElementById('api-url').value.trim());
+    });
+    document.getElementById('btn-refresh').addEventListener('click', () => this.refresh());
+    document.getElementById('memory-search').addEventListener('input', () => this._renderDocuments());
+    document.getElementById('document-text').addEventListener('input', () => this._renderEditorState());
+    document.getElementById('metadata-json').addEventListener('input', () => this._renderEditorState());
+    document.getElementById('btn-save-document').addEventListener('click', () => this.saveDocument());
+    document.getElementById('btn-delete-document').addEventListener('click', () => this.deleteDocument());
+  }
+
+  async _loadConfig() {
+    await BunnylandApi.applyConfigToInput({
+      isConnected: () => Boolean(this.base),
+      connect: (server) => this.connect(server),
+    });
+  }
+
+  _readUrl() {
+    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
+  }
+
+  _adminHeaderFromUrl() {
+    const token = new URLSearchParams(location.search).get('admin_token') || '';
+    return token ? `Token ${token}` : null;
+  }
+
+  _syncUrl() {
+    BunnylandApi.setServerInUrl(this.base);
+  }
+
+  async connect(url) {
+    this.disconnect({ sync: false });
+    this.base = BunnylandApi.normalizeBase(url);
+    if (!this.base) return;
+    this._setStatus('connecting');
+    try {
+      await this.refresh();
+      document.getElementById('btn-connect').textContent = 'Disconnect';
+      document.getElementById('btn-refresh').disabled = false;
+      this._syncUrl();
+      this._setStatus('live', 'ok');
+    } catch (err) {
+      this._setStatus(`error: ${err.message}`, 'err');
+      this.base = '';
+    }
+  }
+
+  disconnect({ sync = true } = {}) {
+    this.base = '';
+    this.characters = [];
+    this.documents = [];
+    this.collection = '';
+    this.selectedDocument = null;
+    document.getElementById('btn-connect').textContent = 'Connect';
+    document.getElementById('btn-refresh').disabled = true;
+    this._setStatus('offline');
+    this._renderCharacters();
+    this._renderDocuments();
+    this._renderEditor();
+    if (sync) this._syncUrl();
+  }
+
+  async _send(path, { method = 'GET', body = null, prompt = true } = {}) {
+    return BunnylandApi.sendAdmin(this.base, path, {
+      method,
+      body,
+      prompt,
+      getAuth: () => this.authHeader,
+      setAuth: (auth) => { this.authHeader = auth; },
+    });
+  }
+
+  async refresh() {
+    if (!this.base) throw new Error('Connect to a server first');
+    const data = await this._send('/admin/memory/characters');
+    this.characters = data.characters || [];
+    this._renderCharacters();
+    if (this.collection) await this.loadCollection(this.collection);
+  }
+
+  async loadCollection(collection) {
+    if (!collection) return;
+    this.collection = collection;
+    this.selectedDocument = null;
+    this._renderCharacters();
+    this._renderEditor();
+    const data = await this._send(
+      `/admin/memory/collections/${encodeURIComponent(collection)}/documents`
+    );
+    this.documents = data.documents || [];
+    this._renderDocuments();
+  }
+
+  selectDocument(id) {
+    this.selectedDocument = this.documents.find(document => document.id === id) || null;
+    this._renderDocuments();
+    this._renderEditor();
+  }
+
+  async saveDocument() {
+    if (!this.selectedDocument || !this.collection) return;
+    const metadata = this._parseMetadata();
+    if (!metadata.ok) {
+      this._renderEditorState();
+      return;
+    }
+    const documentText = document.getElementById('document-text').value;
+    const response = await this._send(
+      `/admin/memory/collections/${encodeURIComponent(this.collection)}/documents/${encodeURIComponent(this.selectedDocument.id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ document: documentText, metadata: metadata.value }),
+      }
+    );
+    this.selectedDocument = response.document;
+    this.documents = this.documents.map(document =>
+      document.id === response.document.id ? response.document : document
+    );
+    this._setEditorStatus('Saved.');
+    this._renderDocuments();
+    this._renderEditor();
+  }
+
+  async deleteDocument() {
+    if (!this.selectedDocument || !this.collection) return;
+    const id = this.selectedDocument.id;
+    if (!window.confirm(`Delete memory document ${id}?`)) return;
+    await this._send(
+      `/admin/memory/collections/${encodeURIComponent(this.collection)}/documents/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    );
+    this.documents = this.documents.filter(document => document.id !== id);
+    this.selectedDocument = null;
+    this._setEditorStatus('Deleted.');
+    this._renderDocuments();
+    this._renderEditor();
+  }
+
+  _renderCharacters() {
+    const root = document.getElementById('character-list');
+    document.getElementById('character-count').textContent = String(this.characters.length);
+    if (!this.characters.length) {
+      root.innerHTML = `<div class="empty">${this.base ? 'No memory-enabled characters.' : 'Connect to load characters.'}</div>`;
+      return;
+    }
+    root.innerHTML = this.characters.map(character => {
+      const collections = [
+        { scope: 'Private', name: character.private_collection },
+        ...(character.shared_collections || []).map(name => ({ scope: 'Shared', name })),
+      ].filter(item => item.name);
+      return `
+        <div class="character-block">
+          <button class="character-row" type="button" data-character="${esc(character.character_id)}">
+            <span class="row-title">${esc(character.name)}</span>
+            <span class="row-subtitle">${esc(character.character_id)}</span>
+          </button>
+          ${collections.map(item => `
+            <button class="collection-row ${item.name === this.collection ? 'active' : ''}" type="button" data-collection="${esc(item.name)}">
+              <span class="collection-scope">${esc(item.scope)}</span>
+              <span class="row-title">${esc(item.name)}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }).join('');
+    root.querySelectorAll('[data-collection]').forEach(button => {
+      button.addEventListener('click', () => this.loadCollection(button.dataset.collection));
+    });
+  }
+
+  _renderDocuments() {
+    const root = document.getElementById('document-list');
+    const query = document.getElementById('memory-search').value.trim().toLowerCase();
+    const documents = this.documents.filter(document => {
+      if (!query) return true;
+      const metadata = document.metadata || {};
+      const haystack = [
+        document.id,
+        document.document,
+        metadata.source,
+        JSON.stringify(metadata.tags || ''),
+      ].join('\n').toLowerCase();
+      return haystack.includes(query);
+    });
+    document.getElementById('document-count').textContent = String(documents.length);
+    if (!this.collection) {
+      root.innerHTML = '<div class="empty">Select a collection.</div>';
+      return;
+    }
+    if (!documents.length) {
+      root.innerHTML = '<div class="empty">No matching documents.</div>';
+      return;
+    }
+    root.innerHTML = documents.map(document => {
+      const source = document.metadata?.source || 'unknown';
+      const tags = Array.isArray(document.metadata?.tags)
+        ? document.metadata.tags.join(', ')
+        : (document.metadata?.tags || '');
+      return `
+        <button class="document-row ${this.selectedDocument?.id === document.id ? 'active' : ''}" type="button" data-document="${esc(document.id)}">
+          <span class="row-title">${esc(document.id)}</span>
+          <span class="row-subtitle">${esc(source)}${tags ? ` · ${esc(tags)}` : ''}</span>
+          <span class="row-subtitle">${esc(document.document || '')}</span>
+        </button>
+      `;
+    }).join('');
+    root.querySelectorAll('[data-document]').forEach(button => {
+      button.addEventListener('click', () => this.selectDocument(button.dataset.document));
+    });
+  }
+
+  _renderEditor() {
+    const text = document.getElementById('document-text');
+    const metadata = document.getElementById('metadata-json');
+    const hasDocument = Boolean(this.selectedDocument);
+    document.getElementById('selected-document-id').textContent = hasDocument
+      ? this.selectedDocument.id
+      : 'No document';
+    text.disabled = !hasDocument;
+    metadata.disabled = !hasDocument;
+    text.value = hasDocument ? (this.selectedDocument.document || '') : '';
+    metadata.value = hasDocument ? JSON.stringify(this.selectedDocument.metadata || {}, null, 2) : '';
+    this.originalText = text.value;
+    this.originalMetadata = metadata.value;
+    this._renderEditorState();
+  }
+
+  _renderEditorState() {
+    const hasDocument = Boolean(this.selectedDocument);
+    const text = document.getElementById('document-text').value;
+    const metadata = document.getElementById('metadata-json').value;
+    const parsed = this._parseMetadata();
+    const changed = text !== this.originalText || metadata !== this.originalMetadata;
+    document.getElementById('metadata-error').textContent = parsed.ok ? '' : parsed.error;
+    document.getElementById('btn-save-document').disabled = !hasDocument || !changed || !parsed.ok;
+    document.getElementById('btn-delete-document').disabled = !hasDocument;
+    if (!hasDocument) this._setEditorStatus('Select a document.');
+    else if (changed) this._setEditorStatus(parsed.ok ? 'Unsaved changes.' : 'Fix metadata JSON.');
+    else this._setEditorStatus('Ready.');
+  }
+
+  _parseMetadata() {
+    const raw = document.getElementById('metadata-json').value.trim();
+    if (!raw) return { ok: true, value: {} };
+    try {
+      const value = JSON.parse(raw);
+      if (!value || Array.isArray(value) || typeof value !== 'object') {
+        return { ok: false, error: 'Metadata must be a JSON object.' };
+      }
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  _setStatus(text, kind = '') {
+    const node = document.getElementById('api-status');
+    node.textContent = text;
+    node.className = kind;
+  }
+
+  _setEditorStatus(text) {
+    document.getElementById('editor-status').textContent = text;
+  }
+}
+
+window.app = new CharacterMemoryApp();
+</script>
+</body>
+</html>

@@ -90,6 +90,7 @@ def main() -> None:
             "World Generator",
             "World Inspector",
             "World Editor",
+            "Character Memory",
             "Script Editor",
             "Behavior Editor",
         ]
