@@ -125,6 +125,20 @@
     #points-line .point.ap { color: var(--bl-warn); }
     #points-line .point.fp { color: var(--bl-info); }
     #points-line .point-pip.zero { color: var(--bl-text-dim); }
+    #target-line {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-sm);
+    }
+    #target-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     #action-filter-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
@@ -287,6 +301,10 @@
   <aside id="actions-pane" aria-label="Actions">
     <div id="action-controls">
       <div id="points-line">Select a character to play as and see their actions.</div>
+      <div id="target-line">
+        <span id="target-label">Target: none</span>
+        <button id="btn-clear-target" type="button" title="Clear the selected action target" disabled>Clear Target</button>
+      </div>
       <div id="action-filter-row">
         <input id="action-filter" type="text" placeholder="Search actions" spellcheck="false">
         <button id="action-filter-clear" type="button">Clear</button>
@@ -364,6 +382,7 @@ BunnylandUI.initHelp({
         { label: 'Actions', desc: 'Each verb shows its AP / FP cost; click one and fill in any target or text it needs.' },
         { label: 'Change rooms', desc: 'Click an exit in the Doors list to move (or queue) through it.' },
         { label: 'Inventory', desc: "Lists what you're carrying; click an item to select it as a verb's target." },
+        { label: 'Clear target', desc: 'Clear Target removes the selected room or inventory target without releasing your character.', key: 'Clear Target' },
         { label: 'Queued actions', desc: 'Actions you cannot afford yet run on the next tick. Click one to cancel it.' },
       ],
     },
@@ -433,6 +452,7 @@ class WebTui {
     });
     document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('btn-open-sheet').addEventListener('click', () => this._openSheet());
+    document.getElementById('btn-clear-target').addEventListener('click', () => this._clearTarget());
     document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
@@ -693,7 +713,7 @@ class WebTui {
     if (this.selectedId && this.selectedId !== this.playerId) {
       const selected = (this.projection?.room?.entities || []).find(entity => entity.id === this.selectedId);
       if (!selected || !(selected.is_character || selected.kind === 'character')) {
-        this.activityLines.push({ text: 'Select a visible character or clear the selection.', kind: 'rejection' });
+        this.activityLines.push({ text: 'Select a visible character or clear the target.', kind: 'rejection' });
         this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
         this.render();
         return;
@@ -704,6 +724,12 @@ class WebTui {
     const opened = window.open(href, '_blank', 'noopener');
     this.activityLines.push({ text: opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`, kind: 'system' });
     this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
+    this.render();
+  }
+
+  _clearTarget() {
+    if (!this.selectedId) return;
+    this.selectedId = '';
     this.render();
   }
 
@@ -821,6 +847,13 @@ class WebTui {
     const release = document.getElementById('btn-release-character');
     release.disabled = !this.playerId;
     release.textContent = this.playerId && !this._playerControl() ? 'Claim' : 'Release';
+    this._syncSelectionControls();
+  }
+
+  _syncSelectionControls() {
+    const label = this.selectedId ? this._nameFor(this.selectedId) || this.selectedId : 'none';
+    document.getElementById('target-label').textContent = `Target: ${label}`;
+    document.getElementById('btn-clear-target').disabled = !this.selectedId;
   }
 
   _renderWorld() {
@@ -878,6 +911,7 @@ class WebTui {
         return `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">${icon}${esc(line.text)}</div>`;
       })
       .join('') : '<div class="empty">No recent activity.</div>';
+    this._syncSelectionControls();
   }
 
   _renderActions() {
