@@ -639,6 +639,53 @@ button:disabled { opacity: 0.4; cursor: default; }
   white-space: nowrap;
 }
 
+.tag-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 24px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--bl-border-strong);
+  border-radius: var(--bl-radius-sm);
+  background: var(--bl-surface);
+  color: var(--bl-text);
+  font-size: var(--bl-text-sm);
+}
+
+.tag-pill span {
+  overflow-wrap: anywhere;
+}
+
+.tag-pill button {
+  padding: 0 4px;
+  border-color: var(--bl-text-dim);
+  line-height: 1.2;
+}
+
+.tag-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tag-entry input,
+.tag-entry select {
+  flex: 1;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

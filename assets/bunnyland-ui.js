@@ -143,6 +143,96 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function normalizeTags(value) {
+    if (Array.isArray(value)) return value.map(tag => String(tag)).filter(Boolean);
+    if (typeof value === 'string') return value.split(',').map(tag => tag.trim()).filter(Boolean);
+    return [];
+  }
+
+  function tagEditorHtml(tags, options = {}) {
+    const values = normalizeTags(tags);
+    const hiddenClass = options.hiddenClass || 'component-tags-value';
+    const hiddenAttributes = options.hiddenAttributes || '';
+    const disabled = options.disabled ? ' disabled' : '';
+    const addLabel = options.addLabel || 'Add Tag';
+    const placeholder = options.placeholder || 'add tag...';
+    return `
+      <div class="tag-editor">
+        <input class="${escapeHtml(hiddenClass)}" ${hiddenAttributes} type="hidden" value="${escapeHtml(JSON.stringify(values))}">
+        <div class="tag-list">
+          ${values.map(tag => `
+            <span class="tag-pill">
+              <span>${escapeHtml(tag)}</span>
+              <button type="button" data-remove-tag="${escapeHtml(tag)}" aria-label="Remove tag ${escapeHtml(tag)}"${disabled}>x</button>
+            </span>
+          `).join('') || '<span class="tiny">No tags.</span>'}
+        </div>
+        <div class="tag-entry">
+          <input class="tag-input" type="text" placeholder="${escapeHtml(placeholder)}" spellcheck="false"${disabled}>
+          <button type="button" data-add-tag${disabled}>${escapeHtml(addLabel)}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function readTagEditorTags(editor, options = {}) {
+    const hidden = editor.querySelector(options.hiddenSelector || '.component-tags-value');
+    try {
+      const parsed = JSON.parse(hidden?.value || '[]');
+      return normalizeTags(parsed);
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function renderTagEditorTags(editor, tags) {
+    const list = editor.querySelector('.tag-list');
+    if (!list) return;
+    const values = normalizeTags(tags);
+    list.innerHTML = values.length
+      ? values.map(tag => `
+        <span class="tag-pill">
+          <span>${escapeHtml(tag)}</span>
+          <button type="button" data-remove-tag="${escapeHtml(tag)}" aria-label="Remove tag ${escapeHtml(tag)}">x</button>
+        </span>
+      `).join('')
+      : '<span class="tiny">No tags.</span>';
+  }
+
+  function bindTagEditor(editor, options = {}) {
+    const input = editor.querySelector('.tag-input');
+    const add = editor.querySelector('[data-add-tag]');
+    const hidden = editor.querySelector(options.hiddenSelector || '.component-tags-value');
+    const onChange = typeof options.onChange === 'function' ? options.onChange : () => {};
+    const update = (tags) => {
+      const values = normalizeTags(tags);
+      if (hidden) hidden.value = JSON.stringify(values);
+      renderTagEditorTags(editor, values);
+      onChange(values);
+    };
+    const addTag = () => {
+      const tag = input?.value.trim();
+      if (!tag) return;
+      const tags = readTagEditorTags(editor, options);
+      if (!tags.includes(tag)) tags.push(tag);
+      input.value = '';
+      update(tags);
+      input.focus();
+    };
+    add?.addEventListener('click', addTag);
+    input?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      addTag();
+    });
+    editor.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove-tag]');
+      if (!button) return;
+      update(readTagEditorTags(editor, options).filter(tag => tag !== button.dataset.removeTag));
+    });
+    return { readTags: () => readTagEditorTags(editor, options), update };
+  }
+
   function normalizeTheme(name) {
     const raw = String(name || DEFAULT_THEME).trim();
     const theme = THEME_ALIASES[raw] || raw;
@@ -515,6 +605,7 @@
   }
 
   window.BunnylandUI = {
+    bindTagEditor,
     bindSearchDropdown,
     bindThemeSelect,
     cloneJson,
@@ -524,8 +615,11 @@
     initHelp,
     initTheme,
     loadConfig,
+    normalizeTags,
     normalizeTheme,
+    renderTagEditorTags,
     setTheme,
+    tagEditorHtml,
     themeOptions,
   };
 

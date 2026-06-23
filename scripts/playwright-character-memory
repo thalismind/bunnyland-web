@@ -243,6 +243,8 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     page.locator("#metadata-json").fill(
         json.dumps({"source": "admin", "tags": ["edited"], "created_at_epoch": 6}, indent=2)
     )
+    page.locator("#memory-tags .tag-input").fill("playwright")
+    page.locator("#memory-tags [data-add-tag]").click()
     assert_(not page.locator("#btn-save-document").is_disabled(), "save stayed disabled")
     page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
@@ -252,16 +254,41 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
             f"document was not patched: {saved!r}")
     assert_(saved_document["metadata"] == {
         "source": "admin",
-        "tags": ["edited"],
+        "tags": ["edited", "playwright"],
         "created_at_epoch": 6,
     }, f"metadata was not patched: {saved!r}")
 
+    page.locator("#btn-new-document").click()
+    expect(page.locator("#selected-document-id")).to_have_text("New document")
+    page.locator("#document-text").fill("The pantry latch sticks.")
+    page.locator("#metadata-json").fill(
+        json.dumps({"source": "admin", "created_at_epoch": 7}, indent=2)
+    )
+    page.locator("#memory-tags .tag-input").fill("new")
+    page.locator("#memory-tags [data-add-tag]").click()
+    assert_(not page.locator("#btn-save-document").is_disabled(), "new document save stayed disabled")
+    page.locator("#btn-save-document").click()
+    expect(page.locator("#editor-status")).to_have_text("Ready.")
+    created = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    created_document = next(
+        doc for doc in created["documents"] if doc["document"] == "The pantry latch sticks."
+    )
+    assert_(created_document["metadata"] == {
+        "source": "admin",
+        "created_at_epoch": 7,
+        "tags": ["new"],
+    }, f"document was not created through the editor: {created!r}")
+
     page.on("dialog", lambda dialog: dialog.accept())
+    page.locator("#btn-delete-document").click()
+    page.locator(f'.document-row[data-document="{document_id}"]').click()
     page.locator("#btn-delete-document").click()
     expect(page.locator("#document-list")).to_contain_text("No matching documents.")
     after_delete = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
     assert_(all(doc["id"] != document_id for doc in after_delete["documents"]),
             f"document was not deleted: {after_delete!r}")
+    assert_(all(doc["id"] != created_document["id"] for doc in after_delete["documents"]),
+            f"created document was not deleted: {after_delete!r}")
 
 
 def test_client_menu_active(page) -> None:

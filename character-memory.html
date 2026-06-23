@@ -86,6 +86,14 @@
       font-size: var(--bl-text-xs);
       font-weight: bold;
     }
+    .memory-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+      font-weight: bold;
+    }
     #document-text {
       min-height: 160px;
       flex: 1;
@@ -171,11 +179,16 @@
       <label for="document-text">Document
         <textarea id="document-text" disabled spellcheck="true"></textarea>
       </label>
+      <div class="memory-field">
+        <div>Tags</div>
+        <div id="memory-tags"></div>
+      </div>
       <label for="metadata-json">Metadata JSON
         <textarea id="metadata-json" disabled spellcheck="false"></textarea>
       </label>
       <div id="metadata-error"></div>
       <div id="editor-actions">
+        <button id="btn-new-document" disabled>New</button>
         <button id="btn-save-document" disabled>Save</button>
         <button id="btn-delete-document" disabled>Delete</button>
         <span id="editor-status">Select a document.</span>
@@ -201,6 +214,7 @@ class CharacterMemoryApp {
     this.documents = [];
     this.collection = '';
     this.selectedDocument = null;
+    this.creatingDocument = false;
     this.originalText = '';
     this.originalMetadata = '';
     this._bind();
@@ -219,7 +233,11 @@ class CharacterMemoryApp {
     document.getElementById('btn-refresh').addEventListener('click', () => this.refresh());
     document.getElementById('memory-search').addEventListener('input', () => this._renderDocuments());
     document.getElementById('document-text').addEventListener('input', () => this._renderEditorState());
-    document.getElementById('metadata-json').addEventListener('input', () => this._renderEditorState());
+    document.getElementById('metadata-json').addEventListener('input', () => {
+      this._renderEditorState();
+      this._renderMemoryTagEditor();
+    });
+    document.getElementById('btn-new-document').addEventListener('click', () => this.newDocument());
     document.getElementById('btn-save-document').addEventListener('click', () => this.saveDocument());
     document.getElementById('btn-delete-document').addEventListener('click', () => this.deleteDocument());
   }
@@ -267,6 +285,7 @@ class CharacterMemoryApp {
     this.documents = [];
     this.collection = '';
     this.selectedDocument = null;
+    this.creatingDocument = false;
     document.getElementById('btn-connect').textContent = 'Connect';
     document.getElementById('btn-refresh').disabled = true;
     this._setStatus('offline');
@@ -296,8 +315,10 @@ class CharacterMemoryApp {
 
   async loadCollection(collection) {
     if (!collection) return;
+    if (this._hasUnsavedChanges() && !window.confirm('Discard unsaved changes?')) return;
     this.collection = collection;
     this.selectedDocument = null;
+    this.creatingDocument = false;
     this._renderCharacters();
     this._renderEditor();
     const data = await this._send(
@@ -308,9 +329,25 @@ class CharacterMemoryApp {
   }
 
   selectDocument(id) {
+    if (this._hasUnsavedChanges() && !window.confirm('Discard unsaved changes?')) return;
     this.selectedDocument = this.documents.find(document => document.id === id) || null;
+    this.creatingDocument = false;
     this._renderDocuments();
     this._renderEditor();
+  }
+
+  newDocument() {
+    if (!this.collection) return;
+    if (this._hasUnsavedChanges() && !window.confirm('Discard unsaved changes?')) return;
+    this.selectedDocument = {
+      id: '',
+      document: '',
+      metadata: { source: 'admin', tags: [] },
+    };
+    this.creatingDocument = true;
+    this._renderDocuments();
+    this._renderEditor();
+    document.getElementById('document-text').focus();
   }
 
   async saveDocument() {
@@ -321,17 +358,23 @@ class CharacterMemoryApp {
       return;
     }
     const documentText = document.getElementById('document-text').value;
+    const path = this.creatingDocument
+      ? `/admin/memory/collections/${encodeURIComponent(this.collection)}/documents`
+      : `/admin/memory/collections/${encodeURIComponent(this.collection)}/documents/${encodeURIComponent(this.selectedDocument.id)}`;
     const response = await this._send(
-      `/admin/memory/collections/${encodeURIComponent(this.collection)}/documents/${encodeURIComponent(this.selectedDocument.id)}`,
+      path,
       {
-        method: 'PATCH',
+        method: this.creatingDocument ? 'POST' : 'PATCH',
         body: JSON.stringify({ document: documentText, metadata: metadata.value }),
       }
     );
     this.selectedDocument = response.document;
-    this.documents = this.documents.map(document =>
-      document.id === response.document.id ? response.document : document
-    );
+    this.documents = this.creatingDocument
+      ? [...this.documents, response.document]
+      : this.documents.map(document =>
+        document.id === response.document.id ? response.document : document
+      );
+    this.creatingDocument = false;
     this._setEditorStatus('Saved.');
     this._renderDocuments();
     this._renderEditor();
@@ -347,6 +390,7 @@ class CharacterMemoryApp {
     );
     this.documents = this.documents.filter(document => document.id !== id);
     this.selectedDocument = null;
+    this.creatingDocument = false;
     this._setEditorStatus('Deleted.');
     this._renderDocuments();
     this._renderEditor();
@@ -429,7 +473,9 @@ class CharacterMemoryApp {
     const text = document.getElementById('document-text');
     const metadata = document.getElementById('metadata-json');
     const hasDocument = Boolean(this.selectedDocument);
-    document.getElementById('selected-document-id').textContent = hasDocument
+    document.getElementById('selected-document-id').textContent = this.creatingDocument
+      ? 'New document'
+      : hasDocument
       ? this.selectedDocument.id
       : 'No document';
     text.disabled = !hasDocument;
@@ -438,6 +484,7 @@ class CharacterMemoryApp {
     metadata.value = hasDocument ? JSON.stringify(this.selectedDocument.metadata || {}, null, 2) : '';
     this.originalText = text.value;
     this.originalMetadata = metadata.value;
+    this._renderMemoryTagEditor();
     this._renderEditorState();
   }
 
@@ -448,11 +495,46 @@ class CharacterMemoryApp {
     const parsed = this._parseMetadata();
     const changed = text !== this.originalText || metadata !== this.originalMetadata;
     document.getElementById('metadata-error').textContent = parsed.ok ? '' : parsed.error;
+    document.getElementById('btn-new-document').disabled = !this.collection;
     document.getElementById('btn-save-document').disabled = !hasDocument || !changed || !parsed.ok;
-    document.getElementById('btn-delete-document').disabled = !hasDocument;
+    document.getElementById('btn-delete-document').disabled = !hasDocument || this.creatingDocument;
     if (!hasDocument) this._setEditorStatus('Select a document.');
     else if (changed) this._setEditorStatus(parsed.ok ? 'Unsaved changes.' : 'Fix metadata JSON.');
     else this._setEditorStatus('Ready.');
+  }
+
+  _hasUnsavedChanges() {
+    if (!this.selectedDocument) return false;
+    const text = document.getElementById('document-text').value;
+    const metadata = document.getElementById('metadata-json').value;
+    return text !== this.originalText || metadata !== this.originalMetadata;
+  }
+
+  _renderMemoryTagEditor() {
+    const root = document.getElementById('memory-tags');
+    const hasDocument = Boolean(this.selectedDocument);
+    const parsed = this._parseMetadata();
+    const tags = parsed.ok
+      ? parsed.value.tags
+      : this.selectedDocument?.metadata?.tags;
+    root.innerHTML = BunnylandUI.tagEditorHtml(tags, {
+      hiddenClass: 'memory-tags-value',
+      disabled: !hasDocument || !parsed.ok,
+    });
+    const editor = root.querySelector('.tag-editor');
+    if (!editor || !hasDocument || !parsed.ok) return;
+    BunnylandUI.bindTagEditor(editor, {
+      hiddenSelector: '.memory-tags-value',
+      onChange: (values) => this._updateMetadataTags(values),
+    });
+  }
+
+  _updateMetadataTags(tags) {
+    const metadata = this._parseMetadata();
+    if (!metadata.ok) return;
+    metadata.value.tags = tags;
+    document.getElementById('metadata-json').value = JSON.stringify(metadata.value, null, 2);
+    this._renderEditorState();
   }
 
   _parseMetadata() {

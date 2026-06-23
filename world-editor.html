@@ -1028,21 +1028,10 @@ class WorldEditor {
       const tags = Array.isArray(value) ? value.map(tag => String(tag)) : [];
       return `
         <div class="field full">${labelRow}
-          <div class="tag-editor" data-tags-field="${esc(name)}">
-            <input class="component-field component-tags-value" ${data} type="hidden" value="${esc(JSON.stringify(tags))}">
-            <div class="tag-list">
-              ${tags.map(tag => `
-                <span class="tag-pill">
-                  <span>${esc(tag)}</span>
-                  <button type="button" data-remove-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">x</button>
-                </span>
-              `).join('') || '<span class="tiny">No tags.</span>'}
-            </div>
-            <div class="tag-entry">
-              <input class="tag-input" type="text" placeholder="add tag..." spellcheck="false">
-              <button type="button" data-add-tag>Add Tag</button>
-            </div>
-          </div>
+          ${BunnylandUI.tagEditorHtml(tags, {
+            hiddenClass: 'component-field component-tags-value',
+            hiddenAttributes: data,
+          })}
         </div>
       `;
     }
@@ -1461,59 +1450,19 @@ class WorldEditor {
   }
 
   _bindTagEditor(editor, card, entity, type) {
-    const input = editor.querySelector('.tag-input');
-    const add = editor.querySelector('[data-add-tag]');
-    const hidden = editor.querySelector('.component-tags-value');
-    const update = (tags) => {
-      hidden.value = JSON.stringify(tags);
-      this._renderTagEditor(editor, tags);
-      if (card.classList.contains('edge-card')) {
-        card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
-      } else {
-        this._updateTypedComponent(card, entity, type);
-      }
-    };
-    const readTags = () => {
-      try {
-        const parsed = JSON.parse(hidden.value || '[]');
-        return Array.isArray(parsed) ? parsed.map(tag => String(tag)) : [];
-      } catch (_err) {
-        return [];
-      }
-    };
-    const addTag = () => {
-      const tag = input.value.trim();
-      if (!tag) return;
-      const tags = readTags();
-      if (!tags.includes(tag)) tags.push(tag);
-      input.value = '';
-      update(tags);
-      input.focus();
-    };
-    add?.addEventListener('click', addTag);
-    input?.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      addTag();
-    });
-    editor.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-remove-tag]');
-      if (!button) return;
-      update(readTags().filter(tag => tag !== button.dataset.removeTag));
+    BunnylandUI.bindTagEditor(editor, {
+      onChange: () => {
+        if (card.classList.contains('edge-card')) {
+          card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          this._updateTypedComponent(card, entity, type);
+        }
+      },
     });
   }
 
   _renderTagEditor(editor, tags) {
-    const list = editor.querySelector('.tag-list');
-    if (!list) return;
-    list.innerHTML = tags.length
-      ? tags.map(tag => `
-        <span class="tag-pill">
-          <span>${esc(tag)}</span>
-          <button type="button" data-remove-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">x</button>
-        </span>
-      `).join('')
-      : '<span class="tiny">No tags.</span>';
+    BunnylandUI.renderTagEditorTags(editor, tags);
   }
 
   _bindEnumListEditor(editor, card, entity, type) {
