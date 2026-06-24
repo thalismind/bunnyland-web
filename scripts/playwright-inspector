@@ -93,6 +93,7 @@ def main() -> None:
             "Memory Editor",
             "Script Editor",
             "World Editor",
+            "Event Stream",
             "Trace Analyzer",
         ]
         if menu_titles != expected_titles:

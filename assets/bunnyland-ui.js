@@ -117,6 +117,14 @@
       admin: true,
     },
     {
+      href: 'event-stream.html',
+      title: 'Event Stream',
+      label: 'Event viewer',
+      description: 'Watch the live world event feed with expandable records and entity references.',
+      supportsServer: true,
+      admin: true,
+    },
+    {
       href: 'trace-analyzer.html',
       title: 'Trace Analyzer',
       label: 'Trace inspection',
