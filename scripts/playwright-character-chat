@@ -201,6 +201,22 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
         raise AssertionError(f"chat history was not persisted: {state!r}")
 
 
+def assert_clear_history_button(page, posted: list[dict]) -> None:
+    expect(page.locator("#btn-clear-history")).to_be_enabled()
+    page.locator("#btn-clear-history").click()
+    expect(page.locator("#transcript")).to_contain_text("No local chat history")
+    expect(page.locator("#status-line")).to_contain_text("Cleared local chat history for Juniper.")
+    expect(page.locator("#btn-clear-history")).to_be_disabled()
+    if page.evaluate("(key) => localStorage.getItem(key)", HISTORY_KEY) is not None:
+        raise AssertionError("clear history did not remove the selected character's local state")
+
+    submit_message(page, "after clear")
+    payload = posted[-1]["payload"]
+    if payload["history"] != [] or payload["history_summary"] != "":
+        raise AssertionError(f"cleared chat still sent stale history: {payload!r}")
+    expect(page.locator("#btn-clear-history")).to_be_enabled()
+
+
 def assert_keyboard_submit_behavior(page, posted: list[dict]) -> None:
     page.locator("#chat-input").fill("line one")
     page.locator("#chat-input").press("Shift+Enter")
@@ -327,6 +343,7 @@ def main() -> None:
 
         connect(page)
         assert_initial_send_and_persistence(page, posted)
+        assert_clear_history_button(page, posted)
         assert_keyboard_submit_behavior(page, posted)
         assert_queued_action_block_and_followup(page)
         assert_markdown_rendering_without_html(page)
