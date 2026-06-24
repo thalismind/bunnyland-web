@@ -89,10 +89,11 @@ def main() -> None:
             "Character Sheet",
             "World Generator",
             "World Inspector",
-            "World Editor",
-            "Character Memory",
-            "Script Editor",
             "Behavior Editor",
+            "Memory Editor",
+            "Script Editor",
+            "World Editor",
+            "Trace Analyzer",
         ]
         if menu_titles != expected_titles:
             raise AssertionError(f"unexpected client menu order: {menu_titles!r}")

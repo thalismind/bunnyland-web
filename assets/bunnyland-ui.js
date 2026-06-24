@@ -17,6 +17,7 @@
     { value: 'earth-light', label: 'Earth Green / Gold Light' },
   ];
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
+  // Admin tools order: World Generator, World Inspector, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
     {
       href: 'index.html',
@@ -84,16 +85,16 @@
       admin: true,
     },
     {
-      href: 'world-editor.html',
-      title: 'World Editor',
-      label: 'Admin editor',
-      description: 'Edit entities, components, relationships, fragments, and live snapshots.',
+      href: 'behavior-editor.html',
+      title: 'Behavior Editor',
+      label: 'Behavior trees',
+      description: 'Author behavior-tree JSON for behavioral controllers and register it live.',
       supportsServer: true,
       admin: true,
     },
     {
       href: 'character-memory.html',
-      title: 'Character Memory',
+      title: 'Memory Editor',
       label: 'Memory editor',
       description: 'Inspect and edit character memory collections on a live server.',
       supportsServer: true,
@@ -108,10 +109,18 @@
       admin: true,
     },
     {
-      href: 'behavior-editor.html',
-      title: 'Behavior Editor',
-      label: 'Behavior trees',
-      description: 'Author behavior-tree JSON for behavioral controllers and register it live.',
+      href: 'world-editor.html',
+      title: 'World Editor',
+      label: 'Admin editor',
+      description: 'Edit entities, components, relationships, fragments, and live snapshots.',
+      supportsServer: true,
+      admin: true,
+    },
+    {
+      href: 'trace-analyzer.html',
+      title: 'Trace Analyzer',
+      label: 'Trace inspection',
+      description: 'Inspect live Tempo traces or load JSON and JSONL trace artifacts.',
       supportsServer: true,
       admin: true,
     },
