@@ -499,20 +499,20 @@
           <p>These clients use the live server API. Unavailable features stay visible but disabled.</p>
         </div>
         <div class="info-grid">
-          <article id="character-sheet-card" class="info-card feature-disabled" data-feature="character_sheets">
-            <h3>Character Sheet</h3>
-            <p>A read-only profile with portrait, room context, vitals, needs, relationships, visible characters, inventory, and available actions.</p>
-            <div class="feature-state unavailable" id="character-sheet-state">Checking server feature...</div>
-            <div class="info-actions">
-              <a id="character-sheet-link" class="button-link primary disabled" href="character-sheet.html" aria-disabled="true" tabindex="-1">Open Character Sheet</a>
-            </div>
-          </article>
           <article id="character-chat-card" class="info-card feature-disabled" data-feature="character_chat">
             <h3>Character Chat</h3>
             <p>Start an in-character conversation with LLM-controlled characters using the limited chat action toolbox.</p>
             <div class="feature-state unavailable" id="character-chat-state">Checking server feature...</div>
             <div class="info-actions">
               <a id="character-chat-link" class="button-link primary disabled" href="character-chat.html" aria-disabled="true" tabindex="-1">Open Character Chat</a>
+            </div>
+          </article>
+          <article id="character-sheet-card" class="info-card feature-disabled" data-feature="character_sheets">
+            <h3>Character Sheet</h3>
+            <p>A read-only profile with portrait, room context, vitals, needs, relationships, visible characters, inventory, and available actions.</p>
+            <div class="feature-state unavailable" id="character-sheet-state">Checking server feature...</div>
+            <div class="info-actions">
+              <a id="character-sheet-link" class="button-link primary disabled" href="character-sheet.html" aria-disabled="true" tabindex="-1">Open Character Sheet</a>
             </div>
           </article>
         </div>
@@ -543,9 +543,14 @@
             <a class="button-link primary" href="world-editor.html">Open World Editor</a>
           </article>
           <article class="client-card">
-            <h3>Character Memory</h3>
+            <h3>Memory Editor</h3>
             <p>Inspect and edit character memory documents and metadata.</p>
             <a class="button-link primary" href="character-memory.html">Open Memory Editor</a>
+          </article>
+          <article class="client-card">
+            <h3>Trace Analyzer</h3>
+            <p>Inspect live Tempo traces or load JSON and JSONL trace artifacts.</p>
+            <a class="button-link primary" href="trace-analyzer.html">Open Trace Analyzer</a>
           </article>
           <article class="client-card">
             <h3>Script Editor</h3>
