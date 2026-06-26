@@ -38,12 +38,19 @@
     if (authHeader && String(authHeader).startsWith('Token ')) {
       return {
         'Content-Type': 'application/json',
-        'X-Bunnyland-Admin-Token': String(authHeader).slice(6),
+        'X-Bunnyland-Admin-Secret': String(authHeader).slice(6),
       };
     }
     return {
       'Content-Type': 'application/json',
       ...(authHeader ? { Authorization: authHeader } : {}),
+    };
+  }
+
+  function claimHeaders(control = null) {
+    return {
+      ...jsonHeaders(),
+      ...(control?.claimSecret ? { 'X-Bunnyland-Claim-Secret': control.claimSecret } : {}),
     };
   }
 
@@ -107,9 +114,13 @@
     return `${normalizeBase(base)}${url}`;
   }
 
-  async function requestSceneImage(base, characterId) {
-    return sendJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image`, {
+  async function requestSceneImage(base, characterId, control = null) {
+    const params = new URLSearchParams();
+    if (control?.claimId) params.set('claim_id', control.claimId);
+    const query = params.toString();
+    return sendJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
       method: 'POST',
+      headers: claimHeaders(control),
     });
   }
 
@@ -123,6 +134,7 @@
   window.BunnylandApi = {
     applyConfigToInput,
     applyServerParam,
+    claimHeaders,
     jsonHeaders,
     mediaUrl,
     normalizeBase,
