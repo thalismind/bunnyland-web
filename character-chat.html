@@ -99,6 +99,35 @@
       font-size: var(--bl-text-sm);
       font-weight: 600;
     }
+    #selected-character {
+      padding: 12px;
+      border-bottom: 1px solid var(--bl-border);
+      background: var(--bl-bg);
+    }
+    .portrait-frame {
+      width: min(180px, 42vw);
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-md);
+      overflow: hidden;
+      background: var(--bl-surface);
+    }
+    .portrait-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .portrait-placeholder {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      color: var(--bl-accent-strong);
+      background: linear-gradient(135deg, var(--bl-bg-subtle), var(--bl-surface));
+      font-size: 52px;
+      font-weight: 800;
+    }
     .message {
       max-width: 760px;
       margin: 0 0 10px;
@@ -261,6 +290,9 @@
       <span id="chat-title">No character selected</span>
       <button id="btn-clear-history" type="button" disabled>Clear History</button>
     </div>
+    <div id="selected-character" hidden>
+      <div id="chat-portrait-frame" class="portrait-frame"></div>
+    </div>
     <div id="transcript"></div>
     <div id="status-line">Connect to a server with character chat enabled.</div>
     <form id="composer" autocomplete="off">
@@ -291,8 +323,10 @@
   let clientId = '';
   let characters = [];
   let selectedId = '';
+  let portraitRequestId = 0;
   let markdownEnabled = localStorage.getItem(MARKDOWN_KEY) !== '0';
   const pendingPolls = new Map();
+  const characterProjections = new Map();
 
   const els = {
     apiUrl: document.getElementById('api-url'),
@@ -306,6 +340,8 @@
     input: document.getElementById('chat-input'),
     clearHistory: document.getElementById('btn-clear-history'),
     chatTitle: document.getElementById('chat-title'),
+    selectedCharacter: document.getElementById('selected-character'),
+    portraitFrame: document.getElementById('chat-portrait-frame'),
   };
 
   function escapeHtml(value) {
@@ -553,6 +589,32 @@
     return characters.find(character => character.character_id === selectedId)?.name || 'Character';
   }
 
+  function initials(value) {
+    return String(value || '?')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map(part => part.charAt(0).toUpperCase())
+      .join('') || '?';
+  }
+
+  function renderPortrait() {
+    if (!selectedId) {
+      els.selectedCharacter.hidden = true;
+      els.portraitFrame.innerHTML = '';
+      return;
+    }
+    const name = currentName();
+    const projection = characterProjections.get(selectedId);
+    const portraitUrl = projection?.portrait?.url
+      ? BunnylandApi.mediaUrl(base, projection.portrait.url)
+      : '';
+    els.selectedCharacter.hidden = false;
+    els.portraitFrame.innerHTML = portraitUrl
+      ? `<img src="${escapeHtml(portraitUrl)}" alt="${escapeHtml(name)} portrait">`
+      : `<div class="portrait-placeholder" data-testid="portrait-placeholder">${escapeHtml(initials(name))}</div>`;
+  }
+
   function clearPendingPolls(characterId) {
     for (const [key, timer] of pendingPolls.entries()) {
       if (!key.startsWith(`${characterId}:`)) continue;
@@ -564,6 +626,7 @@
   function renderChatTools() {
     els.chatTitle.textContent = selectedId ? currentName() : 'No character selected';
     els.clearHistory.disabled = !selectedId || !hasState(selectedId);
+    renderPortrait();
   }
 
   function renderCharacters() {
@@ -611,17 +674,41 @@
   async function connect(server) {
     base = BunnylandApi.normalizeBase(server);
     BunnylandApi.setServerInUrl(base);
+    characterProjections.clear();
     clientId = BunnylandPlay.persistentClientId(CLIENT_ID_KEY, 'character-chat');
     const status = await BunnylandApi.sendJson(base, '/world/chat/status');
     if (!status.enabled) throw new Error('character chat is disabled');
     const list = await BunnylandApi.sendJson(base, '/world/characters');
     characters = list.characters || [];
-    selectedId = selectedId || characters[0]?.character_id || '';
+    if (!characters.some(character => character.character_id === selectedId)) selectedId = '';
     renderCharacters();
     renderTranscript();
     resumePendingPolls();
     setStatus(`Connected · tools: ${(status.allowed_tools || []).join(', ') || 'none'}`);
-    els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'No characters available.';
+    els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character to start chatting.';
+    if (selectedId) loadSelectedProjection(selectedId);
+  }
+
+  async function loadSelectedProjection(characterId) {
+    if (!base || !characterId) return;
+    if (characterProjections.has(characterId)) {
+      renderPortrait();
+      return;
+    }
+    const requestId = ++portraitRequestId;
+    try {
+      const projection = await BunnylandApi.sendJson(
+        base,
+        `/world/character/${encodeURIComponent(characterId)}`,
+      );
+      characterProjections.set(characterId, projection || {});
+      if (selectedId === characterId && requestId === portraitRequestId) renderPortrait();
+    } catch (err) {
+      if (selectedId === characterId && requestId === portraitRequestId) {
+        renderPortrait();
+        els.line.textContent = `Portrait unavailable: ${err.message}`;
+      }
+    }
   }
 
   function resumePendingPolls() {
@@ -726,6 +813,7 @@
     selectedId = row.dataset.id || '';
     renderCharacters();
     renderTranscript();
+    loadSelectedProjection(selectedId);
     resumePendingPolls();
     els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character.';
   });
