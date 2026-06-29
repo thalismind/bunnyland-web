@@ -468,23 +468,39 @@
   <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
     <select id="player-select"><option value="">— select to play —</option></select>
-    <button id="btn-release-character" type="button" disabled>Release</button>
+    <button id="btn-release-character" type="button" disabled>Claim</button>
     <button id="btn-request-image" title="Request an image of your character's current scene">📷 Image</button>
     <button id="btn-open-sheet" title="Open the selected or current character sheet">▣ Sheet</button>
     <button id="btn-follow" title="Re-centre the view on your character's room">⌖ Follow character</button>
-    <label for="claim-fallback">Fallback:</label>
-    <select id="claim-fallback">
-      <option value="suspend">Suspend</option>
-      <option value="llm">LLM</option>
-    </select>
-    <label for="claim-timeout">Timeout:</label>
-    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
     <span class="toolbar-sep">|</span>
     <label><input type="checkbox" id="debug-bounds"> Bounds</label>
     <span class="toolbar-sep">|</span>
     <span id="room-title">Not connected</span>
   </div>
 </div>
+
+<dialog id="claim-dialog">
+  <form method="dialog" class="claim-dialog-form">
+    <h3>Claim</h3>
+    <label for="claim-fallback">Idle controller</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspended</option>
+      <option value="llm">LLM</option>
+      <option value="controller">Existing controller</option>
+    </select>
+    <label for="claim-fallback-controller">Idle controller ID</label>
+    <input type="text" id="claim-fallback-controller" spellcheck="false" placeholder="entity_...">
+    <label for="claim-timeout">Idle timeout minutes</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <div class="dialog-actions">
+      <button id="btn-dialog-claim" type="button">Claim</button>
+      <button id="btn-dialog-save-fallback" type="button">Save Idle</button>
+      <button id="btn-dialog-release-controller" type="button">Idle</button>
+      <button id="btn-dialog-release-claim" type="button">Release</button>
+      <button type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="main" class="app-split">
   <div id="stage-wrapper">
@@ -525,9 +541,11 @@ const {
   actionTool,
   actionUnavailableReason,
   cancelQueuedCommand,
+  clearClaimControl,
   claimSettings,
   claimWebController,
   controlFromResponse,
+  syncClaimControl,
   drainNarratedEvents,
   entityIcon,
   entityName,
@@ -549,7 +567,11 @@ const {
   queuedCommandDetail,
   queuedCommandName,
   queuedCountdownSeconds,
+  releaseWebClaim,
+  releaseWebController,
   setIconPreference,
+  storeClaimControl,
+  storedClaimControl,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -724,18 +746,21 @@ class RoomClient {
       this._selectPlayer(e.target.value);
     });
     document.getElementById('btn-release-character').addEventListener('click', async () => {
-      if (this.playerId && !this._playerControl()) {
-        await this._claimPlayer(this.playerId);
-        await this._refreshCharacterProjection({ render: true });
-      } else {
-        this._selectPlayer('');
-      }
+      this._syncClaimDialog();
+      if (this.playerId) document.getElementById('claim-dialog')?.showModal();
     });
-    document.getElementById('claim-fallback').addEventListener('change', () => {
+    document.getElementById('btn-dialog-claim').addEventListener('click', async () => {
+      await this._claimPlayer(this.playerId);
+      await this._refreshCharacterProjection({ render: true });
+    });
+    document.getElementById('btn-dialog-save-fallback').addEventListener('click', () => {
       this._updateClaimFallback();
     });
-    document.getElementById('claim-timeout').addEventListener('change', () => {
-      this._updateClaimFallback();
+    document.getElementById('btn-dialog-release-controller').addEventListener('click', () => {
+      this._releaseController();
+    });
+    document.getElementById('btn-dialog-release-claim').addEventListener('click', () => {
+      this._releaseClaim();
     });
     document.getElementById('btn-follow').addEventListener('click', () => {
       this.followPlayer = true;
@@ -876,9 +901,9 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
+      const projection = await fetchCharacterProjection(this.apiBase, this.playerId, this.control);
       this.characterProjection = projection?.characterId === this.playerId ? projection : null;
-      if (!this._playerControl()) this.control = null;
+      this.control = syncClaimControl(this.control, this.characterProjection, this.playerId);
       if (this.followPlayer && this.characterProjection?.room?.id) {
         this.viewRoomId = this.characterProjection.room.id;
       }
@@ -919,7 +944,7 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = await fetchQueuedCommands(this.apiBase, this.playerId);
+      const projection = await fetchQueuedCommands(this.apiBase, this.playerId, this.control);
       this.queuedCommands = projection?.characterId === this.playerId ? projection.commands : null;
       this.queueProjection = projection?.characterId === this.playerId ? projection : null;
       if (render) this.render();
@@ -1125,7 +1150,7 @@ class RoomClient {
     }
     const release = document.getElementById('btn-release-character');
     release.disabled = !this.playerId;
-    release.textContent = this.playerId && !this._playerControl() ? 'Claim' : 'Release';
+    release.textContent = this._claimButtonLabel();
   }
 
   _selectPlayer(id) {
@@ -1171,6 +1196,16 @@ class RoomClient {
     return playerControl(this.control, this.characterProjection, this.playerId);
   }
 
+  _claimButtonLabel() {
+    if (!this.playerId || !this.control) return 'Claim';
+    return this.control.active === false ? 'Resume' : 'Idle';
+  }
+
+  _syncClaimDialog() {
+    document.getElementById('btn-dialog-claim').textContent =
+      this.control?.active === false ? 'Resume' : 'Claim';
+  }
+
   async _clientIdValue() {
     if (!this._clientId) this._clientId = await this._clientIdPromise;
     return this._clientId;
@@ -1180,13 +1215,16 @@ class RoomClient {
     if (!this.apiBase || !playerId) return null;
     try {
       const clientId = await this._clientIdValue();
+      const stored = storedClaimControl(CLIENT_ID_KEY, playerId);
       const data = await claimWebController(this.apiBase, {
         ...this._claimSettings(),
         character_id: playerId,
         client_id: clientId,
+        claim_id: stored?.claimId || undefined,
         label: 'toon',
-      });
-      const control = controlFromResponse(data, playerId);
+      }, stored);
+      const control = controlFromResponse(data, playerId, { active: true });
+      storeClaimControl(CLIENT_ID_KEY, control);
       if (this.playerId === playerId) this.control = control;
       return control;
     } catch (err) {
@@ -1207,10 +1245,49 @@ class RoomClient {
         ...this._claimSettings(),
         character_id: this.playerId,
         client_id: clientId,
-      });
-      this.control = controlFromResponse(data, this.playerId);
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: this.control.active !== false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
     } catch (err) {
       console.warn('Could not update Bunnyland claim fallback', err);
+    }
+  }
+
+  async _releaseController() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const clientId = await this._clientIdValue();
+      const data = await releaseWebController(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: this.playerId,
+        client_id: clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
+      await this._refreshCharacterProjection({ render: true });
+    } catch (err) {
+      console.warn('Could not release Bunnyland web controller', err);
+    }
+  }
+
+  async _releaseClaim() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    const characterId = this.playerId;
+    try {
+      const clientId = await this._clientIdValue();
+      await releaseWebClaim(this.apiBase, {
+        character_id: characterId,
+        client_id: clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      clearClaimControl(CLIENT_ID_KEY, characterId);
+      this.control = null;
+      document.getElementById('claim-dialog')?.close();
+      this._selectPlayer('');
+    } catch (err) {
+      console.warn('Could not release Bunnyland claim', err);
     }
   }
 
@@ -1270,12 +1347,13 @@ class RoomClient {
         character_id: this.playerId,
         controller_id: control.controllerId,
         controller_generation: control.generation,
+        ...(control.claimId ? { claim_id: control.claimId } : {}),
         command_type: commandType,
         payload,
         cost: { action: ap, focus: fp },
         lane,
         on_insufficient_points: 'queue',
-      });
+      }, control);
       if (result?.queued === false) {
         this._appendActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
         return false;
@@ -1647,7 +1725,7 @@ class RoomClient {
       return;
     }
     try {
-      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId, this.control);
       this._setStatus('live', imageRequestMessage(result));
       // A reused scene comes back with its url immediately; show it at once.
       if (result.url) this._showEventImage(BunnylandApi.mediaUrl(this.apiBase, result.url), true);

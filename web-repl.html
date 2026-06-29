@@ -171,16 +171,33 @@
   <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
     <select id="player-select"><option value="">— select to play —</option></select>
+    <button id="btn-claim-menu" type="button" disabled>Claim</button>
     <button id="btn-request-image" type="button" title="Request an image of your character's current scene">📷 Image</button>
-    <label for="claim-fallback">Fallback:</label>
-    <select id="claim-fallback">
-      <option value="suspend">Suspend</option>
-      <option value="llm">LLM</option>
-    </select>
-    <label for="claim-timeout">Timeout:</label>
-    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
   </div>
 </div>
+
+<dialog id="claim-dialog">
+  <form method="dialog" class="claim-dialog-form">
+    <h3>Claim</h3>
+    <label for="claim-fallback">Idle controller</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspended</option>
+      <option value="llm">LLM</option>
+      <option value="controller">Existing controller</option>
+    </select>
+    <label for="claim-fallback-controller">Idle controller ID</label>
+    <input type="text" id="claim-fallback-controller" spellcheck="false" placeholder="entity_...">
+    <label for="claim-timeout">Idle timeout minutes</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <div class="dialog-actions">
+      <button id="btn-dialog-claim" type="button">Claim</button>
+      <button id="btn-dialog-save-fallback" type="button">Save Idle</button>
+      <button id="btn-dialog-release-controller" type="button">Idle</button>
+      <button id="btn-dialog-release-claim" type="button">Release</button>
+      <button type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="main" class="app-grid">
   <section id="terminal-pane" aria-label="REPL transcript">
@@ -244,6 +261,7 @@ const {
   actionUnavailableReason,
   allTargets,
   cancelQueuedCommand,
+  clearClaimControl,
   claimWebController,
   claimSettings,
   controlFromResponse,
@@ -264,10 +282,15 @@ const {
   persistentClientId,
   playerControl,
   queuedCountdownSeconds,
+  releaseWebClaim,
+  releaseWebController,
   resolveTargetName,
   setIconPreference,
+  storeClaimControl,
+  storedClaimControl,
   suggestTargetNames,
   submitCommand,
+  syncClaimControl,
   targetCandidates,
   targetPrefix,
   updateWebControllerFallback,
@@ -329,8 +352,14 @@ class WebRepl {
       if (e.target.value) this.selectPlayer(e.target.value);
       else this._dropPlayer();
     });
-    document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
-    document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
+    document.getElementById('btn-claim-menu').addEventListener('click', () => {
+      this._syncClaimDialog();
+      if (this.playerId) document.getElementById('claim-dialog')?.showModal();
+    });
+    document.getElementById('btn-dialog-claim').addEventListener('click', () => this._claimPlayer());
+    document.getElementById('btn-dialog-save-fallback').addEventListener('click', () => this._updateClaimFallback());
+    document.getElementById('btn-dialog-release-controller').addEventListener('click', () => this._releaseController());
+    document.getElementById('btn-dialog-release-claim').addEventListener('click', () => this._releaseClaim());
     document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('prompt-row').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -403,10 +432,10 @@ class WebRepl {
       this._refreshPlayerOptions();
       if (this.playerId && !this.characters.some(c => c.id === this.playerId)) this._dropPlayer();
       if (this.playerId) {
-        const projection = await fetchCharacterProjection(this.apiBase, this.playerId);
+        const projection = await fetchCharacterProjection(this.apiBase, this.playerId, this.control);
         this.projection = projection?.characterId === this.playerId ? projection : null;
-        if (!this._playerControl()) this.control = null;
-        const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
+        this.control = syncClaimControl(this.control, this.projection, this.playerId);
+        const queued = await fetchQueuedCommands(this.apiBase, this.playerId, this.control);
         this.queuedCommands = queued?.characterId === this.playerId ? queued.commands : [];
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;
       }
@@ -442,6 +471,7 @@ class WebRepl {
     this.queueProjection = null;
     this.control = null;
     document.getElementById('player-select').value = '';
+    document.getElementById('btn-claim-menu').disabled = true;
     this.render();
   }
 
@@ -484,13 +514,16 @@ class WebRepl {
   async _claimPlayer() {
     if (!this.apiBase || !this.playerId) return null;
     try {
+      const stored = storedClaimControl(CLIENT_ID_KEY, this.playerId);
       const data = await claimWebController(this.apiBase, {
         ...this._claimSettings(),
         character_id: this.playerId,
         client_id: this.clientId,
+        claim_id: stored?.claimId || undefined,
         label: 'web-repl',
-      });
-      this.control = controlFromResponse(data, this.playerId);
+      }, stored);
+      this.control = controlFromResponse(data, this.playerId, { active: true });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
       return this.control;
     } catch (err) {
       console.warn('Could not claim Bunnyland web REPL controller', err);
@@ -505,15 +538,65 @@ class WebRepl {
         ...this._claimSettings(),
         character_id: this.playerId,
         client_id: this.clientId,
-      });
-      this.control = controlFromResponse(data, this.playerId);
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: this.control.active !== false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
     } catch (err) {
       console.warn('Could not update Bunnyland web REPL fallback', err);
     }
   }
 
+  async _releaseController() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const data = await releaseWebController(this.apiBase, {
+        ...this._claimSettings(),
+        character_id: this.playerId,
+        client_id: this.clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
+      await this.refresh();
+      this._write('Character is idle.', 'system');
+    } catch (err) {
+      console.warn('Could not release Bunnyland web REPL controller', err);
+      this._write(`Could not release control: ${err.message || err}`, 'error');
+    }
+  }
+
+  async _releaseClaim() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    const characterId = this.playerId;
+    try {
+      await releaseWebClaim(this.apiBase, {
+        character_id: characterId,
+        client_id: this.clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      clearClaimControl(CLIENT_ID_KEY, characterId);
+      document.getElementById('claim-dialog')?.close();
+      this._dropPlayer();
+      this._write('Released claim.', 'system');
+    } catch (err) {
+      console.warn('Could not release Bunnyland web REPL claim', err);
+      this._write(`Could not release claim: ${err.message || err}`, 'error');
+    }
+  }
+
   _playerControl() {
     return playerControl(this.control, this.projection, this.playerId);
+  }
+
+  _claimButtonLabel() {
+    if (!this.playerId || !this.control) return 'Claim';
+    return this.control.active === false ? 'Resume' : 'Idle';
+  }
+
+  _syncClaimDialog() {
+    document.getElementById('btn-dialog-claim').textContent =
+      this.control?.active === false ? 'Resume' : 'Claim';
   }
 
   async dispatchInput() {
@@ -560,7 +643,7 @@ class WebRepl {
       return this._write('Pick a player first: play <name>.', 'error');
     }
     try {
-      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+      const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId, this.control);
       this._write(imageRequestMessage(result), 'ok');
     } catch (err) {
       this._write(`${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${err.message}`, 'error');
@@ -716,12 +799,13 @@ class WebRepl {
         character_id: this.playerId,
         controller_id: control.controllerId,
         controller_generation: control.generation,
+        ...(control.claimId ? { claim_id: control.claimId } : {}),
         command_type: action.command_type || actionTool(action),
         payload: payload.value,
         cost: { action: cost.action, focus: cost.focus },
         lane: actionLane(action),
         on_insufficient_points: 'queue',
-      });
+      }, control);
       if (result?.queued === false) {
         this._write(result.reason || 'Command rejected.', 'error');
         await this.refresh();
@@ -967,6 +1051,9 @@ class WebRepl {
     const targets = document.getElementById('side-targets');
     document.getElementById('show-action-icons').checked = this.showActionIcons;
     const player = this.characters.find(c => c.id === this.playerId);
+    const claimMenu = document.getElementById('btn-claim-menu');
+    claimMenu.disabled = !this.playerId;
+    claimMenu.textContent = this._claimButtonLabel();
     const pts = this.projection?.points || {};
     status.innerHTML = player
       ? `<div class="side-row"><strong>${BunnylandUI.escapeHtml(player.name)}</strong><span>epoch ${this.epoch}s</span></div>` +

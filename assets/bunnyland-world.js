@@ -207,7 +207,7 @@
     }
     if (c.MCPControllerComponent) {
       const m = c.MCPControllerComponent;
-      return { kind: 'mcp', ...CONTROL_STYLE.mcp, detail: [m.label, m.agent_id].filter(Boolean).join(' / ') };
+      return { kind: 'mcp', ...CONTROL_STYLE.mcp, detail: [m.label, m.client_id].filter(Boolean).join(' / ') };
     }
     if (c.BehaviorControllerComponent) {
       const b = c.BehaviorControllerComponent;

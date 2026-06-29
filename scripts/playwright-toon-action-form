@@ -32,6 +32,8 @@ CHARACTER = "character:1"
 OTHER = "character:2"
 ROOM = "room:1"
 EXIT = "room:2"
+CLAIM_ID = "claim-toon"
+CLAIM_SECRET = "secret-toon"
 
 CHARACTER_LIST = {
     "world_epoch": 5,
@@ -147,15 +149,25 @@ def install_routes(page, posted: list[dict]) -> None:
     deleted: list[str] = []
     page.exposed_deleted_commands = deleted
 
+    def assert_claim(route) -> None:
+        if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
+            raise AssertionError(f"missing claim secret header on {route.request.url}")
+        if f"claim_id={CLAIM_ID}" not in route.request.url and (
+            not route.request.post_data or f'"claim_id":"{CLAIM_ID}"' not in route.request.post_data
+        ):
+            raise AssertionError(f"missing claim id on {route.request.url}")
+
     def commands_handler(route):
         request = route.request
         if request.method == "POST":
+            assert_claim(route)
             posted.append(json.loads(request.post_data or "{}"))
             route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
         else:
             route.fulfill(status=200, content_type="application/json", body=json.dumps(QUEUED))
 
     def cancel_handler(route):
+        assert_claim(route)
         deleted.append(route.request.url)
         route.fulfill(
             status=200,
@@ -166,7 +178,13 @@ def install_routes(page, posted: list[dict]) -> None:
     def claim_handler(route):
         route.fulfill(
             status=200, content_type="application/json",
-            body=json.dumps({"controller_id": "web:1", "generation": 1}),
+            body=json.dumps({
+                "character_id": CHARACTER,
+                "controller_id": "web:1",
+                "generation": 1,
+                "claim_id": CLAIM_ID,
+                "claim_secret": CLAIM_SECRET,
+            }),
         )
 
     # Ids carry a colon that fetch() percent-encodes, so match by glob (``*`` does not
@@ -174,12 +192,12 @@ def install_routes(page, posted: list[dict]) -> None:
     # so Playwright (last-match-wins) prefers them.
     page.route("**/world/events/recent", json_route(EVENTS))
     page.route("**/world/characters", json_route(CHARACTER_LIST))
-    page.route("**/world/character/*", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
     page.route("**/world/room/*", json_route(ROOM_PROJECTION))
-    page.route("**/world/character/*/commands", commands_handler)
+    page.route("**/world/character/**/commands**", commands_handler)
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/commands", commands_handler)
-    page.route("**/world/character/*/commands/*", cancel_handler)
+    page.route("**/world/character/**/commands/**", cancel_handler)
 
 
 def connect_and_select(page) -> None:
@@ -245,7 +263,12 @@ def check_queue_cancel(page) -> None:
     with page.expect_response("**/world/character/*/commands/*"):
         page.locator('.queued-action[data-cancel-command="queued-1"]').click()
     deleted = page.exposed_deleted_commands
-    if not deleted or "controller_id=web%3A1" not in deleted[-1] or "controller_generation=1" not in deleted[-1]:
+    if (
+        not deleted
+        or "controller_id=web%3A1" not in deleted[-1]
+        or "controller_generation=1" not in deleted[-1]
+        or f"claim_id={CLAIM_ID}" not in deleted[-1]
+    ):
         raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 
 

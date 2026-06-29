@@ -47,6 +47,17 @@
     };
   }
 
+  function adminHeaders(authHeader = null, contentType = null) {
+    const headers = {};
+    if (contentType) headers['Content-Type'] = contentType;
+    if (authHeader && String(authHeader).startsWith('Token ')) {
+      headers['X-Bunnyland-Admin-Secret'] = String(authHeader).slice(6);
+    } else if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+    return headers;
+  }
+
   function claimHeaders(control = null) {
     return {
       ...jsonHeaders(),
@@ -104,6 +115,44 @@
     return parseJsonResponse(res);
   }
 
+  async function uploadCharacterImage(base, characterId, purpose, file, {
+    prompt = true,
+    getAuth = () => null,
+    setAuth = () => {},
+  } = {}) {
+    const path = `/admin/world/character/${encodeURIComponent(characterId)}/image/${encodeURIComponent(purpose)}`;
+    const contentType = file?.type || 'application/octet-stream';
+    const currentHeaders = () => adminHeaders(getAuth(), contentType);
+    let res = await fetch(`${normalizeBase(base)}${path}`, {
+      method: 'POST',
+      headers: currentHeaders(),
+      body: file,
+    });
+    if (res.status === 401 && prompt) {
+      const auth = promptBasicAuth();
+      if (auth) {
+        setAuth(auth);
+        res = await fetch(`${normalizeBase(base)}${path}`, {
+          method: 'POST',
+          headers: currentHeaders(),
+          body: file,
+        });
+      }
+    }
+    if (res.status === 403 && prompt && !getAuth()) {
+      const token = window.prompt('Admin token');
+      if (token) {
+        setAuth(`Token ${token}`);
+        res = await fetch(`${normalizeBase(base)}${path}`, {
+          method: 'POST',
+          headers: currentHeaders(),
+          body: file,
+        });
+      }
+    }
+    return parseJsonResponse(res);
+  }
+
   function socketUrl(base, path = '/world/updates') {
     return `${normalizeBase(base).replace(/^http/, 'ws')}${path}`;
   }
@@ -134,6 +183,7 @@
   window.BunnylandApi = {
     applyConfigToInput,
     applyServerParam,
+    adminHeaders,
     claimHeaders,
     jsonHeaders,
     mediaUrl,
@@ -147,5 +197,6 @@
     serverFromUrl,
     setServerInUrl,
     socketUrl,
+    uploadCharacterImage,
   };
 }());

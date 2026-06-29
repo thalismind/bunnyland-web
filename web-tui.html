@@ -274,18 +274,34 @@
   <div class="toolbar-row" id="toolbar-row2">
     <label for="player-select">Character:</label>
     <select id="player-select"><option value="">— select to play —</option></select>
-    <button id="btn-release-character" type="button" disabled>Release</button>
+    <button id="btn-release-character" type="button" disabled>Claim</button>
     <button id="btn-request-image" type="button" title="Request an image of your current scene">📷 Image</button>
     <button id="btn-open-sheet" type="button" title="Open the selected or current character sheet">▣ Sheet</button>
-    <label for="claim-fallback">Fallback:</label>
-    <select id="claim-fallback">
-      <option value="suspend">Suspend</option>
-      <option value="llm">LLM</option>
-    </select>
-    <label for="claim-timeout">Timeout:</label>
-    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
   </div>
 </div>
+
+<dialog id="claim-dialog">
+  <form method="dialog" class="claim-dialog-form">
+    <h3>Claim</h3>
+    <label for="claim-fallback">Idle controller</label>
+    <select id="claim-fallback">
+      <option value="suspend">Suspended</option>
+      <option value="llm">LLM</option>
+      <option value="controller">Existing controller</option>
+    </select>
+    <label for="claim-fallback-controller">Idle controller ID</label>
+    <input type="text" id="claim-fallback-controller" spellcheck="false" placeholder="entity_...">
+    <label for="claim-timeout">Idle timeout minutes</label>
+    <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30">
+    <div class="dialog-actions">
+      <button id="btn-dialog-claim" type="button">Claim</button>
+      <button id="btn-dialog-save-fallback" type="button">Save Idle</button>
+      <button id="btn-dialog-release-controller" type="button">Idle</button>
+      <button id="btn-dialog-release-claim" type="button">Release</button>
+      <button type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="main" class="app-grid">
   <section id="world-pane" aria-label="World view">
@@ -338,9 +354,11 @@ const {
   actionUnavailableReason,
   allTargets,
   cancelQueuedCommand,
+  clearClaimControl,
   claimWebController,
   claimSettings,
   controlFromResponse,
+  syncClaimControl,
   drainNarratedEvents,
   entityIcon,
   fetchCharacterList,
@@ -360,7 +378,11 @@ const {
   playerControl,
   queuedCommandLabel,
   queuedCountdownSeconds,
+  releaseWebClaim,
+  releaseWebController,
   setIconPreference,
+  storeClaimControl,
+  storedClaimControl,
   submitCommand,
   updateWebControllerFallback,
 } = BunnylandPlay;
@@ -442,19 +464,20 @@ class WebTui {
       if (e.target.value) this.selectPlayer(e.target.value);
       else this._dropPlayer();
     });
-    document.getElementById('btn-release-character').addEventListener('click', async () => {
-      if (this.playerId && !this._playerControl()) {
-        this.control = await this._claimPlayer(this.playerId);
-        await this.refresh();
-      } else {
-        this._dropPlayer();
-      }
+    document.getElementById('btn-release-character').addEventListener('click', () => {
+      this._syncClaimDialog();
+      if (this.playerId) document.getElementById('claim-dialog')?.showModal();
     });
+    document.getElementById('btn-dialog-claim').addEventListener('click', async () => {
+      if (this.playerId) this.control = await this._claimPlayer(this.playerId);
+      await this.refresh();
+    });
+    document.getElementById('btn-dialog-save-fallback').addEventListener('click', () => this._updateClaimFallback());
+    document.getElementById('btn-dialog-release-controller').addEventListener('click', () => this._releaseController());
+    document.getElementById('btn-dialog-release-claim').addEventListener('click', () => this._releaseClaim());
     document.getElementById('btn-request-image').addEventListener('click', () => this._requestImage());
     document.getElementById('btn-open-sheet').addEventListener('click', () => this._openSheet());
     document.getElementById('btn-clear-target').addEventListener('click', () => this._clearTarget());
-    document.getElementById('claim-fallback').addEventListener('change', () => this._updateClaimFallback());
-    document.getElementById('claim-timeout').addEventListener('change', () => this._updateClaimFallback());
     document.getElementById('action-filter').addEventListener('input', (e) => {
       this.actionFilter = e.target.value.trim();
       this._renderActions();
@@ -523,11 +546,11 @@ class WebTui {
       this.characters = list.characters || [];
       if (this.playerId && !this.characters.some(c => c.id === this.playerId)) this._dropPlayer();
       if (this.playerId) {
-        this.projection = await fetchCharacterProjection(this.apiBase, this.playerId);
-        const queued = await fetchQueuedCommands(this.apiBase, this.playerId);
+        this.projection = await fetchCharacterProjection(this.apiBase, this.playerId, this.control);
+        const queued = await fetchQueuedCommands(this.apiBase, this.playerId, this.control);
         this.queuedCommands = queued?.commands || [];
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;
-        if (!this._playerControl()) this.control = null;
+        this.control = syncClaimControl(this.control, this.projection, this.playerId);
       }
       const events = await fetchRecentEvents(this.apiBase);
       this._drainEvents(events.events || [], { prime: !this.eventsPrimed });
@@ -563,13 +586,17 @@ class WebTui {
 
   async _claimPlayer(characterId) {
     if (!this.apiBase || !characterId) return null;
+    const stored = storedClaimControl(CLIENT_ID_KEY, characterId);
     const data = await claimWebController(this.apiBase, {
       ...claimSettings(),
       character_id: characterId,
       client_id: this.clientId,
+      claim_id: stored?.claimId || undefined,
       label: 'web-tui',
-    });
-    return controlFromResponse(data, characterId);
+    }, stored);
+    const control = controlFromResponse(data, characterId, { active: true });
+    storeClaimControl(CLIENT_ID_KEY, control);
+    return control;
   }
 
   async _updateClaimFallback() {
@@ -579,8 +606,44 @@ class WebTui {
         ...claimSettings(),
         character_id: this.playerId,
         client_id: this.clientId,
-      });
-      this.control = controlFromResponse(data, this.playerId);
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: this.control.active !== false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
+    } catch (err) {
+      this._setStatus('err', `⚠ ${err.message || err}`);
+    }
+  }
+
+  async _releaseController() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    try {
+      const data = await releaseWebController(this.apiBase, {
+        ...claimSettings(),
+        character_id: this.playerId,
+        client_id: this.clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      this.control = controlFromResponse(data, this.playerId, { active: false });
+      storeClaimControl(CLIENT_ID_KEY, this.control);
+      await this.refresh();
+    } catch (err) {
+      this._setStatus('err', `⚠ ${err.message || err}`);
+    }
+  }
+
+  async _releaseClaim() {
+    if (!this.apiBase || !this.playerId || !this.control) return;
+    const characterId = this.playerId;
+    try {
+      await releaseWebClaim(this.apiBase, {
+        character_id: characterId,
+        client_id: this.clientId,
+        claim_id: this.control.claimId,
+      }, this.control);
+      clearClaimControl(CLIENT_ID_KEY, characterId);
+      document.getElementById('claim-dialog')?.close();
+      this._dropPlayer();
     } catch (err) {
       this._setStatus('err', `⚠ ${err.message || err}`);
     }
@@ -588,6 +651,16 @@ class WebTui {
 
   _playerControl() {
     return playerControl(this.control, this.projection, this.playerId);
+  }
+
+  _claimButtonLabel() {
+    if (!this.playerId || !this.control) return 'Claim';
+    return this.control.active === false ? 'Resume' : 'Idle';
+  }
+
+  _syncClaimDialog() {
+    document.getElementById('btn-dialog-claim').textContent =
+      this.control?.active === false ? 'Resume' : 'Claim';
   }
 
   _setStatus(kind, text) {
@@ -674,12 +747,13 @@ class WebTui {
       character_id: this.playerId,
       controller_id: this.control.controllerId,
       controller_generation: this.control.generation,
+      ...(this.control.claimId ? { claim_id: this.control.claimId } : {}),
       command_type: actionCommandType(action),
       payload,
       cost,
       lane: actionLane(action),
       on_insufficient_points: 'queue',
-    });
+    }, this.control);
     if (result?.queued === false) {
       this.activityLines.push({ text: result.reason || 'Command rejected.', kind: 'rejection' });
       this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
@@ -692,7 +766,7 @@ class WebTui {
       this.activityLines.push({ text: 'Select a character before requesting an image.', kind: 'system' });
     } else {
       try {
-        const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId);
+        const result = await BunnylandApi.requestSceneImage(this.apiBase, this.playerId, this.control);
         this.activityLines.push({ text: imageRequestMessage(result), kind: 'system' });
       } catch (err) {
         this.activityLines.push({ text: `${IMAGE_AFFORDANCE.REQUEST_EMOJI} ${err.message || err}`, kind: 'rejection' });
@@ -744,12 +818,13 @@ class WebTui {
       character_id: this.playerId,
       controller_id: this.control.controllerId,
       controller_generation: this.control.generation,
+      ...(this.control.claimId ? { claim_id: this.control.claimId } : {}),
       command_type: actionCommandType(action),
       payload: { [exitArg.key]: exit.id },
       cost,
       lane: actionLane(action),
       on_insufficient_points: 'queue',
-    });
+    }, this.control);
     if (result?.queued === false) {
       this.activityLines.push({ text: result.reason || 'Command rejected.', kind: 'rejection' });
       this.activityLines = this.activityLines.slice(-ACTIVITY_LIMIT);
@@ -846,7 +921,7 @@ class WebTui {
     select.value = this.playerId || '';
     const release = document.getElementById('btn-release-character');
     release.disabled = !this.playerId;
-    release.textContent = this.playerId && !this._playerControl() ? 'Claim' : 'Release';
+    release.textContent = this._claimButtonLabel();
     this._syncSelectionControls();
   }
 

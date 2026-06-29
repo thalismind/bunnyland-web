@@ -74,7 +74,7 @@ def static_page_url(web_url: str, path: str) -> str:
 
 def admin_headers(admin_auth: str | None = None, admin_token: str | None = None) -> dict[str, str]:
     if admin_token:
-        return {"X-Bunnyland-Admin-Token": admin_token}
+        return {"X-Bunnyland-Admin-Secret": admin_token}
     if admin_auth:
         return {"Authorization": admin_auth}
     return {}
@@ -103,6 +103,7 @@ def api_post(
     body: dict[str, Any],
     auth: str | None = None,
     admin_token: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
     request = urllib.request.Request(
@@ -112,6 +113,8 @@ def api_post(
         method="POST",
     )
     for key, value in admin_headers(auth, admin_token).items():
+        request.add_header(key, value)
+    for key, value in (extra_headers or {}).items():
         request.add_header(key, value)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -421,8 +424,14 @@ def submit_repl_command(page, line: str) -> None:
 
 
 def queue_visible_say(page, api_url: str, character_id_value: str, text: str) -> None:
-    projection = api_get(api_url, f"/world/character/{urllib.parse.quote(character_id_value, safe='')}")
-    control = projection.get("controller") or {}
+    state = page.evaluate(
+        """() => ({
+          projection: window.app?.projection || window.app?.characterProjection || null,
+          control: window.app?.control || null,
+        })"""
+    )
+    projection = state.get("projection") or {}
+    control = state.get("control") or {}
     say = next(
         (
             action
@@ -434,13 +443,16 @@ def queue_visible_say(page, api_url: str, character_id_value: str, text: str) ->
     if not say or not control:
         return
     cost = say.get("cost") or {"action": 1, "focus": 1}
+    claim_id = control.get("claimId") or control.get("claim_id") or ""
+    claim_secret = control.get("claimSecret") or control.get("claim_secret") or ""
     api_post(
         api_url,
         "/world/commands",
         {
             "character_id": character_id_value,
-            "controller_id": control.get("controller_id"),
-            "controller_generation": int(control.get("generation") or 0),
+            "controller_id": control.get("controllerId") or control.get("controller_id"),
+            "controller_generation": int(control.get("generation") or control.get("controller_generation") or 0),
+            **({"claim_id": claim_id} if claim_id else {}),
             "command_type": say.get("command_type") or "say",
             "payload": {"text": text},
             "cost": {
@@ -450,6 +462,11 @@ def queue_visible_say(page, api_url: str, character_id_value: str, text: str) ->
             "lane": say.get("lane") or "world",
             "on_insufficient_points": "queue",
         },
+        extra_headers=(
+            {"X-Bunnyland-Claim-Secret": claim_secret}
+            if claim_secret
+            else None
+        ),
     )
 
 

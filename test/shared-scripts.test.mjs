@@ -320,6 +320,16 @@ test('BunnylandApi builds media URLs and image-request requests', async () => {
   await BunnylandApi.requestEventImage('http://s.test', 'rec:9', 'dramatic');
   assert.equal(calls[1].url, 'http://s.test/world/event/rec%3A9/image');
   assert.deepEqual(JSON.parse(calls[1].options.body), { extra: 'dramatic' });
+
+  const file = { type: 'image/png' };
+  await BunnylandApi.uploadCharacterImage('http://s.test/', 'character:1', 'sprite', file, {
+    getAuth: () => 'Token secret',
+  });
+  assert.equal(calls[2].url, 'http://s.test/admin/world/character/character%3A1/image/sprite');
+  assert.equal(calls[2].options.method, 'POST');
+  assert.equal(calls[2].options.headers['Content-Type'], 'image/png');
+  assert.equal(calls[2].options.headers['X-Bunnyland-Admin-Secret'], 'secret');
+  assert.equal(calls[2].options.body, file);
 });
 
 test('BunnylandPlay exposes portraits and image-request messages', () => {

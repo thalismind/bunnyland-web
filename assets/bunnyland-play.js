@@ -313,33 +313,118 @@
 
   function claimSettings({
     fallbackId = 'claim-fallback',
+    fallbackControllerId = 'claim-fallback-controller',
     timeoutId = 'claim-timeout',
     defaultMinutes = 30,
   } = {}) {
-    const fallback = document.getElementById(fallbackId)?.value || 'suspend';
+    const selectedFallback = document.getElementById(fallbackId)?.value || 'suspend';
+    const customFallback = document.getElementById(fallbackControllerId)?.value?.trim() || '';
+    const fallback = selectedFallback === 'controller' ? customFallback : selectedFallback;
     const rawMinutes = Number(document.getElementById(timeoutId)?.value);
     const minutes = Number.isFinite(rawMinutes) ? Math.min(60, Math.max(5, rawMinutes)) : defaultMinutes;
     return { fallback_controller: fallback, timeout_seconds: Math.round(minutes * 60) };
   }
 
-  function controlFromResponse(data, fallbackCharacterId = '') {
+  function controlFromResponse(data, fallbackCharacterId = '', { active = true } = {}) {
     if (!data) return null;
     return {
       characterId: data.character_id || fallbackCharacterId,
       controllerId: data.controller_id,
       generation: Number(data.controller_generation ?? data.generation ?? 0),
+      claimId: data.claim_id || '',
+      claimSecret: data.claim_secret || '',
+      active,
     };
   }
 
+  function syncClaimControl(control, projection, playerId) {
+    const projected = projection?.characterId === playerId ? projection?.controller : null;
+    if (!control?.characterId || control.characterId !== playerId || !projected) return null;
+    const next = {
+      characterId: control.characterId,
+      controllerId: projected.controller_id,
+      generation: Number(projected.generation || 0),
+      claimId: control.claimId || '',
+      claimSecret: control.claimSecret || '',
+      active: projected.controller_id === control.controllerId && control.active !== false,
+    };
+    if (next.claimId && next.claimSecret) return next;
+    return projected.controller_id === control.controllerId ? next : null;
+  }
+
   function playerControl(control, projection, playerId) {
+    if (control?.active === false) return null;
     const projected = projection?.characterId === playerId ? projection?.controller : null;
     if (
       control?.characterId === playerId &&
       projected?.controller_id === control.controllerId
     ) {
-      return { controllerId: control.controllerId, generation: Number(projected.generation || 0) };
+      const next = {
+        controllerId: control.controllerId,
+        generation: Number(projected.generation || 0),
+      };
+      if (control.claimId) next.claimId = control.claimId;
+      if (control.claimSecret) next.claimSecret = control.claimSecret;
+      return next;
     }
     return null;
+  }
+
+  function claimStorageKey(key, characterId) {
+    return `${key}.claim.${characterId}`;
+  }
+
+  function storedClaimControl(key, characterId) {
+    try {
+      const data = JSON.parse(localStorage.getItem(claimStorageKey(key, characterId)) || '{}');
+      if (!data.controllerId || !data.claimId || !data.claimSecret) return null;
+      return {
+        characterId,
+        controllerId: data.controllerId,
+        generation: Number(data.generation || 0),
+        claimId: data.claimId,
+        claimSecret: data.claimSecret,
+        active: data.active !== false,
+      };
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function storeClaimControl(key, control) {
+    if (!key || !control?.characterId || !control?.claimId || !control?.claimSecret) return;
+    try {
+      localStorage.setItem(claimStorageKey(key, control.characterId), JSON.stringify({
+        controllerId: control.controllerId,
+        generation: control.generation,
+        claimId: control.claimId,
+        claimSecret: control.claimSecret,
+        active: control.active !== false,
+      }));
+    } catch (_err) {
+      // Best-effort continuity only.
+    }
+  }
+
+  function clearClaimControl(key, characterId) {
+    if (!key || !characterId) return;
+    try {
+      localStorage.removeItem(claimStorageKey(key, characterId));
+    } catch (_err) {
+      // Best-effort continuity only.
+    }
+  }
+
+  function claimParams(control) {
+    const params = new URLSearchParams();
+    if (control?.claimId) params.set('claim_id', control.claimId);
+    return params;
+  }
+
+  function claimQuery(control) {
+    const params = claimParams(control);
+    const query = params.toString();
+    return query ? `?${query}` : '';
   }
 
   function allTargets(projection) {
@@ -431,9 +516,13 @@
     return parseCharacterList(await BunnylandApi.sendJson(base, '/world/characters'));
   }
 
-  async function fetchCharacterProjection(base, characterId) {
+  async function fetchCharacterProjection(base, characterId, control = null) {
     return parseCharacterProjection(
-      await BunnylandApi.sendJson(base, `/world/character/${encodeURIComponent(characterId)}`)
+      await BunnylandApi.sendJson(
+        base,
+        `/world/character/${encodeURIComponent(characterId)}${claimQuery(control)}`,
+        { headers: BunnylandApi.claimHeaders(control) }
+      )
     );
   }
 
@@ -443,9 +532,13 @@
     );
   }
 
-  async function fetchQueuedCommands(base, characterId) {
+  async function fetchQueuedCommands(base, characterId, control = null) {
     return parseQueuedCommands(
-      await BunnylandApi.sendJson(base, `/world/character/${encodeURIComponent(characterId)}/commands`)
+      await BunnylandApi.sendJson(
+        base,
+        `/world/character/${encodeURIComponent(characterId)}/commands${claimQuery(control)}`,
+        { headers: BunnylandApi.claimHeaders(control) }
+      )
     );
   }
 
@@ -454,30 +547,50 @@
       controller_id: control?.controllerId || '',
       controller_generation: String(control?.generation ?? 0),
     });
+    if (control?.claimId) params.set('claim_id', control.claimId);
     return BunnylandApi.sendJson(
       base,
       `/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`,
-      { method: 'DELETE' }
+      { method: 'DELETE', headers: BunnylandApi.claimHeaders(control) }
     );
   }
 
-  async function claimWebController(base, payload) {
+  async function claimWebController(base, payload, control = null) {
     return BunnylandApi.sendJson(base, '/world/controllers/web/claim', {
       method: 'POST',
+      headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
     });
   }
 
-  async function updateWebControllerFallback(base, payload) {
+  async function updateWebControllerFallback(base, payload, control = null) {
     return BunnylandApi.sendJson(base, '/world/controllers/web/fallback', {
       method: 'PATCH',
+      headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
     });
   }
 
-  async function submitCommand(base, payload) {
+  async function releaseWebController(base, payload, control = null) {
+    return BunnylandApi.sendJson(base, '/world/controllers/web/release-controller', {
+      method: 'POST',
+      headers: BunnylandApi.claimHeaders(control),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function releaseWebClaim(base, payload, control = null) {
+    return BunnylandApi.sendJson(base, '/world/controllers/web/release-claim', {
+      method: 'POST',
+      headers: BunnylandApi.claimHeaders(control),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function submitCommand(base, payload, control = null) {
     return BunnylandApi.sendJson(base, '/world/commands', {
       method: 'POST',
+      headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
     });
   }
@@ -703,8 +816,12 @@
     allTargets,
     cancelQueuedCommand,
     claimWebController,
+    clearClaimControl,
+    storedClaimControl,
+    storeClaimControl,
     claimSettings,
     controlFromResponse,
+    syncClaimControl,
     entityIcon,
     entityName,
     entityType,
@@ -744,6 +861,8 @@
     renderEventLine,
     resolveTargetName,
     randomClientId,
+    releaseWebClaim,
+    releaseWebController,
     setIconPreference,
     suggestTargetNames,
     submitCommand,

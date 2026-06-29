@@ -22,6 +22,8 @@ CHARACTER = "character:1"
 OTHER = "character:2"
 ROOM = "room:1"
 EXIT = "room:2"
+CLAIM_ID = "claim-web-tui"
+CLAIM_SECRET = "secret-web-tui"
 
 CHARACTER_LIST = {
     "world_epoch": 8,
@@ -174,11 +176,21 @@ def install_routes(page, posted: list[dict]) -> None:
     page.exposed_deleted_commands = deleted
     page.exposed_fallback_updates = fallback_updates
 
+    def assert_claim(route) -> None:
+        if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
+            raise AssertionError(f"missing claim secret header on {route.request.url}")
+        if f"claim_id={CLAIM_ID}" not in route.request.url and (
+            not route.request.post_data or f'"claim_id":"{CLAIM_ID}"' not in route.request.post_data
+        ):
+            raise AssertionError(f"missing claim id on {route.request.url}")
+
     def command_handler(route):
+        assert_claim(route)
         posted.append(json.loads(route.request.post_data or "{}"))
         route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
 
     def cancel_handler(route):
+        assert_claim(route)
         deleted.append(route.request.url)
         route.fulfill(
             status=200,
@@ -187,6 +199,8 @@ def install_routes(page, posted: list[dict]) -> None:
         )
 
     def claim_handler(route):
+        if route.request.url.endswith("/fallback") or route.request.url.endswith("/release-controller"):
+            assert_claim(route)
         if route.request.post_data:
             fallback_updates.append(json.loads(route.request.post_data))
         route.fulfill(
@@ -197,19 +211,31 @@ def install_routes(page, posted: list[dict]) -> None:
                     "character_id": CHARACTER,
                     "controller_id": "web:tui",
                     "controller_generation": 4,
+                    "claim_id": CLAIM_ID,
+                    "claim_secret": CLAIM_SECRET,
                 }
             ),
         )
 
+    def scene_image_handler(route):
+        assert_claim(route)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"ok": True, "status": "queued"}),
+        )
+
     page.route("**/world/events/recent", json_route(EVENTS))
     page.route("**/world/characters", json_route(CHARACTER_LIST))
-    page.route("**/world/character/*/commands", json_route(QUEUED))
-    page.route("**/world/character/*/scene-image", json_route({"ok": True, "status": "queued"}))
-    page.route("**/world/character/*", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/character/**/commands**", json_route(QUEUED))
+    page.route("**/world/character/**/scene-image**", scene_image_handler)
     page.route("**/world/controllers/web/claim", claim_handler)
     page.route("**/world/controllers/web/fallback", claim_handler)
+    page.route("**/world/controllers/web/release-controller", claim_handler)
+    page.route("**/world/controllers/web/release-claim", json_route({"ok": True, "released": True}))
     page.route("**/world/commands", command_handler)
-    page.route("**/world/character/*/commands/*", cancel_handler)
+    page.route("**/world/character/**/commands/**", cancel_handler)
 
 
 def connect_and_select(page) -> None:
@@ -254,7 +280,7 @@ def use_image_and_sheet_buttons(page) -> None:
     expect(page.locator("#target-label")).to_have_text("Target: none")
     expect(page.locator("#btn-clear-target")).to_be_disabled()
 
-    with page.expect_response("**/world/character/*/scene-image"):
+    with page.expect_response("**/world/character/**/scene-image**"):
         page.locator("#btn-request-image").click()
     expect(page.locator("#activity")).to_contain_text("image requested")
 
@@ -292,6 +318,7 @@ def submit_tell(page, posted: list[dict]) -> None:
         "character_id": CHARACTER,
         "controller_id": "web:tui",
         "controller_generation": 4,
+        "claim_id": CLAIM_ID,
         "command_type": "tell",
         "payload": {"target_id": OTHER, "text": "psst"},
         "cost": {"action": 1, "focus": 1},
@@ -330,14 +357,18 @@ def preselect_inventory_target(page) -> None:
 
 
 def update_fallback_and_release(page) -> None:
+    page.locator("#btn-release-character").click()
+    expect(page.locator("#claim-dialog")).to_be_visible()
     page.locator("#claim-timeout").fill("17")
     with page.expect_response("**/world/controllers/web/fallback"):
         page.locator("#claim-fallback").select_option("llm")
+        page.locator("#btn-dialog-save-fallback").click()
     updates = page.exposed_fallback_updates
     if not updates or updates[-1]["fallback_controller"] != "llm" or updates[-1]["timeout_seconds"] != 1020:
         raise AssertionError(f"fallback settings were not posted: {updates!r}")
 
-    page.locator("#btn-release-character").click()
+    with page.expect_response("**/world/controllers/web/release-claim"):
+        page.locator("#btn-dialog-release-claim").click()
     expect(page.locator("#player-select")).to_have_value("")
     expect(page.locator("#btn-release-character")).to_be_disabled()
     expect(page.locator("#room-title")).to_have_text("Room")
@@ -401,7 +432,12 @@ def cancel_queued_command(page) -> None:
     with page.expect_response("**/world/character/*/commands/*"):
         page.locator('#queued .option[data-cancel-command="queued-1"]').click()
     deleted = page.exposed_deleted_commands
-    if not deleted or "controller_id=web%3Atui" not in deleted[-1] or "controller_generation=4" not in deleted[-1]:
+    if (
+        not deleted
+        or "controller_id=web%3Atui" not in deleted[-1]
+        or "controller_generation=4" not in deleted[-1]
+        or f"claim_id={CLAIM_ID}" not in deleted[-1]
+    ):
         raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 
 

@@ -69,6 +69,42 @@
 
     #portrait-status.failed { color: var(--bl-warn); }
 
+    .upload-panel {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--bl-border-muted);
+    }
+
+    .upload-row {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-sm);
+    }
+
+    .upload-row input {
+      min-width: 0;
+      width: 100%;
+      font-size: var(--bl-text-xs);
+    }
+
+    .upload-row button {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    #image-upload-status {
+      min-height: 18px;
+      color: var(--bl-text-muted);
+      font-size: var(--bl-text-xs);
+    }
+
+    #image-upload-status.failed { color: var(--bl-warn); }
+
     #character-name {
       margin: 12px 0 4px;
       color: var(--bl-text);
@@ -327,6 +363,19 @@
   <section id="identity-pane" aria-label="Character identity">
     <div class="portrait-frame" id="portrait-frame"></div>
     <div id="portrait-status"></div>
+    <div class="upload-panel" id="image-upload-panel">
+      <div class="upload-row">
+        <label for="portrait-upload">Portrait</label>
+        <input id="portrait-upload" type="file" accept="image/png,image/jpeg,image/webp">
+        <button id="btn-upload-portrait" type="button">Upload</button>
+      </div>
+      <div class="upload-row">
+        <label for="sprite-upload">Sprite</label>
+        <input id="sprite-upload" type="file" accept="image/png,image/jpeg,image/webp">
+        <button id="btn-upload-sprite" type="button">Upload</button>
+      </div>
+      <div id="image-upload-status"></div>
+    </div>
     <h1 id="character-name">No character selected</h1>
     <div id="character-id">Connect to a server, then choose a character.</div>
     <div id="status-pills" class="pill-row"></div>
@@ -442,10 +491,16 @@ const {
   formatPoints,
   orderActionsByAvailability,
   portraitStatusMessage,
+  storedClaimControl,
 } = BunnylandPlay;
 
 const POLL_INTERVAL_MS = 2000;
 const DOCUMENT_TITLE_BASE = 'Bunnyland Character Sheet';
+const CLAIM_CLIENT_KEYS = [
+  'bunnyland.webTui.clientId',
+  'bunnyland.webRepl.clientId',
+  'bunnyland.toon.clientId',
+];
 
 class CharacterSheetApp {
   constructor() {
@@ -456,6 +511,9 @@ class CharacterSheetApp {
     this.projection = null;
     this.portraitState = '';
     this.actionFilter = '';
+    this.authHeader = null;
+    this.uploadState = '';
+    this.uploadingPurpose = '';
     this._requestedPortraits = new Set();
     this._failedPortraits = new Set();
     this._pollTimer = null;
@@ -484,6 +542,12 @@ class CharacterSheetApp {
       this.render();
       document.getElementById('action-filter').focus();
     });
+    document.getElementById('btn-upload-portrait').addEventListener('click', () => {
+      this._uploadImage('portrait');
+    });
+    document.getElementById('btn-upload-sprite').addEventListener('click', () => {
+      this._uploadImage('sprite');
+    });
     window.addEventListener('hashchange', () => {
       const id = this._hashCharacterId();
       if (id !== this.selectedId) this.selectCharacter(id, { updateHash: false });
@@ -492,6 +556,14 @@ class CharacterSheetApp {
 
   _hashCharacterId() {
     return decodeURIComponent(location.hash.replace(/^#/, '')).trim();
+  }
+
+  _claimControl(characterId) {
+    for (const key of CLAIM_CLIENT_KEYS) {
+      const control = storedClaimControl(key, characterId);
+      if (control) return control;
+    }
+    return null;
   }
 
   _restoreServerParam() {
@@ -524,6 +596,8 @@ class CharacterSheetApp {
     this.characters = [];
     this.projection = null;
     this.portraitState = '';
+    this.uploadState = '';
+    this.uploadingPurpose = '';
     document.getElementById('btn-connect').textContent = 'Connect Live';
     document.getElementById('character-select').innerHTML = '<option value="">- choose -</option>';
     if (this.apiBase) BunnylandApi.setServerInUrl('');
@@ -538,7 +612,11 @@ class CharacterSheetApp {
       this.characters = list.characters || [];
       this._syncSelector();
       if (this.selectedId && this.characters.some(character => character.id === this.selectedId)) {
-        this.projection = await fetchCharacterProjection(this.apiBase, this.selectedId);
+        this.projection = await fetchCharacterProjection(
+          this.apiBase,
+          this.selectedId,
+          this._claimControl(this.selectedId)
+        );
         if (this.projection?.portrait?.url) {
           this.portraitState = '';
         } else if (this._failedPortraits.has(this.selectedId)) {
@@ -561,6 +639,8 @@ class CharacterSheetApp {
     this.selectedId = id || '';
     this.projection = null;
     this.portraitState = '';
+    this.uploadState = '';
+    this.uploadingPurpose = '';
     if (updateHash) {
       const url = new URL(location.href);
       url.hash = this.selectedId ? encodeURIComponent(this.selectedId) : '';
@@ -586,7 +666,7 @@ class CharacterSheetApp {
     }
     this._requestedPortraits.add(characterId);
     this.portraitState = 'requesting';
-    BunnylandApi.requestSceneImage(this.apiBase, characterId)
+    BunnylandApi.requestSceneImage(this.apiBase, characterId, this._claimControl(characterId))
       .then((result) => {
         this.portraitState = result?.ok === false ? 'failed' : 'queued';
         if (result?.ok === false) this._failedPortraits.add(characterId);
@@ -639,6 +719,63 @@ class CharacterSheetApp {
       : `<div class="portrait-placeholder" data-testid="portrait-placeholder">${BunnylandUI.escapeHtml(this._initials())}</div>`;
     status.className = this.portraitState === 'failed' ? 'failed' : '';
     status.textContent = this.selectedId ? portraitStatusMessage(this.projection, this.portraitState) : '';
+  }
+
+  _renderUploadControls() {
+    const disabled = !this.connected || !this.apiBase || !this.selectedId || Boolean(this.uploadingPurpose);
+    const portraitButton = document.getElementById('btn-upload-portrait');
+    const spriteButton = document.getElementById('btn-upload-sprite');
+    portraitButton.disabled = disabled || this.uploadingPurpose === 'sprite';
+    spriteButton.disabled = disabled || this.uploadingPurpose === 'portrait';
+    portraitButton.textContent = this.uploadingPurpose === 'portrait' ? 'Uploading' : 'Upload';
+    spriteButton.textContent = this.uploadingPurpose === 'sprite' ? 'Uploading' : 'Upload';
+    const status = document.getElementById('image-upload-status');
+    status.className = this.uploadState.startsWith('Upload failed') ? 'failed' : '';
+    status.textContent = this.uploadState;
+  }
+
+  async _uploadImage(purpose) {
+    if (!this.connected || !this.apiBase || !this.selectedId) {
+      this.uploadState = 'Select a character before uploading.';
+      this.render();
+      return;
+    }
+    const input = document.getElementById(`${purpose}-upload`);
+    const file = input?.files?.[0] || null;
+    if (!file) {
+      this.uploadState = `Choose a ${purpose} image first.`;
+      this.render();
+      return;
+    }
+    this.uploadingPurpose = purpose;
+    this.uploadState = `Uploading ${purpose}...`;
+    this.render();
+    try {
+      const result = await BunnylandApi.uploadCharacterImage(
+        this.apiBase,
+        this.selectedId,
+        purpose,
+        file,
+        {
+          getAuth: () => this.authHeader,
+          setAuth: (auth) => { this.authHeader = auth; },
+        },
+      );
+      input.value = '';
+      this.uploadState = `${purpose === 'portrait' ? 'Portrait' : 'Sprite'} uploaded.`;
+      if (purpose === 'portrait') {
+        this.portraitState = '';
+        this._failedPortraits.delete(this.selectedId);
+      }
+      this.uploadingPurpose = '';
+      await this.refresh();
+      if (result?.url) this.uploadState = `${purpose === 'portrait' ? 'Portrait' : 'Sprite'} uploaded.`;
+      this.render();
+    } catch (err) {
+      this.uploadingPurpose = '';
+      this.uploadState = `Upload failed: ${err.message || err}`;
+      this.render();
+    }
   }
 
   _row(label, meta = '') {
@@ -753,6 +890,7 @@ class CharacterSheetApp {
   render() {
     this._syncSelector();
     this._renderPortrait();
+    this._renderUploadControls();
     const name = this._characterName();
     const titleName = this._titleCharacterName();
     document.title = titleName ? `${DOCUMENT_TITLE_BASE}: ${titleName}` : DOCUMENT_TITLE_BASE;

@@ -41,9 +41,12 @@ def api_request(
     *,
     method: str = "GET",
     body: dict | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict:
     data = None
-    headers = {"X-Bunnyland-Admin-Token": ADMIN_TOKEN}
+    headers = {"X-Bunnyland-Admin-Secret": ADMIN_TOKEN}
+    if extra_headers:
+        headers.update(extra_headers)
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -175,6 +178,7 @@ def seed_memory_note(api_url: str, character: dict) -> str:
             "character_id": character["id"],
             "controller_id": claim["controller_id"],
             "controller_generation": claim["controller_generation"],
+            "claim_id": claim["claim_id"],
             "command_type": "take-note",
             "payload": {"text": "Berries grow north.", "tags": ["forage"]},
             "cost": {"focus": 1},
@@ -182,6 +186,7 @@ def seed_memory_note(api_url: str, character: dict) -> str:
             "on_insufficient_points": "deny",
             "command_id": command_id,
         },
+        extra_headers={"X-Bunnyland-Claim-Secret": claim["claim_secret"]},
     )
     if not response.get("queued"):
         raise RuntimeError(f"take-note was rejected: {response!r}")
