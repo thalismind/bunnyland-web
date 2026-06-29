@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <style>
     #api-url { width: 190px; }
-    .toolbar-toggle {
+    .chat-toggle {
       display: inline-flex;
       align-items: center;
       gap: 5px;
@@ -15,7 +15,7 @@
       font-size: var(--bl-text-sm);
       white-space: nowrap;
     }
-    .toolbar-toggle input {
+    .chat-toggle input {
       margin: 0;
     }
     #main {
@@ -98,6 +98,12 @@
       color: var(--bl-text-soft);
       font-size: var(--bl-text-sm);
       font-weight: 600;
+    }
+    #chat-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
     }
     #selected-character {
       padding: 12px;
@@ -272,10 +278,6 @@
     <input type="text" id="api-url" value="/api/" spellcheck="false">
     <button id="btn-connect" type="button">Connect Live</button>
     <span id="api-status">○ Offline</span>
-    <label class="toolbar-toggle" for="markdown-toggle">
-      <input type="checkbox" id="markdown-toggle" checked>
-      Markdown
-    </label>
     <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
   </div>
 </div>
@@ -288,7 +290,13 @@
   <section id="chat-pane" aria-label="Character chat">
     <div id="chat-tools">
       <span id="chat-title">No character selected</span>
-      <button id="btn-clear-history" type="button" disabled>Clear History</button>
+      <div id="chat-actions">
+        <label class="chat-toggle" for="markdown-toggle">
+          <input type="checkbox" id="markdown-toggle" checked>
+          Markdown
+        </label>
+        <button id="btn-clear-history" type="button" disabled>Clear History</button>
+      </div>
     </div>
     <div id="selected-character" hidden>
       <div id="chat-portrait-frame" class="portrait-frame"></div>
