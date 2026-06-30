@@ -79,7 +79,10 @@ def projection(*, portrait_url: str = "") -> dict:
             "skills": [
                 {"label": "Survival", "value": "level 3", "detail": "8.5 xp"},
             ],
-            "traits": ["watchful", "goal: keep everyone safe"],
+            "traits": [
+                "watchful",
+                "goal: keep everyone safe during the exceptionally complicated lantern watch rotation",
+            ],
             "relations": [
                 {"label": "Social Bond", "value": "Marlow", "detail": "trust 4"},
             ],
@@ -223,6 +226,14 @@ def main() -> None:
         expect(page.locator("#profile")).to_contain_text("Scout")
         expect(page.locator("#skills")).to_contain_text("Survival")
         expect(page.locator("#traits")).to_contain_text("keep everyone safe")
+        expect(page.locator("#traits .pill").nth(1)).to_have_css("white-space", "normal")
+        expect(page.locator("#traits .pill").nth(1)).to_have_css("overflow-wrap", "anywhere")
+        trait_bounds = page.locator("#traits .pill").nth(1).bounding_box()
+        trait_container_bounds = page.locator("#traits").bounding_box()
+        if not trait_bounds or not trait_container_bounds:
+            raise AssertionError("trait pill bounds were not available")
+        if trait_bounds["width"] > trait_container_bounds["width"] + 1:
+            raise AssertionError(f"trait pill overflowed its row: {trait_bounds!r} > {trait_container_bounds!r}")
         expect(page.locator("#relations")).to_contain_text("Marlow")
         expect(page.locator("#injuries")).to_contain_text("left paw")
         expect(page.locator("#notes")).to_contain_text("The tunnel roof is groaning")
