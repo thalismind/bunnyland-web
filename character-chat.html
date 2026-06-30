@@ -26,7 +26,9 @@
     }
     #character-pane {
       min-height: 0;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       padding: 12px;
       border-right: 1px solid var(--bl-border);
       background: var(--bl-bg-strong);
@@ -48,6 +50,27 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    #selected-character {
+      margin-bottom: 12px;
+    }
+    .character-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    #character-filter {
+      width: 100%;
+      min-width: 0;
+    }
+    #character-filter-clear {
+      padding-left: 8px;
+      padding-right: 8px;
     }
     .character-row {
       display: grid;
@@ -66,14 +89,27 @@
       border-color: var(--bl-accent);
       background: var(--bl-accent-wash);
     }
+    .character-row.has-history {
+      border-color: var(--bl-secondary);
+      box-shadow: inset 3px 0 0 var(--bl-secondary);
+    }
     .character-row strong {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .character-row span {
+    .character-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
       color: var(--bl-text-dim);
       font-size: var(--bl-text-xs);
+    }
+    .history-icon {
+      color: var(--bl-secondary);
+      font-size: var(--bl-text-xs);
+      line-height: 1;
     }
     #transcript {
       flex: 1;
@@ -99,19 +135,25 @@
       font-size: var(--bl-text-sm);
       font-weight: 600;
     }
+    #chat-tool-list {
+      flex: 1 1 180px;
+      min-width: 0;
+      max-width: 420px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--bl-text-dim);
+      font-size: var(--bl-text-xs);
+    }
     #chat-actions {
       display: inline-flex;
       align-items: center;
       gap: 10px;
       flex-shrink: 0;
-    }
-    #selected-character {
-      padding: 12px;
-      border-bottom: 1px solid var(--bl-border);
-      background: var(--bl-bg);
+      min-width: 0;
     }
     .portrait-frame {
-      width: min(180px, 42vw);
+      width: min(100%, 220px);
       aspect-ratio: 1 / 1;
       border: 1px solid var(--bl-border-control);
       border-radius: var(--bl-radius-md);
@@ -131,7 +173,7 @@
       place-items: center;
       color: var(--bl-accent-strong);
       background: linear-gradient(135deg, var(--bl-bg-subtle), var(--bl-surface));
-      font-size: 52px;
+      font-size: 72px;
       font-weight: 800;
     }
     .message {
@@ -264,7 +306,11 @@
     @media (max-width: 760px) {
       #main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
       #character-pane { max-height: 28vh; border-right: 0; border-bottom: 1px solid var(--bl-border); }
+      .portrait-frame { width: 88px; }
       .toolbar-row { flex-wrap: wrap; }
+      #chat-tools { align-items: flex-start; flex-wrap: wrap; }
+      #chat-actions { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+      #chat-tool-list { flex-basis: 100%; max-width: 100%; }
       .client-menu-button { margin-left: 0; }
     }
   </style>
@@ -284,22 +330,27 @@
 
 <div id="main" class="app-grid">
   <aside id="character-pane" aria-label="Characters">
+    <div id="selected-character" hidden>
+      <div id="chat-portrait-frame" class="portrait-frame"></div>
+    </div>
     <h2 class="pane-title">Characters</h2>
+    <div class="character-controls">
+      <input id="character-filter" type="text" placeholder="Search characters" spellcheck="false">
+      <button id="character-filter-clear" type="button">Clear</button>
+    </div>
     <div id="character-list"></div>
   </aside>
   <section id="chat-pane" aria-label="Character chat">
     <div id="chat-tools">
       <span id="chat-title">No character selected</span>
       <div id="chat-actions">
+        <span id="chat-tool-list"></span>
         <label class="chat-toggle" for="markdown-toggle">
           <input type="checkbox" id="markdown-toggle" checked>
           Markdown
         </label>
         <button id="btn-clear-history" type="button" disabled>Clear History</button>
       </div>
-    </div>
-    <div id="selected-character" hidden>
-      <div id="chat-portrait-frame" class="portrait-frame"></div>
     </div>
     <div id="transcript"></div>
     <div id="status-line">Connect to a server with character chat enabled.</div>
@@ -332,6 +383,8 @@
   let characters = [];
   let selectedId = '';
   let portraitRequestId = 0;
+  let characterFilter = '';
+  let allowedTools = [];
   let markdownEnabled = localStorage.getItem(MARKDOWN_KEY) !== '0';
   const pendingPolls = new Map();
   const characterProjections = new Map();
@@ -342,12 +395,15 @@
     markdown: document.getElementById('markdown-toggle'),
     status: document.getElementById('api-status'),
     list: document.getElementById('character-list'),
+    characterFilter: document.getElementById('character-filter'),
+    characterFilterClear: document.getElementById('character-filter-clear'),
     transcript: document.getElementById('transcript'),
     line: document.getElementById('status-line'),
     form: document.getElementById('composer'),
     input: document.getElementById('chat-input'),
     clearHistory: document.getElementById('btn-clear-history'),
     chatTitle: document.getElementById('chat-title'),
+    chatToolList: document.getElementById('chat-tool-list'),
     selectedCharacter: document.getElementById('selected-character'),
     portraitFrame: document.getElementById('chat-portrait-frame'),
   };
@@ -633,6 +689,8 @@
 
   function renderChatTools() {
     els.chatTitle.textContent = selectedId ? currentName() : 'No character selected';
+    els.chatToolList.textContent = allowedTools.length ? `Tools: ${allowedTools.join(', ')}` : '';
+    els.chatToolList.title = allowedTools.length ? `Available tools: ${allowedTools.join(', ')}` : '';
     els.clearHistory.disabled = !selectedId || !hasState(selectedId);
     renderPortrait();
   }
@@ -642,12 +700,28 @@
       els.list.innerHTML = '<div class="side-empty">No characters found.</div>';
       return;
     }
-    els.list.innerHTML = characters.map(character => `
-      <button class="character-row ${character.character_id === selectedId ? 'active' : ''}" type="button" data-id="${escapeHtml(character.character_id)}">
+    const filter = characterFilter.trim().toLowerCase();
+    const filtered = filter
+      ? characters.filter(character => [
+        character.character_id,
+        character.name || '',
+        character.kind || 'character',
+        character.suspended ? 'suspended' : '',
+      ].join(' ').toLowerCase().includes(filter))
+      : characters;
+    if (!filtered.length) {
+      els.list.innerHTML = '<div class="side-empty">No matching characters.</div>';
+      return;
+    }
+    els.list.innerHTML = filtered.map(character => {
+      const history = hasState(character.character_id);
+      return `
+      <button class="character-row ${character.character_id === selectedId ? 'active' : ''} ${history ? 'has-history' : ''}" type="button" data-id="${escapeHtml(character.character_id)}">
         <strong>${escapeHtml(character.name || character.character_id)}</strong>
-        <span>${escapeHtml(character.suspended ? 'suspended' : character.kind || 'character')}</span>
+        <span class="character-meta">${history ? '<span class="history-icon" aria-label="Has chat history" title="Has chat history">●</span>' : ''}${escapeHtml(character.suspended ? 'suspended' : character.kind || 'character')}</span>
       </button>
-    `).join('');
+    `;
+    }).join('');
   }
 
   function renderTranscript() {
@@ -686,13 +760,14 @@
     clientId = BunnylandPlay.persistentClientId(CLIENT_ID_KEY, 'character-chat');
     const status = await BunnylandApi.sendJson(base, '/world/chat/status');
     if (!status.enabled) throw new Error('character chat is disabled');
+    allowedTools = status.allowed_tools || [];
     const list = await BunnylandApi.sendJson(base, '/world/characters');
     characters = list.characters || [];
     if (!characters.some(character => character.character_id === selectedId)) selectedId = '';
     renderCharacters();
     renderTranscript();
     resumePendingPolls();
-    setStatus(`Connected · tools: ${(status.allowed_tools || []).join(', ') || 'none'}`);
+    setStatus('Connected');
     els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character to start chatting.';
     if (selectedId) loadSelectedProjection(selectedId);
   }
@@ -749,6 +824,7 @@
           pendingPolls.delete(key);
           appendPendingReply(characterId, commandId, response.reply || '');
           if (selectedId === characterId) {
+            renderCharacters();
             renderTranscript();
             els.line.textContent = response.action?.tool ? `${response.action.tool}: ${response.action.status}` : 'Action finished.';
           }
@@ -780,6 +856,7 @@
       history: historyForPayload(state.messages),
     };
     appendMessage(characterId, { role: 'user', text: message });
+    renderCharacters();
     renderTranscript();
     els.line.textContent = 'Waiting for reply...';
     const response = await BunnylandApi.sendJson(
@@ -795,6 +872,7 @@
         startPendingPoll(characterId, action.command_id);
       }
     }
+    renderCharacters();
     renderTranscript();
     els.line.textContent = action.tool ? `${action.tool}: ${action.status}${action.reason ? ` · ${action.reason}` : ''}` : 'Reply received.';
   }
@@ -804,6 +882,7 @@
     const characterId = selectedId;
     clearPendingPolls(characterId);
     clearState(characterId);
+    renderCharacters();
     renderTranscript();
     els.line.textContent = `Cleared local chat history for ${currentName()}.`;
   }
@@ -815,6 +894,16 @@
     });
   });
   els.clearHistory.addEventListener('click', clearCurrentHistory);
+  els.characterFilter.addEventListener('input', event => {
+    characterFilter = event.target.value;
+    renderCharacters();
+  });
+  els.characterFilterClear.addEventListener('click', () => {
+    characterFilter = '';
+    els.characterFilter.value = '';
+    renderCharacters();
+    els.characterFilter.focus();
+  });
   els.list.addEventListener('click', event => {
     const row = event.target.closest('.character-row');
     if (!row) return;

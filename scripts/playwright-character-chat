@@ -121,6 +121,20 @@ def install_routes(page, posted: list[dict]) -> None:
             }
         ),
     )
+    page.route(
+        "**/api/media/portraits/*.png",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="image/svg+xml",
+            body=(
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>"
+                "<rect width='100' height='100' fill='#313244'/>"
+                "<circle cx='50' cy='38' r='20' fill='#89b4fa'/>"
+                "<path d='M18 96c8-26 56-26 64 0z' fill='#cba6f7'/>"
+                "</svg>"
+            ),
+        ),
+    )
 
     def pending_handler(route):
         route.fulfill(
@@ -203,8 +217,15 @@ def connect(page) -> None:
     expect(page.locator("#character-list")).to_contain_text("Juniper")
     expect(page.locator("#character-list")).to_contain_text("Hazel")
     expect(page.locator("#chat-title")).to_contain_text("No character selected")
+    expect(page.locator("#chat-tool-list")).to_contain_text("Tools: forget, inspect")
     expect(page.locator("#selected-character")).to_be_hidden()
     expect(page.locator("#transcript")).to_contain_text("Pick a character to start chatting.")
+    page.locator("#character-filter").fill("hazel")
+    expect(page.locator("#character-list")).not_to_contain_text("Juniper")
+    expect(page.locator("#character-list")).to_contain_text("Hazel")
+    page.locator("#character-filter-clear").click()
+    expect(page.locator("#character-list")).to_contain_text("Juniper")
+    expect(page.locator("#character-list")).to_contain_text("Hazel")
     page.locator(f'.character-row[data-id="{CHARACTER}"]').click()
     expect(page.locator("#status-line")).to_contain_text("Chatting with Juniper")
     expect(page.locator("#selected-character")).to_be_visible()
@@ -231,6 +252,8 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
     expect(page.locator("#transcript")).to_contain_text("reply to hello")
     expect(page.locator("#status-line")).to_contain_text("look: executed")
     expect(page.locator(".action-message.executed")).to_contain_text("look")
+    expect(page.locator(f'.character-row[data-id="{CHARACTER}"].has-history')).to_have_count(1)
+    expect(page.locator(f'.character-row[data-id="{CHARACTER}"] .history-icon')).to_contain_text("●")
     assert posted[-1]["url"].endswith("/world/character/character%3A1/chat")
     payload = posted[-1]["payload"]
     if payload["client_id"] != CLIENT_ID or payload["history"] != []:
@@ -258,6 +281,7 @@ def assert_clear_history_button(page, posted: list[dict]) -> None:
     expect(page.locator("#transcript")).to_contain_text("No local chat history")
     expect(page.locator("#status-line")).to_contain_text("Cleared local chat history for Juniper.")
     expect(page.locator("#btn-clear-history")).to_be_disabled()
+    expect(page.locator(f'.character-row[data-id="{CHARACTER}"].has-history')).to_have_count(0)
     if page.evaluate("(key) => localStorage.getItem(key)", HISTORY_KEY) is not None:
         raise AssertionError("clear history did not remove the selected character's local state")
 
@@ -363,6 +387,7 @@ def assert_character_selection(page, posted: list[dict]) -> None:
         raise AssertionError(f"Hazel chat used wrong URL: {posted[-1]['url']!r}")
     expect(page.locator("#transcript")).to_contain_text("hazel hello")
     expect(page.locator("#transcript")).to_contain_text("reply to hazel hello")
+    expect(page.locator(f'.character-row[data-id="{OTHER}"].has-history')).to_have_count(1)
 
 
 def assert_mobile_layout(page) -> None:
