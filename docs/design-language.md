@@ -21,7 +21,8 @@ identical.
 
 ## Foundation
 
-The shared base style lives in `assets/bunnyland-ui.css`.
+The shared base style is published by `@bunnyland/ui-web` and synced into this repo as
+`assets/bunnyland-ui.css`.
 
 - Theme selection is page-level: `BunnylandUI.setTheme('purple-blue-dark')` applies a
   root class such as `bl-theme-purple-blue-dark`, and that class overrides CSS variables.
