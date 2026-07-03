@@ -1,4 +1,4 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.27-bookworm
 
 ENV BUNNYLAND_API_UPSTREAM=http://server:8765 \
     BUNNYLAND_SERVER_NAME=_ \
