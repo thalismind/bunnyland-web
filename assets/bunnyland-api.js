@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  let playerAuthHeader = null;
+
   function normalizeBase(url) {
     return String(url || '').trim().replace(/\/$/, '');
   }
@@ -60,7 +62,7 @@
 
   function claimHeaders(control = null) {
     return {
-      ...jsonHeaders(),
+      ...jsonHeaders(playerAuthHeader),
       ...(control?.claimSecret ? { 'X-Bunnyland-Claim-Secret': control.claimSecret } : {}),
     };
   }
@@ -71,21 +73,45 @@
     return data;
   }
 
-  async function sendJson(base, path, { method = 'GET', body = null, headers = null } = {}) {
-    const res = await fetch(`${normalizeBase(base)}${path}`, {
+  async function sendJson(base, path, { method = 'GET', body = null, headers = null, promptAuth = true } = {}) {
+    const currentHeaders = () => headers || jsonHeaders(playerAuthHeader);
+    let res = await fetch(`${normalizeBase(base)}${path}`, {
       method,
-      headers: headers || jsonHeaders(),
+      headers: currentHeaders(),
       body,
     });
+    if (res.status === 401 && !headers && promptAuth) {
+      const auth = promptPlayerAuth();
+      if (auth) {
+        setPlayerAuth(auth);
+        res = await fetch(`${normalizeBase(base)}${path}`, {
+          method,
+          headers: currentHeaders(),
+          body,
+        });
+      }
+    }
     return parseJsonResponse(res);
   }
 
-  function promptBasicAuth() {
-    const username = window.prompt('Admin username');
+  function promptBasicAuth(label = 'Admin') {
+    const username = window.prompt(`${label} username`);
     if (!username) return null;
-    const password = window.prompt('Admin password');
+    const password = window.prompt(`${label} password`);
     if (password == null) return null;
     return `Basic ${btoa(`${username}:${password}`)}`;
+  }
+
+  function promptPlayerAuth() {
+    return promptBasicAuth('Player');
+  }
+
+  function setPlayerAuth(authHeader = null) {
+    playerAuthHeader = authHeader || null;
+  }
+
+  function getPlayerAuth() {
+    return playerAuthHeader;
   }
 
   async function sendAdmin(base, path, {
@@ -185,17 +211,20 @@
     applyServerParam,
     adminHeaders,
     claimHeaders,
+    getPlayerAuth,
     jsonHeaders,
     mediaUrl,
     normalizeBase,
     parseJsonResponse,
     promptBasicAuth,
+    promptPlayerAuth,
     requestEventImage,
     requestSceneImage,
     sendAdmin,
     sendJson,
     serverFromUrl,
     setServerInUrl,
+    setPlayerAuth,
     socketUrl,
     uploadCharacterImage,
   };

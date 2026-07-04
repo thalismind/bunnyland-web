@@ -59,6 +59,31 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
   assert.equal(BunnylandApi.socketUrl('https://server.test/api/', '/world/updates'), 'wss://server.test/api/world/updates');
 });
 
+test('BunnylandApi prompts and reuses player auth for player routes', async () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  const { BunnylandApi } = context;
+  const calls = [];
+  const prompts = ['player1', 'player-pass'];
+  context.window.prompt = () => prompts.shift();
+  context.fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return { ok: false, status: 401, json: async () => ({ detail: 'auth required' }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+
+  const result = await BunnylandApi.sendJson('http://s.test/', '/world/characters');
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.headers.Authorization, undefined);
+  assert.equal(calls[1].options.headers.Authorization, 'Basic cGxheWVyMTpwbGF5ZXItcGFzcw==');
+  assert.equal(BunnylandApi.getPlayerAuth(), 'Basic cGxheWVyMTpwbGF5ZXItcGFzcw==');
+  assert.equal(
+    BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' }).Authorization,
+    'Basic cGxheWVyMTpwbGF5ZXItcGFzcw==',
+  );
+});
+
 test('Character chat page is in the client menu and sends bounded local history', () => {
   const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
   const page = fs.readFileSync('character-chat.html', 'utf8');

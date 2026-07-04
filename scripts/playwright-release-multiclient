@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from base64 import b64encode
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,8 @@ WEB_LOG = Path(os.environ.get("BUNNYLAND_RELEASE_WEB_LOG", ARTIFACT_DIR / "web.l
 OTEL_TRACE_FILE = Path(
     os.environ.get("BUNNYLAND_RELEASE_OTEL_TRACE_FILE", ARTIFACT_DIR / "otel-traces.jsonl")
 )
+PLAYER_USER = os.environ.get("BUNNYLAND_PLAYER_USER", "")
+PLAYER_PASSWORD = os.environ.get("BUNNYLAND_PLAYER_PASSWORD", "")
 SERVER_CONTAINER_NAME: str | None = None
 
 
@@ -76,8 +79,23 @@ def free_port() -> int:
 
 
 def api_get(api_url: str, path: str) -> dict[str, Any]:
-    with urllib.request.urlopen(f"{api_url}{path}", timeout=10) as response:
+    request = urllib.request.Request(f"{api_url}{path}", headers=player_headers())
+    with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def player_auth_header() -> str:
+    if not PLAYER_USER and not PLAYER_PASSWORD:
+        return ""
+    if not PLAYER_USER or not PLAYER_PASSWORD:
+        raise RuntimeError("set both BUNNYLAND_PLAYER_USER and BUNNYLAND_PLAYER_PASSWORD")
+    token = b64encode(f"{PLAYER_USER}:{PLAYER_PASSWORD}".encode()).decode()
+    return f"Basic {token}"
+
+
+def player_headers() -> dict[str, str]:
+    auth = player_auth_header()
+    return {"Authorization": auth} if auth else {}
 
 
 def url_ok(url: str, timeout: float = 2.0) -> bool:
@@ -319,6 +337,9 @@ def connect_page(page, page_name: str, api_url: str) -> None:
     page.goto(f"{BASE_URL}/{page_name}", wait_until="domcontentloaded")
     if page_name == "toon-client.html":
         page.locator("#loading-overlay").wait_for(state="hidden", timeout=5000)
+    auth = player_auth_header()
+    if auth:
+        page.evaluate("(authHeader) => BunnylandApi.setPlayerAuth(authHeader)", auth)
     page.locator("#api-url").fill(api_url)
     page.locator("#btn-connect").click()
     page.wait_for_function("() => window.app && window.app.characters?.length > 0 || window.app?.characterList?.length > 0", timeout=20000)

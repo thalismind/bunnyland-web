@@ -18,9 +18,11 @@ import json
 import os
 import re
 import time
+from base64 import b64encode
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect, sync_playwright
 
 
@@ -31,6 +33,17 @@ API_URL = os.environ.get(
     "BUNNYLAND_TOON_API_URL", "https://sandbox.bunnyland.dev/api"
 ).rstrip("/")
 OUT_DIR = Path(os.environ.get("BUNNYLAND_TOON_SCREENSHOT_DIR", "/tmp"))
+PLAYER_USER = os.environ.get("BUNNYLAND_PLAYER_USER", "")
+PLAYER_PASSWORD = os.environ.get("BUNNYLAND_PLAYER_PASSWORD", "")
+
+
+def player_auth_header() -> str:
+    if not PLAYER_USER and not PLAYER_PASSWORD:
+        return ""
+    if not PLAYER_USER or not PLAYER_PASSWORD:
+        raise RuntimeError("set both BUNNYLAND_PLAYER_USER and BUNNYLAND_PLAYER_PASSWORD")
+    token = b64encode(f"{PLAYER_USER}:{PLAYER_PASSWORD}".encode()).decode()
+    return f"Basic {token}"
 
 
 def screenshot(page, name: str) -> str:
@@ -112,10 +125,17 @@ def main() -> None:
 
         page.goto(PAGE_URL, wait_until="domcontentloaded")
         shots.append(screenshot(page, "01-loaded"))
-        page.locator('#loading-overlay').wait_for(state="visible", timeout=2000)
-        page.locator('#loading-overlay').wait_for(state="hidden", timeout=4000)
+        overlay = page.locator("#loading-overlay")
+        try:
+            overlay.wait_for(state="visible", timeout=2000)
+        except PlaywrightTimeoutError:
+            pass
+        overlay.wait_for(state="hidden", timeout=4000)
 
         page.locator("#api-url").fill(API_URL)
+        auth = player_auth_header()
+        if auth:
+            page.evaluate("(authHeader) => BunnylandApi.setPlayerAuth(authHeader)", auth)
         page.locator("#btn-connect").click()
         # The status flips "● Connected" → "● Live · epoch …" within one poll, so accept
         # either rather than racing the brief Connected state.
