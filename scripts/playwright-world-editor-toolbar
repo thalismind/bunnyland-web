@@ -76,7 +76,7 @@ def main() -> None:
         page.locator("#toolbar").screenshot(path=str(SCREENSHOT))
 
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
-        if not page.locator("h1").text_content() or "shared world" not in page.locator("h1").text_content():
+        if not page.locator("h1").text_content() or "Hungry Courier" not in page.locator("h1").text_content():
             raise AssertionError("welcome page headline did not render")
         if page.locator('a[href="toon-client.html"]').count() < 1:
             raise AssertionError("welcome page is missing a Toon Client link")

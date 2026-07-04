@@ -2,9 +2,9 @@
 """Playwright checks for the deployment Discord link surfaced from config.json.
 
 The frontend renders config.json from its environment at container start; a configured
-``discordUrl`` should appear on the welcome page (hero button + Discord bullet) and in the
-shared client menu footer, and should be absent when no URL is configured. This test mocks
-config.json with Playwright route interception so it does not depend on a deployed value.
+``discordUrl`` should appear on the welcome page hero button and in the shared client
+menu footer, and should be absent when no URL is configured. This test mocks config.json
+with Playwright route interception so it does not depend on a deployed value.
 """
 
 from pathlib import Path
@@ -67,11 +67,6 @@ def check_present(page) -> None:
     if hero.get_attribute("href") != DISCORD_URL:
         raise AssertionError("welcome hero Discord button has the wrong href")
 
-    entry_link = page.locator("#discord-entry a")
-    entry_link.wait_for(state="visible")
-    if entry_link.get_attribute("href") != DISCORD_URL:
-        raise AssertionError("welcome Discord bullet did not become a link")
-
     page.locator("#btn-client-menu").click()
     footer = page.locator(".client-menu-discord")
     footer.wait_for(state="visible")
@@ -95,9 +90,6 @@ def check_absent(page) -> None:
 
     if page.locator("#discord-link").is_visible():
         raise AssertionError("welcome hero Discord button should stay hidden when unset")
-    if page.locator("#discord-entry a").count() != 0:
-        raise AssertionError("welcome Discord bullet should stay plain text when unset")
-
     page.locator("#btn-client-menu").click()
     page.locator(".client-menu-item").first.wait_for()
     if page.locator(".client-menu-discord").count() != 0:
