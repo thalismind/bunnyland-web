@@ -184,6 +184,53 @@
       margin: 12px 0 6px;
     }
     .action-section-title:first-child { margin-top: 0; }
+    .first-run {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px;
+      margin-bottom: 10px;
+      background: var(--bl-bg-subtle);
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-md);
+      font-size: var(--bl-text-sm);
+    }
+    .first-run-goal {
+      color: var(--bl-text);
+      line-height: 1.35;
+    }
+    .first-run-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .first-run-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 4px;
+      align-items: start;
+      color: var(--bl-text-muted);
+    }
+    .first-run-item.done { color: var(--bl-text); }
+    .first-run-mark {
+      color: var(--bl-text-dim);
+      text-align: center;
+    }
+    .first-run-item.done .first-run-mark { color: var(--bl-ok); }
+    .first-run-suggestions {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      color: var(--bl-text-soft);
+    }
+    .first-run-reset {
+      align-self: flex-start;
+      padding: 3px 7px;
+      font-size: var(--bl-text-xs);
+    }
 
     #pt-summary {
       display: flex;
@@ -634,6 +681,7 @@ const ROOM_HEIGHT = 100;
 const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
 const CLIENT_ID_KEY = 'bunnyland.toon.clientId';
 const ICON_PREF_KEY = 'bunnyland.toon.showIcons';
+const FIRST_RUN_PROGRESS_KEY = 'bunnyland.toon.firstRunProgress';
 const FURNITURE_KINDS = new Set([
   'chair', 'table', 'bed', 'art', 'window', 'workstation', 'sofa', 'couch',
   'shelf', 'desk', 'lamp', 'rug', 'cabinet', 'dresser', 'stool', 'bench',
@@ -720,6 +768,7 @@ class RoomClient {
     this.debugBounds = false;
     this.actionFilter = '';
     this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
+    this.firstRunProgress = this._loadFirstRunProgress();
     this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
@@ -785,9 +834,16 @@ class RoomClient {
       this._renderActions();
     });
     document.getElementById('actions-body').addEventListener('click', (e) => {
-      if (e.target.id !== 'action-filter-clear') return;
-      this.actionFilter = '';
-      this._renderActions();
+      if (e.target.id === 'action-filter-clear') {
+        this.actionFilter = '';
+        this._renderActions();
+        return;
+      }
+      if (e.target.closest('[data-first-run-reset]')) {
+        this.firstRunProgress = {};
+        localStorage.removeItem(FIRST_RUN_PROGRESS_KEY);
+        this.render();
+      }
     });
     document.getElementById('actions-body').addEventListener('change', (e) => {
       if (e.target.id !== 'show-action-icons') return;
@@ -874,6 +930,7 @@ class RoomClient {
       if (this.playerId) {
         await this._refreshCharacterProjection();
         await this._refreshQueuedCommands();
+        this._markFirstRun('claim');
       }
       if (this.followPlayer) this._recenterOnPlayer();
       if (this.viewRoomId) await this._refreshRoomProjection(this.viewRoomId);
@@ -1226,6 +1283,7 @@ class RoomClient {
       const control = controlFromResponse(data, playerId, { active: true });
       storeClaimControl(CLIENT_ID_KEY, control);
       if (this.playerId === playerId) this.control = control;
+      this._markFirstRun('claim');
       return control;
     } catch (err) {
       console.warn('Could not claim Bunnyland web controller', err);
@@ -1314,6 +1372,69 @@ class RoomClient {
     return this.queuedCommands || [];
   }
 
+  _loadFirstRunProgress() {
+    try {
+      const data = JSON.parse(localStorage.getItem(FIRST_RUN_PROGRESS_KEY) || '{}');
+      return data && typeof data === 'object' ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _saveFirstRunProgress() {
+    try {
+      localStorage.setItem(FIRST_RUN_PROGRESS_KEY, JSON.stringify(this.firstRunProgress || {}));
+    } catch {
+      // The checklist remains usable for this session if persistent storage is unavailable.
+    }
+  }
+
+  _markFirstRun(id) {
+    if (!id || this.firstRunProgress[id]) return;
+    this.firstRunProgress = { ...this.firstRunProgress, [id]: true };
+    this._saveFirstRunProgress();
+  }
+
+  _markFirstRunForCommand(commandType) {
+    if (!commandType || commandType === 'move-sprite') return;
+    this._markFirstRun('room-action');
+    if (commandType === 'look' || commandType === 'inspect') this._markFirstRun('look');
+    if (commandType === 'move') this._markFirstRun('move');
+    if (['say', 'tell', 'start-conversation', 'conversation-line'].includes(commandType)) {
+      this._markFirstRun('say');
+    }
+    if (['take', 'drop', 'eat'].includes(commandType)) this._markFirstRun('help-courier');
+  }
+
+  _firstRunHtml(esc) {
+    const projection = this.characterProjection || {};
+    const checklist = projection.checklist || [];
+    const goal = projection.currentGoal || projection.current_goal || '';
+    const suggestions = projection.suggestedActions || projection.suggested_actions || [];
+    if (!goal && !checklist.length && !suggestions.length) return '';
+
+    if (this.activityLines.length) this._markFirstRun('inspect-consequence');
+    if (this.activityLines.some(line => /moss|courier/i.test(line.text || ''))) {
+      this._markFirstRun('watch-courier');
+    }
+
+    const rows = checklist.map((item) => {
+      const id = item.id || '';
+      const done = !!(item.completed || this.firstRunProgress[id]);
+      return `<li class="first-run-item${done ? ' done' : ''}">` +
+        `<span class="first-run-mark">${done ? '✓' : '·'}</span>` +
+        `<span>${esc(item.text || id)}</span></li>`;
+    }).join('');
+    const suggestionRows = suggestions.slice(0, 3).map(text =>
+      `<div>${esc(text)}</div>`).join('');
+    return `<div class="first-run">` +
+      `${goal ? `<div class="first-run-goal">${esc(goal)}</div>` : ''}` +
+      `${rows ? `<ul class="first-run-list">${rows}</ul>` : ''}` +
+      `${suggestionRows ? `<div class="first-run-suggestions">${suggestionRows}</div>` : ''}` +
+      `<button class="first-run-reset" type="button" data-first-run-reset="1">Reset checklist</button>` +
+      `</div>`;
+  }
+
   _nameFor(entityId) {
     const entity = this._entityById(entityId);
     return entity ? entityName(entity) : null;
@@ -1358,6 +1479,7 @@ class RoomClient {
         this._appendActivity({ text: result.reason || 'Command rejected.', kind: 'rejection' });
         return false;
       }
+      this._markFirstRunForCommand(commandType);
       return true;
     } catch (err) {
       console.warn('Could not submit Bunnyland command', err);
@@ -1595,6 +1717,7 @@ class RoomClient {
       : '<span class="pt-empty">Select a character to play as and see their actions.</span>';
 
     let html = `<div id="pt-summary">${summary}</div>` +
+      this._firstRunHtml(esc) +
       `<div id="action-filter-row">` +
       `<input id="action-filter" type="text" value="${esc(this.actionFilter)}" placeholder="Search actions" spellcheck="false">` +
       `<button id="action-filter-clear" type="button">Clear</button>` +
