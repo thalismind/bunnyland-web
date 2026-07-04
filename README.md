@@ -108,7 +108,9 @@ deploy-specific settings:
 ```json
 {
   "serverUrl": "/api/",
-  "autoConnect": false
+  "autoConnect": false,
+  "theme": "",
+  "themes": []
 }
 ```
 
@@ -116,9 +118,22 @@ deploy-specific settings:
   retyping it.
 - `autoConnect` — when `true`, the client also opens the live connection on load;
   when `false` it just fills the field and waits for you to click **Connect Live**.
+- `themes` adds deployment-specific theme choices to the shared web theme selector.
+  Each entry needs a `value` such as `server-night` and a human-readable `label`;
+  serve CSS for `:root.bl-theme-<value>` after `assets/bunnyland-ui.css`.
+- `theme` sets the deployment default theme when the visitor has not already saved a
+  preference. A URL with `?theme=<value>` overrides both and saves that theme.
 
 Edit `config.json` for your deployment. A missing or invalid file is harmless — the
 client falls back to its built-in defaults.
+
+When using the Docker image, set `BUNNYLAND_WEB_THEMES` to the JSON array that should be
+rendered into `config.json`, and optionally set `BUNNYLAND_WEB_THEME` to the default value:
+
+```sh
+BUNNYLAND_WEB_THEME='server-night'
+BUNNYLAND_WEB_THEMES='[{"value":"server-night","label":"Server Night"}]'
+```
 
 ## Deep links
 

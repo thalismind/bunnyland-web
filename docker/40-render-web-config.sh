@@ -8,9 +8,14 @@
 # appear in a future template is left untouched rather than blanked.
 set -eu
 
+: "${BUNNYLAND_WEB_THEME:=}"
+: "${BUNNYLAND_WEB_THEMES:=[]}"
+export BUNNYLAND_WEB_THEME
+export BUNNYLAND_WEB_THEMES
+
 template=/usr/share/nginx/config/config.json.template
 output=/usr/share/nginx/config/config.json
 
 if [ -f "$template" ]; then
-  envsubst '${BUNNYLAND_DISCORD_URL}' < "$template" > "$output"
+  envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_THEMES}' < "$template" > "$output"
 fi

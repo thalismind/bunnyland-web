@@ -1,5 +1,7 @@
 {
   "serverUrl": "/api/",
   "autoConnect": true,
-  "discordUrl": "${BUNNYLAND_DISCORD_URL}"
+  "discordUrl": "${BUNNYLAND_DISCORD_URL}",
+  "theme": "${BUNNYLAND_WEB_THEME}",
+  "themes": ${BUNNYLAND_WEB_THEMES}
 }

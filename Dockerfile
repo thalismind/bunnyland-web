@@ -2,7 +2,9 @@ FROM nginx:1.27-bookworm
 
 ENV BUNNYLAND_API_UPSTREAM=http://server:8765 \
     BUNNYLAND_SERVER_NAME=_ \
-    BUNNYLAND_DISCORD_URL=
+    BUNNYLAND_DISCORD_URL= \
+    BUNNYLAND_WEB_THEME= \
+    BUNNYLAND_WEB_THEMES=[]
 
 RUN mkdir -p /usr/share/nginx/config
 

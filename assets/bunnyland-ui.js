@@ -8,7 +8,7 @@
     dark: 'purple-blue-dark',
     light: 'purple-blue-light',
   };
-  const THEME_OPTIONS = [
+  const DEFAULT_THEME_OPTIONS = [
     { value: 'purple-blue-dark', label: 'Purple / Blue Dark' },
     { value: 'purple-blue-light', label: 'Purple / Blue Light' },
     { value: 'anime-dark', label: 'Anime Pink / Cyan Dark' },
@@ -16,6 +16,9 @@
     { value: 'earth-dark', label: 'Earth Green / Gold Dark' },
     { value: 'earth-light', label: 'Earth Green / Gold Light' },
   ];
+  const THEME_OPTIONS = DEFAULT_THEME_OPTIONS.map(option => ({ ...option }));
+  const THEME_VALUE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+  const boundThemeSelects = new Set();
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   // Admin tools order: World Generator, World Inspector, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
@@ -138,11 +141,16 @@
 
   // Fetch the deployment's config.json once and reuse it. Every client already reads this
   // file for serverUrl/autoConnect; the shared menu reads it too so a configured Discord
-  // invite can appear in the menu on every page without each client wiring it up.
+  // invite and custom themes can appear on every page without each client wiring them up.
   function loadConfig() {
     if (!deployConfigPromise) {
       deployConfigPromise = fetch('config.json', { cache: 'no-store' })
         .then((res) => (res.ok ? res.json() : {}))
+        .then((config) => {
+          registerThemeOptions(config?.themes);
+          initTheme(config?.theme || config?.defaultTheme);
+          return config;
+        })
         .catch(() => ({}));
     }
     return deployConfigPromise;
@@ -250,50 +258,100 @@
     return { readTags: () => readTagEditorTags(editor, options), update };
   }
 
-  function normalizeTheme(name) {
+  function normalizeThemeValue(name) {
     const raw = String(name || DEFAULT_THEME).trim();
-    const theme = THEME_ALIASES[raw] || raw;
-    return THEME_OPTIONS.some(option => option.value === theme) ? theme : DEFAULT_THEME;
+    return THEME_ALIASES[raw] || raw;
+  }
+
+  function isKnownTheme(name) {
+    return THEME_OPTIONS.some(option => option.value === name);
+  }
+
+  function sanitizeThemeOption(option) {
+    const value = String(option?.value || '').trim();
+    if (!THEME_VALUE_PATTERN.test(value)) return null;
+    const label = String(option?.label || value).trim() || value;
+    return { value, label };
+  }
+
+  function renderThemeSelect(select) {
+    const theme = currentTheme();
+    select.innerHTML = themeOptions().map(option => `
+      <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
+    `).join('');
+    select.value = theme;
+  }
+
+  function refreshThemeSelects() {
+    for (const select of boundThemeSelects) renderThemeSelect(select);
+  }
+
+  function themeFromSearch(search = location.search || '') {
+    const requested = new URLSearchParams(search).get('theme');
+    if (!requested) return null;
+    const theme = normalizeThemeValue(requested);
+    return isKnownTheme(theme) ? theme : null;
+  }
+
+  function normalizeTheme(name) {
+    const theme = normalizeThemeValue(name);
+    return isKnownTheme(theme) ? theme : DEFAULT_THEME;
   }
 
   function currentTheme() {
     return normalizeTheme(document.documentElement.dataset.theme);
   }
 
-  function setTheme(name) {
-    const theme = normalizeTheme(name);
+  function applyTheme(theme, persist = true) {
     const root = document.documentElement;
     for (const className of [...root.classList]) {
       if (className.startsWith(THEME_CLASS_PREFIX)) root.classList.remove(className);
     }
     root.classList.add(`${THEME_CLASS_PREFIX}${theme}`);
     root.dataset.theme = theme;
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch (_err) {
-      // The current page can still use the theme when storage is unavailable.
-    }
+    if (persist) storageSet(THEME_KEY, theme);
+    refreshThemeSelects();
+    return theme;
   }
 
-  function initTheme() {
-    let theme = DEFAULT_THEME;
-    try {
-      theme = localStorage.getItem(THEME_KEY) || theme;
-    } catch (_err) {
-      // Keep the default theme when storage is unavailable.
-    }
-    setTheme(theme);
+  function setTheme(name) {
+    const theme = normalizeTheme(name);
+    return applyTheme(theme, true);
+  }
+
+  function initTheme(defaultTheme = DEFAULT_THEME, search = location.search || '') {
+    const linkedTheme = themeFromSearch(search);
+    if (linkedTheme) return applyTheme(linkedTheme, true);
+
+    const stored = storageGet(THEME_KEY);
+    const requested = normalizeThemeValue(stored || defaultTheme || DEFAULT_THEME);
+    const theme = normalizeTheme(requested);
+    return applyTheme(theme, Boolean(stored) && isKnownTheme(requested));
   }
 
   function themeOptions() {
     return THEME_OPTIONS.map(option => ({ ...option }));
   }
 
+  function registerThemeOption(option) {
+    const theme = sanitizeThemeOption(option);
+    if (!theme) return null;
+    const index = THEME_OPTIONS.findIndex(existing => existing.value === theme.value);
+    if (index === -1) THEME_OPTIONS.push(theme);
+    else THEME_OPTIONS[index] = theme;
+    refreshThemeSelects();
+    return { ...theme };
+  }
+
+  function registerThemeOptions(options) {
+    if (!Array.isArray(options)) return [];
+    return options.map(option => registerThemeOption(option)).filter(Boolean);
+  }
+
   function bindThemeSelect(select) {
     if (!select) return null;
-    select.innerHTML = THEME_OPTIONS.map(option => `
-      <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
-    `).join('');
+    boundThemeSelects.add(select);
+    renderThemeSelect(select);
     select.value = currentTheme();
     select.addEventListener('change', () => setTheme(select.value));
     return { setValue: (value) => { select.value = normalizeTheme(value); setTheme(select.value); } };
@@ -388,7 +446,7 @@
           <label class="client-menu-theme" for="client-menu-theme-select">
             <span>Theme</span>
             <select id="client-menu-theme-select">
-              ${THEME_OPTIONS.map(option => `
+              ${themeOptions().map(option => `
                 <option value="${escapeHtml(option.value)}" ${option.value === theme ? 'selected' : ''}>${escapeHtml(option.label)}</option>
               `).join('')}
             </select>
@@ -634,11 +692,15 @@
     loadConfig,
     normalizeTags,
     normalizeTheme,
+    registerThemeOption,
+    registerThemeOptions,
     renderTagEditorTags,
     setTheme,
     tagEditorHtml,
+    themeFromSearch,
     themeOptions,
   };
 
   initTheme();
+  loadConfig();
 }());
