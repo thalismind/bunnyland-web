@@ -19,11 +19,45 @@
     history.replaceState(null, '', url);
   }
 
+  function truthyConfig(value) {
+    return value === true || value === 'true' || value === '1';
+  }
+
+  function mergedJsonHeaders(headers = null) {
+    const merged = {
+      ...jsonHeaders(playerAuthHeader),
+      ...(headers || {}),
+    };
+    if (
+      playerAuthHeader
+      && headers?.Authorization
+      && String(headers.Authorization).startsWith('Basic ')
+      && headers.Authorization !== playerAuthHeader
+    ) {
+      merged.Authorization = playerAuthHeader;
+    }
+    return merged;
+  }
+
+  function hasAuthHeader(headers = null) {
+    return Boolean(headers?.Authorization || headers?.authorization || headers?.['X-Bunnyland-Admin-Secret']);
+  }
+
+  function ensurePlayerAuth() {
+    if (playerAuthHeader) return true;
+    const auth = promptPlayerAuth();
+    if (!auth) return false;
+    setPlayerAuth(auth);
+    return true;
+  }
+
   async function applyConfigToInput({ inputId = 'api-url', isConnected = () => false, connect = null } = {}) {
     const config = await BunnylandUI.loadConfig();
     const input = document.getElementById(inputId);
     if (config.serverUrl && input && !isConnected()) input.value = config.serverUrl;
-    if (config.autoConnect && config.serverUrl && !isConnected() && connect) connect(config.serverUrl);
+    if (config.autoConnect && config.serverUrl && !isConnected() && connect) {
+      if (!truthyConfig(config.playerAuthRequired) || ensurePlayerAuth()) connect(config.serverUrl);
+    }
     return config;
   }
 
@@ -74,15 +108,16 @@
   }
 
   async function sendJson(base, path, { method = 'GET', body = null, headers = null, promptAuth = true } = {}) {
-    const currentHeaders = () => headers || jsonHeaders(playerAuthHeader);
+    const currentHeaders = () => mergedJsonHeaders(headers);
     let res = await fetch(`${normalizeBase(base)}${path}`, {
       method,
       headers: currentHeaders(),
       body,
     });
-    if (res.status === 401 && !headers && promptAuth) {
+    if (res.status === 401 && promptAuth) {
+      const hadAuth = hasAuthHeader(currentHeaders());
       const auth = promptPlayerAuth();
-      if (auth) {
+      if (auth && (!hadAuth || auth !== playerAuthHeader)) {
         setPlayerAuth(auth);
         res = await fetch(`${normalizeBase(base)}${path}`, {
           method,
@@ -211,6 +246,7 @@
     applyServerParam,
     adminHeaders,
     claimHeaders,
+    ensurePlayerAuth,
     getPlayerAuth,
     jsonHeaders,
     mediaUrl,

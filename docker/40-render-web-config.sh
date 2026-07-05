@@ -10,12 +10,14 @@ set -eu
 
 : "${BUNNYLAND_WEB_THEME:=}"
 : "${BUNNYLAND_WEB_THEMES:=[]}"
+: "${BUNNYLAND_PLAYER_AUTH_REQUIRED:=false}"
 export BUNNYLAND_WEB_THEME
 export BUNNYLAND_WEB_THEMES
+export BUNNYLAND_PLAYER_AUTH_REQUIRED
 
 template=/usr/share/nginx/config/config.json.template
 output=/usr/share/nginx/config/config.json
 
 if [ -f "$template" ]; then
-  envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_THEMES}' < "$template" > "$output"
+  envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_THEMES} ${BUNNYLAND_PLAYER_AUTH_REQUIRED}' < "$template" > "$output"
 fi

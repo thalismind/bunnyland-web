@@ -84,6 +84,75 @@ test('BunnylandApi prompts and reuses player auth for player routes', async () =
   );
 });
 
+test('BunnylandApi retries explicit claim headers with prompted player auth', async () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  const { BunnylandApi } = context;
+  const calls = [];
+  const prompts = ['player1', 'player-pass'];
+  context.window.prompt = () => prompts.shift();
+  context.fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return { ok: false, status: 401, json: async () => ({ detail: 'auth required' }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+
+  const result = await BunnylandApi.sendJson('http://s.test/', '/world/character/c1?claim_id=claim1', {
+    headers: BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' }),
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.headers.Authorization, undefined);
+  assert.equal(calls[0].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
+  assert.equal(calls[1].options.headers.Authorization, 'Basic cGxheWVyMTpwbGF5ZXItcGFzcw==');
+  assert.equal(calls[1].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
+});
+
+test('BunnylandApi replaces stale explicit player auth after prompt', async () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  const { BunnylandApi } = context;
+  const calls = [];
+  const prompts = ['player1', 'fresh-pass'];
+  context.window.prompt = () => prompts.shift();
+  BunnylandApi.setPlayerAuth('Basic stale-token');
+  const headers = BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' });
+  context.fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return { ok: false, status: 401, json: async () => ({ detail: 'auth required' }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+
+  await BunnylandApi.sendJson('http://s.test/', '/world/character/c1?claim_id=claim1', { headers });
+
+  assert.equal(calls[0].options.headers.Authorization, 'Basic stale-token');
+  assert.equal(calls[1].options.headers.Authorization, 'Basic cGxheWVyMTpmcmVzaC1wYXNz');
+  assert.equal(calls[1].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
+});
+
+test('BunnylandApi prompts before configured player-auth autoconnect', async () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  const { BunnylandApi } = context;
+  const prompts = ['player1', 'player-pass'];
+  const connected = [];
+  context.window.prompt = () => prompts.shift();
+  context.BunnylandUI = {
+    loadConfig: async () => ({
+      serverUrl: '/api/',
+      autoConnect: true,
+      playerAuthRequired: true,
+    }),
+  };
+  context.document.getElementById = () => ({ value: '' });
+
+  const config = await BunnylandApi.applyConfigToInput({
+    connect: (server) => connected.push(server),
+  });
+
+  assert.equal(config.playerAuthRequired, true);
+  assert.deepEqual(connected, ['/api/']);
+  assert.equal(BunnylandApi.getPlayerAuth(), 'Basic cGxheWVyMTpwbGF5ZXItcGFzcw==');
+});
+
 test('Character chat page is in the client menu and sends bounded local history', () => {
   const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
   const page = fs.readFileSync('character-chat.html', 'utf8');
