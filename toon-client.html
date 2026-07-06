@@ -1067,7 +1067,7 @@ class RoomClient {
   }
 
   _spritePos(entity) {
-    const p = entity?.sprite?.position || entity?.components?.SpritePosition;
+    const p = entity?.sprite?.position || entity?.components?.SpritePositionComponent;
     return p
       ? {
           x: Number.isFinite(Number(p.x)) ? Number(p.x) : ROOM_WIDTH / 2,
@@ -1077,15 +1077,15 @@ class RoomClient {
   }
 
   _spriteLayer(entity) {
-    return entity?.sprite?.layer ?? entity?.components?.SpriteLayer?.layer ?? 20;
+    return entity?.sprite?.layer ?? entity?.components?.SpriteLayerComponent?.layer ?? 20;
   }
 
   _spriteScale(entity) {
-    return entity?.sprite?.scale ?? entity?.components?.SpriteScale?.scale ?? 1;
+    return entity?.sprite?.scale ?? entity?.components?.SpriteScaleComponent?.scale ?? 1;
   }
 
   _spriteBounds(entity) {
-    const b = entity?.sprite?.bounds || entity?.components?.SpriteBounds;
+    const b = entity?.sprite?.bounds || entity?.components?.SpriteBoundsComponent;
     if (b) {
       return {
         width: Number.isFinite(Number(b.width)) ? Number(b.width) : 4,
@@ -1112,7 +1112,7 @@ class RoomClient {
   }
 
   _roomBounds(room) {
-    const b = room?.sprite?.bounds || room?.components?.SpriteBounds;
+    const b = room?.sprite?.bounds || room?.components?.SpriteBoundsComponent;
     return {
       width: Number.isFinite(Number(b?.width)) ? Number(b.width) : ROOM_WIDTH,
       height: Number.isFinite(Number(b?.height)) ? Number(b.height) : ROOM_HEIGHT,
@@ -1935,7 +1935,7 @@ class RoomClient {
 
     // Background = the room's own sprite (layer 0), or a labelled placeholder.
     const bg = document.getElementById('room-bg');
-    const roomImg = room.sprite?.image_url || room.sprite?.image_data || room.components?.SpriteImage?.url;
+    const roomImg = room.sprite?.image_url || room.sprite?.image_data || room.components?.SpriteImageComponent?.url;
     bg.style.backgroundImage = roomImg ? `url("${roomImg}")` : '';
     bg.textContent = roomImg ? '' : `“${entityName(room)}”`;
 
@@ -1943,7 +1943,7 @@ class RoomClient {
       `${entityName(room)}${this._playerInView() ? '' : '  ·  spectating'}`;
     stage.classList.toggle('spectating', !this._playerInView());
 
-    // Sprites: every member, ordered by layer, placed by SpritePosition (player uses
+    // Sprites: every member, ordered by layer, placed by SpritePositionComponent (player uses
     // its optimistic local position so movement feels instant).
     const members = this._roomMembers(this.viewRoomId)
       .filter(e => !e.components?.DoorComponent)
@@ -1970,11 +1970,11 @@ class RoomClient {
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
     el.style.zIndex = String(1000 + this._spriteLayer(entity));
-    // Sprites arrive at different sizes, so normalize each by its SpriteScale before
+    // Sprites arrive at different sizes, so normalize each by its SpriteScaleComponent before
     // compositing. Only the glyph scales; the name label stays legible.
     const scale = this._spriteScale(entity);
     const scaleStyle = scale !== 1 ? ` style="transform: scale(${scale})"` : '';
-    const img = entity.sprite?.image_url || entity.sprite?.image_data || entity.components?.SpriteImage?.url;
+    const img = entity.sprite?.image_url || entity.sprite?.image_data || entity.components?.SpriteImageComponent?.url;
     const glyph = img
       ? `<img class="glyph" src="${img}" alt=""${scaleStyle}>`
       : `<div class="glyph"${scaleStyle}>${entityIcon(entity)}</div>`;
