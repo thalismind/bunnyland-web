@@ -147,7 +147,8 @@
       deployConfigPromise = fetch('config.json', { cache: 'no-store' })
         .then((res) => (res.ok ? res.json() : {}))
         .then((config) => {
-          registerThemeOptions(config?.themes);
+          if (config?.replaceThemes) replaceThemeOptions(config?.themes);
+          else registerThemeOptions(config?.themes);
           initTheme(config?.theme || config?.defaultTheme);
           return config;
         })
@@ -346,6 +347,18 @@
   function registerThemeOptions(options) {
     if (!Array.isArray(options)) return [];
     return options.map(option => registerThemeOption(option)).filter(Boolean);
+  }
+
+  function replaceThemeOptions(options) {
+    if (!Array.isArray(options)) return [];
+    const themes = options.map(option => sanitizeThemeOption(option)).filter(Boolean);
+    THEME_OPTIONS.splice(
+      0,
+      THEME_OPTIONS.length,
+      ...(themes.length ? themes : DEFAULT_THEME_OPTIONS).map(option => ({ ...option }))
+    );
+    refreshThemeSelects();
+    return themeOptions();
   }
 
   function bindThemeSelect(select) {
@@ -694,6 +707,7 @@
     normalizeTheme,
     registerThemeOption,
     registerThemeOptions,
+    replaceThemeOptions,
     renderTagEditorTags,
     setTheme,
     tagEditorHtml,
