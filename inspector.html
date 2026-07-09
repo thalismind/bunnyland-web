@@ -1415,15 +1415,14 @@ class BunnylandInspector {
     this._clearEvents();
     this._apiBase = BunnylandApi.normalizeBase(url);
 
-    // The /world/updates stream is admin-gated and a WebSocket handshake can't carry a JS
-    // Authorization header, so it depends on the browser's cached HTTP credentials. A failed
-    // handshake won't prompt for them, so make a protected same-origin request first: its
-    // 401 triggers the native login dialog, and the browser then reuses those credentials on
-    // the WebSocket handshake (and every later admin request).
-    await this._ensureLogin();
+    // The inspector is an admin tool. Authenticate the admin-gated overview endpoint first,
+    // then put those same Basic-auth credentials into the WebSocket URL because the
+    // WebSocket constructor cannot take custom Authorization headers.
+    const authenticated = await this._ensureLogin();
+    if (!authenticated) return;
     if (this._apiBase !== BunnylandApi.normalizeBase(url)) return; // a newer connect superseded us
 
-    const wsUrl = BunnylandApi.socketUrl(this._apiBase);
+    const wsUrl = BunnylandApi.socketUrl(this._apiBase, '/world/updates', this._authHeader);
     const ws = new WebSocket(wsUrl);
     this._ws = ws;
 
@@ -1481,20 +1480,19 @@ class BunnylandInspector {
   }
 
   async _ensureLogin() {
-    // Hit a protected, same-origin endpoint so a 401 makes the browser prompt for and cache
-    // HTTP credentials before the WebSocket handshake. The response is discarded; the side
-    // effect (the cached login) is the point.
     if (!this._apiBase) return;
     try {
-      await fetch(`${this._apiBase}/world/overview`, { cache: 'no-store' });
-    } catch (_err) {
-      // A network error surfaces when the WebSocket fails to open; ignore it here.
+      await this._sendAdmin('/world/overview', { method: 'GET', prompt: true });
+      return true;
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+      return false;
     }
   }
 
   async _refreshFromApi() {
     try {
-      const data = await BunnylandApi.sendJson(this._apiBase, '/world/snapshot');
+      const data = await this._sendAdmin('/world/snapshot', { method: 'GET', prompt: false });
       this._applyWorld(parseApiSnapshot(data), { resetView: false });
       this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
       if (this._authHeader) this._refreshRuntime({ prompt: false });
@@ -1788,7 +1786,7 @@ class BunnylandInspector {
   async _primeEvents() {
     if (!this._apiBase) return;
     try {
-      const data = await BunnylandApi.sendJson(this._apiBase, '/world/events/recent');
+      const data = await this._sendAdmin('/world/events/recent', { method: 'GET', prompt: false });
       for (const msg of (data.events || [])) this._appendEvent(msg.data || msg);
     } catch (_) { /* feed just stays empty */ }
   }

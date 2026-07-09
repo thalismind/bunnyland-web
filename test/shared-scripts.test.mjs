@@ -57,6 +57,10 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
 
   assert.equal(BunnylandApi.normalizeBase(' http://server.test/api/ '), 'http://server.test/api');
   assert.equal(BunnylandApi.socketUrl('https://server.test/api/', '/world/updates'), 'wss://server.test/api/world/updates');
+  assert.equal(
+    BunnylandApi.socketUrl('/api', '/world/updates', `Basic ${Buffer.from('admin:p@ss').toString('base64')}`),
+    'ws://admin:p%40ss@example.test/api/world/updates',
+  );
 });
 
 test('BunnylandApi prompts and reuses player auth for player routes', async () => {

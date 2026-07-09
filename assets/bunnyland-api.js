@@ -214,8 +214,20 @@
     return parseJsonResponse(res);
   }
 
-  function socketUrl(base, path = '/world/updates') {
-    return `${normalizeBase(base).replace(/^http/, 'ws')}${path}`;
+  function socketUrl(base, path = '/world/updates', authHeader = null) {
+    const normalized = normalizeBase(base);
+    if (!authHeader || !String(authHeader).startsWith('Basic ')) {
+      return `${normalized.replace(/^http/, 'ws')}${path}`;
+    }
+    const url = new URL(`${normalized}${path}`, location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const decoded = atob(String(authHeader).slice(6));
+    const separator = decoded.indexOf(':');
+    if (separator >= 0) {
+      url.username = decoded.slice(0, separator);
+      url.password = decoded.slice(separator + 1);
+    }
+    return url.toString();
   }
 
   function mediaUrl(base, url) {
