@@ -422,6 +422,52 @@ def main() -> None:
             }
         ]:
             raise AssertionError(f"assign controller used unexpected request: {assign_capture!r}")
+        monitor_result = page.evaluate(
+            """
+            async () => {
+              const calls = [];
+              window.app._apiBase = '/api';
+              window.prompt = () => '123456789';
+              window.app._sendPatch = async (operations, options) => {
+                calls.push({ operations, options });
+                return {
+                  world_epoch: 13,
+                  changed_entities: [{
+                    id: 'room',
+                    components: {
+                      RoomComponent: { title: 'Room' },
+                      DiscordRoomFeedComponent: { channel_id: 123456789 },
+                    },
+                    relationships: {
+                      Contains: [{ target_id: 'char', edge: { mode: 'room_content' } }],
+                    },
+                  }],
+                  deleted_entities: [],
+                };
+              };
+              window.app._showContextMenu('room', 100, 100);
+              const text = document.getElementById('graph-context-menu').textContent || '';
+              await window.app._monitorRoom('room');
+              return { text, calls };
+            }
+            """
+        )
+        if "Monitor Room" not in monitor_result["text"]:
+            raise AssertionError(f"room context menu missed Monitor Room: {monitor_result['text']!r}")
+        expected_monitor_ops = [
+            {
+                "op": "add_component",
+                "entity_id": "room",
+                "component": {
+                    "type": "DiscordRoomFeedComponent",
+                    "fields": {"channel_id": 123456789},
+                },
+            }
+        ]
+        if monitor_result["calls"][0]["operations"] != expected_monitor_ops:
+            raise AssertionError(f"monitor room sent unexpected patch: {monitor_result!r}")
+        if monitor_result["calls"][0]["options"].get("status") != "● Room monitoring enabled":
+            raise AssertionError(f"monitor room used unexpected status: {monitor_result!r}")
         clone_ops = page.evaluate(
             """
             () => window.app._cloneEntityOperations('char', 'clone_char')

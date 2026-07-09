@@ -1301,11 +1301,22 @@ class BunnylandInspector {
     const liveDisabled = this._apiBase ? '' : ' disabled';
     const canAssignController = this._apiBase && entity.components?.CharacterComponent && controllers.length;
     const controllerDisabled = canAssignController ? '' : ' disabled';
+    const isRoom = Boolean(entity.components?.RoomComponent);
+    const alreadyMonitored = Boolean(entity.components?.DiscordRoomFeedComponent);
+    const monitorDisabled = this._apiBase && isRoom && !alreadyMonitored ? '' : ' disabled';
+    const monitorTitle = !isRoom
+      ? 'Only rooms can be monitored'
+      : alreadyMonitored
+        ? 'Room is already monitored'
+        : this._apiBase
+          ? 'Mirror room activity to a Discord channel'
+          : 'Connect live before monitoring a room';
     const selectedController = entity.relationships?.ControlledBy?.[0]?.target || controllers[0]?.id || '';
     menu.innerHTML = `
       <div class="graph-menu-title">${esc(entityDisplayName(entity))}</div>
       <button type="button" class="graph-menu-item" data-menu-action="edit">Edit in World Editor</button>
       <div class="graph-menu-sep"></div>
+      <button type="button" class="graph-menu-item" data-menu-action="monitor-room" title="${esc(monitorTitle)}"${monitorDisabled}>Monitor Room</button>
       <select class="graph-menu-select" data-controller-select${canAssignController ? '' : ' disabled'}>
         ${controllers.length
           ? controllers.map(option => `<option value="${esc(option.id)}"${option.id === selectedController ? ' selected' : ''}>${esc(option.label)}</option>`).join('')
@@ -1348,6 +1359,10 @@ class BunnylandInspector {
     if (action === 'assign') {
       const controllerId = document.querySelector('#graph-context-menu [data-controller-select]')?.value;
       if (controllerId) this._assignController(entityId, controllerId);
+      return;
+    }
+    if (action === 'monitor-room') {
+      this._monitorRoom(entityId);
       return;
     }
     if (action === 'delete') this._deleteEntity(entityId);
@@ -1594,6 +1609,34 @@ class BunnylandInspector {
       });
       this._mergePatchResponse(data);
       this._setApiStatus('live', '● Controller assigned');
+    } catch (err) {
+      this._setApiStatus('error', `⚠ ${err.message}`);
+    }
+  }
+
+  async _monitorRoom(entityId) {
+    const entity = this.world?.entities?.[entityId];
+    if (!entity?.components?.RoomComponent) return;
+    if (entity.components.DiscordRoomFeedComponent) return;
+    const raw = window.prompt('Discord channel ID for room activity');
+    if (raw == null) return;
+    const trimmed = String(raw).trim();
+    if (!/^\d+$/.test(trimmed)) {
+      this._setApiStatus('error', '⚠ Discord channel ID must be a number');
+      return;
+    }
+    try {
+      await this._sendPatch([{
+        op: 'add_component',
+        entity_id: entityId,
+        component: {
+          type: 'DiscordRoomFeedComponent',
+          fields: { channel_id: Number(trimmed) }
+        }
+      }], {
+        status: '● Room monitoring enabled',
+        selectEntityId: entityId
+      });
     } catch (err) {
       this._setApiStatus('error', `⚠ ${err.message}`);
     }
