@@ -67,6 +67,17 @@ jobs:
             python -m playwright install --with-deps chromium
           fi
 
+      - name: Pull server container for memory regression
+        run: |
+          if command -v nerdctl >/dev/null 2>&1; then
+            sudo nerdctl pull ghcr.io/thalismind/bunnyland-server:main
+          elif command -v docker >/dev/null 2>&1; then
+            docker pull ghcr.io/thalismind/bunnyland-server:main
+          else
+            echo "no supported container runtime found; install nerdctl or docker" >&2
+            exit 1
+          fi
+
       - name: Run Playwright regressions
         run: scripts/playwright-all
 
