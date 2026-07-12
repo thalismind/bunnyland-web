@@ -233,6 +233,12 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator("#actions-body")).to_contain_text("Queued actions")
     expect(page.locator("#actions-body")).to_contain_text("next tick in")
     expect(page.locator("#actions-body")).to_contain_text("after lunch")
+    initial_countdown = page.locator("#queued-title").text_content()
+    page.wait_for_function(
+        "initial => document.querySelector('#queued-title')?.textContent !== initial",
+        arg=initial_countdown,
+        timeout=2000,
+    )
     expect(page.locator("#actions-body .verb.ready").nth(0)).to_contain_text("Say")
     expect(page.locator('.verb.unavailable.ready[data-tool="shout"]')).to_be_visible()
 

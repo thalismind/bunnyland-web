@@ -340,6 +340,7 @@ class WebRepl {
     this._liveUpdates = null;
     this._liveToken = 0;
     this._liveState = 'fallback';
+    this._countdownTimer = setInterval(() => this._updateQueuedCountdown(), 250);
 
     this._bindUi();
     this._restoreServerParam();
@@ -758,11 +759,21 @@ class WebRepl {
     if (!this.playerId) return this._write('Pick a player first: play <name>.', 'error');
     if (!this.queuedCommands.length) return this._write('No queued actions.');
     const countdown = queuedCountdownSeconds(this.queueProjection);
-    if (countdown != null) this._write(`Next tick in ${countdown}s.`);
+    if (countdown != null) {
+      this._writeHtml(`Next tick in <span data-next-tick-countdown>${countdown}</span>s.`);
+    }
     this._write(this.queuedCommands.map(command => {
       const payload = Object.entries(command.payload || {}).map(([k, v]) => `${k}=${v}`).join(' ');
       return `${command.command_id}: ${command.command_type}${payload ? ` ${payload}` : ''}`;
     }).join('\n'));
+  }
+
+  _updateQueuedCountdown() {
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    if (countdown == null) return;
+    document.querySelectorAll('[data-next-tick-countdown]').forEach(element => {
+      element.textContent = String(countdown);
+    });
   }
 
   async _cancelQueued(commandId) {

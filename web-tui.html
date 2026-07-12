@@ -453,6 +453,7 @@ class WebTui {
     this._liveUpdates = null;
     this._liveToken = 0;
     this._liveState = 'fallback';
+    this._countdownTimer = setInterval(() => this._updateQueuedCountdown(), 250);
 
     this._bindUi();
     this.render();
@@ -1061,13 +1062,20 @@ class WebTui {
     });
 
     const countdown = queuedCountdownSeconds(this.queueProjection);
-    document.getElementById('queued').innerHTML = `<div class="action-section-title">Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}</div>` +
+    document.getElementById('queued').innerHTML = `<div id="queued-title" class="action-section-title">Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}</div>` +
       (this.queuedCommands.length
         ? this.queuedCommands.map(command => `<button class="option" type="button" data-cancel-command="${esc(command.command_id || '')}" title="Cancel queued action"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span><span class="option-meta">cancel</span></button>`).join('')
         : '<div class="empty">No queued actions.</div>');
     document.querySelectorAll('#queued .option[data-cancel-command]').forEach(button => {
       button.addEventListener('click', () => this._cancelQueuedCommand(button.dataset.cancelCommand));
     });
+  }
+
+  _updateQueuedCountdown() {
+    const title = document.getElementById('queued-title');
+    if (!title) return;
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    title.textContent = `Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}`;
   }
 
   _verbRowHtml(action, index, hasPlayer, pts, esc) {

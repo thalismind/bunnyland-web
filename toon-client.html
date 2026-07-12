@@ -782,6 +782,7 @@ class RoomClient {
     this._clientIdPromise = toonPersistentClientId();
     this._loadingOverlay = null;
     this._loadingTimers = [];
+    this._countdownTimer = setInterval(() => this._updateQueuedCountdown(), 250);
 
     this._bindUi();
     this.render();                 // show the initial (disconnected) action panel
@@ -1807,7 +1808,7 @@ class RoomClient {
     const countdown = queuedCountdownSeconds(this.queueProjection);
     const title = `Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}`;
     if (!commands.length) {
-      return `<div class="action-section-title">${esc(title)}</div>` +
+      return `<div id="queued-title" class="action-section-title">${esc(title)}</div>` +
         '<div class="queued-empty">No queued actions.</div>';
     }
     const actions = this._availableActions();
@@ -1823,7 +1824,14 @@ class RoomClient {
         `<div class="queued-action-detail">${esc([cost, detail].filter(Boolean).join(' · '))}</div>` +
         `</button>`;
     }).join('');
-    return `<div class="action-section-title">${esc(title)}</div><div class="queued-list">${rows}</div>`;
+    return `<div id="queued-title" class="action-section-title">${esc(title)}</div><div class="queued-list">${rows}</div>`;
+  }
+
+  _updateQueuedCountdown() {
+    const title = document.getElementById('queued-title');
+    if (!title) return;
+    const countdown = queuedCountdownSeconds(this.queueProjection);
+    title.textContent = `Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}`;
   }
 
   _verbRowHtml(verb, pts, hasPlayer, esc) {

@@ -244,6 +244,12 @@ def connect_and_select(page) -> None:
     page.locator("#btn-send").click()
     expect(page.locator("#repl-log")).to_contain_text("Next tick in")
     expect(page.locator("#repl-log")).to_contain_text("text=later")
+    initial_countdown = page.locator("[data-next-tick-countdown]").last.text_content()
+    page.wait_for_function(
+        "initial => document.querySelector('[data-next-tick-countdown]')?.textContent !== initial",
+        arg=initial_countdown,
+        timeout=2000,
+    )
 
 
 def submit_say(page, posted: list[dict]) -> None:

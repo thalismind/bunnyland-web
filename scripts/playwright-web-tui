@@ -266,6 +266,12 @@ def connect_and_select(page) -> None:
     expect(page.locator("#queued")).to_contain_text("Remember")
     expect(page.locator("#queued")).to_contain_text("query: brass key")
     expect(page.locator("#queued")).to_contain_text("next tick in")
+    initial_countdown = page.locator("#queued-title").text_content()
+    page.wait_for_function(
+        "initial => document.querySelector('#queued-title')?.textContent !== initial",
+        arg=initial_countdown,
+        timeout=2000,
+    )
     expect(page.locator("#verbs .option").nth(0)).to_contain_text("Move")
     expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_be_visible()
 
