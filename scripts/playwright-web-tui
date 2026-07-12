@@ -262,6 +262,8 @@ def connect_and_select(page) -> None:
     expect(page.locator("#verbs")).to_contain_text("⌖ target")
     expect(page.locator("#verbs")).to_contain_text("1 AP")
     expect(page.locator("#verbs")).to_contain_text("1 FP")
+    expect(page.locator("#verbs")).to_contain_text("World actions")
+    expect(page.locator("#verbs")).to_contain_text("Focus actions")
     expect(page.locator("#verbs")).to_contain_text("not enough focus points")
     expect(page.locator("#queued")).to_contain_text("Remember")
     expect(page.locator("#queued")).to_contain_text("query: brass key")

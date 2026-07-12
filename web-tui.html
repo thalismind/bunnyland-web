@@ -1048,7 +1048,7 @@ class WebTui {
     const esc = BunnylandUI.escapeHtml;
     const actions = this._filteredActions();
     document.getElementById('show-action-icons').checked = this.showActionIcons;
-    const html = [['Room actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
+    const html = [['World actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
       const rows = actions.map((action, index) => ({ action, index }))
         .filter(item => actionLane(item.action) === lane)
         .map(item => this._verbRowHtml(item.action, item.index, hasPlayer, pts, esc))

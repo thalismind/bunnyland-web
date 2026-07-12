@@ -229,6 +229,8 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator("#actions-body")).to_contain_text("⌖ target")
     expect(page.locator("#actions-body")).to_contain_text("1 AP")
     expect(page.locator("#actions-body")).to_contain_text("1 FP")
+    expect(page.locator("#actions-body")).to_contain_text("World actions")
+    expect(page.locator("#actions-body")).to_contain_text("Focus actions")
     expect(page.locator("#actions-body")).to_contain_text("not enough focus points")
     expect(page.locator("#actions-body")).to_contain_text("Queued actions")
     expect(page.locator("#actions-body")).to_contain_text("next tick in")

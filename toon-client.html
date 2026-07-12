@@ -647,7 +647,7 @@ BunnylandUI.initHelp({
     {
       title: 'Acting',
       items: [
-        { label: 'Room & focus actions', desc: 'Each verb shows its AP / FP cost and is disabled when you cannot afford it.' },
+        { label: 'World & focus actions', desc: 'Each verb shows its AP / FP cost and is disabled when you cannot afford it.' },
         { label: 'Queued actions', desc: 'Actions you cannot afford yet are queued and run on the next tick. Click one to cancel it.' },
       ],
     },
@@ -1772,7 +1772,7 @@ class RoomClient {
       `<input id="show-action-icons" type="checkbox"${this.showActionIcons ? ' checked' : ''}> Icons</label>` +
       `</div>`;
     const filteredActions = this._filteredActions();
-    for (const [title, lane] of [['Room actions', 'world'], ['Focus actions', 'focus']]) {
+    for (const [title, lane] of [['World actions', 'world'], ['Focus actions', 'focus']]) {
       html += `<div class="action-section-title">${title}</div><div class="verb-list">`;
       const rows = filteredActions.filter(action => actionLane(action) === lane)
         .map((action) => this._verbRowHtml(action, pts, hasPlayer, esc)).join('');
