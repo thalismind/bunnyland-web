@@ -225,9 +225,13 @@ def install_routes(page, posted: list[dict]) -> None:
             body=json.dumps({"ok": True, "status": "queued"}),
         )
 
-    page.route("**/world/events/recent", json_route(EVENTS))
+    def recent_events_handler(route):
+        assert_claim(route)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(EVENTS))
+
     page.route("**/world/characters", json_route(CHARACTER_LIST))
     page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/character/**/events/recent**", recent_events_handler)
     page.route("**/world/character/**/commands**", json_route(QUEUED))
     page.route("**/world/character/**/scene-image**", scene_image_handler)
     page.route("**/world/controllers/web/claim", claim_handler)

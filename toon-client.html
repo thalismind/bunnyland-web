@@ -595,12 +595,13 @@ const {
   controlFromResponse,
   syncClaimControl,
   drainNarratedEvents,
+  createPlayerLiveUpdates,
   entityIcon,
   entityName,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   fetchRoomProjection,
   filterActions,
   characterSheetHref,
@@ -676,7 +677,7 @@ const DIR_EDGE = {
 };
 
 const SYNC_INTERVAL_MS = 500;   // how often optimistic moves are pushed to the server
-const POLL_INTERVAL_MS = 2000;  // how often the live view re-polls the player-facing projections
+const LOBBY_POLL_INTERVAL_MS = 2000;
 const ROOM_WIDTH = 100;
 const ROOM_HEIGHT = 100;
 const MOVE_STEP = 4;            // normalized room units per arrow/WASD keypress
@@ -773,7 +774,10 @@ class RoomClient {
     this.localPos = null;        // optimistic {x, y} for the player, normalized room units
     this.localDirty = false;
     this._refreshTimer = null;
-    this._pollTimer = null;
+    this._lobbyTimer = null;
+    this._liveUpdates = null;
+    this._liveToken = 0;
+    this._liveState = 'fallback';
     this._clientId = null;
     this._clientIdPromise = toonPersistentClientId();
     this._loadingOverlay = null;
@@ -905,13 +909,13 @@ class RoomClient {
     this._setStatus('live', '● Connected');
     document.getElementById('btn-connect').textContent = 'Disconnect';
     this._syncUrl();
-    this._refresh();
-    this._pollTimer = setInterval(() => this._refresh(), POLL_INTERVAL_MS);
+    this._startLobbyPolling();
   }
 
   disconnect() {
-    clearInterval(this._pollTimer);
-    this._pollTimer = null;
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
     clearTimeout(this._refreshTimer);
     this.connected = false;
     this._setStatus('', '○ Offline');
@@ -937,7 +941,9 @@ class RoomClient {
       if (this.viewRoomId) await this._refreshRoomProjection(this.viewRoomId);
       await this._refreshRecentEvents();
       this.render();
-      this._setStatus('live', `● Live · epoch ${this.epoch}s`);
+      if (!this.playerId || this._liveState === 'live') {
+        this._setStatus('live', `● Live · epoch ${this.epoch}s`);
+      }
     } catch (err) {
       this._setStatus('error', `⚠ ${err.message}`);
     }
@@ -1017,9 +1023,9 @@ class RoomClient {
   }
 
   async _refreshRecentEvents() {
-    if (!this.apiBase) return;
+    if (!this.apiBase || !this.playerId) return;
     try {
-      const data = await fetchRecentEvents(this.apiBase);
+      const data = await fetchCharacterRecentEvents(this.apiBase, this.playerId, this.control);
       this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
       this._updateEventImage(data.events || []);
       this.eventsPrimed = true;
@@ -1032,6 +1038,41 @@ class RoomClient {
     const el = document.getElementById('api-status');
     el.className = cls;
     el.textContent = text;
+  }
+
+  _startLobbyPolling() {
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = setInterval(() => this._refresh(), LOBBY_POLL_INTERVAL_MS);
+    this._refresh();
+  }
+
+  _stopPlayerUpdates() {
+    this._liveToken += 1;
+    this._liveUpdates?.close();
+    this._liveUpdates = null;
+  }
+
+  _startPlayerUpdates() {
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
+    if (!this.connected || !this.apiBase || !this.playerId) {
+      if (this.connected) this._startLobbyPolling();
+      return;
+    }
+    const token = ++this._liveToken;
+    this._liveUpdates = createPlayerLiveUpdates({
+      base: this.apiBase,
+      characterId: this.playerId,
+      control: this.control,
+      refresh: () => this._refresh(),
+      onState: (state) => {
+        if (token !== this._liveToken) return;
+        this._liveState = state;
+        if (state === 'live') this._setStatus('live', '● Live');
+        else if (state !== 'closed') this._setStatus('error', '◌ Reconnecting · polling');
+      },
+    });
   }
 
   _syncUrl() {
@@ -1211,7 +1252,8 @@ class RoomClient {
     release.textContent = this._claimButtonLabel();
   }
 
-  _selectPlayer(id) {
+  async _selectPlayer(id) {
+    this._stopPlayerUpdates();
     this.playerId = id;
     this.control = null;
     this.characterProjection = null;
@@ -1228,8 +1270,8 @@ class RoomClient {
     this._recenterOnPlayer();
     document.getElementById('btn-release-character').disabled = !id;
     this.render();
-    if (id) this._claimPlayer(id);
     if (id) {
+      await this._claimPlayer(id);
       this._refreshCharacterProjection().then(() => {
         const roomId = this._playerRoomId();
         return Promise.all([
@@ -1238,7 +1280,7 @@ class RoomClient {
           this._refreshRecentEvents(),
         ]);
       }).finally(() => this.render());
-    }
+    } else if (this.connected) this._startLobbyPolling();
   }
 
   _recenterOnPlayer() {
@@ -1283,7 +1325,10 @@ class RoomClient {
       }, stored);
       const control = controlFromResponse(data, playerId, { active: true });
       storeClaimControl(CLIENT_ID_KEY, control);
-      if (this.playerId === playerId) this.control = control;
+      if (this.playerId === playerId) {
+        this.control = control;
+        this._startPlayerUpdates();
+      }
       this._markFirstRun('claim');
       return control;
     } catch (err) {
@@ -2069,6 +2114,7 @@ class RoomClient {
 
 window.addEventListener('resize', () => window.app?.render());
 window.app = new RoomClient();
+window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 </body>
 </html>

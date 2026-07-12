@@ -329,6 +329,7 @@ class EventStreamApp {
     this.expanded = new Set();
     this.pollTimer = null;
     this.polling = false;
+    this.authHeader = null;
     this._bind();
     this._loadConfig();
     this._readUrl();
@@ -398,7 +399,10 @@ class EventStreamApp {
   async refresh() {
     if (!this.base) return;
     try {
-      const data = await BunnylandApi.sendJson(this.base, '/world/events/recent');
+      const data = await BunnylandApi.sendAdmin(this.base, '/world/events/recent', {
+        getAuth: () => this.authHeader,
+        setAuth: (auth) => { this.authHeader = auth; },
+      });
       this._appendMessages(data.events || []);
       this._setStatus(`connected · ${this.events.length} buffered`);
     } catch (err) {
@@ -409,7 +413,10 @@ class EventStreamApp {
   async loadEntityNames() {
     if (!this.base) return;
     try {
-      const snapshot = await BunnylandApi.sendJson(this.base, '/world/snapshot');
+      const snapshot = await BunnylandApi.sendAdmin(this.base, '/world/snapshot', {
+        getAuth: () => this.authHeader,
+        setAuth: (auth) => { this.authHeader = auth; },
+      });
       const world = parseApiSnapshot(snapshot);
       this.entityNames = new Map(Object.entries(world.entities || {}).map(([id, entity]) => [
         id,

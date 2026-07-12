@@ -266,11 +266,12 @@ const {
   claimWebController,
   claimSettings,
   controlFromResponse,
+  createPlayerLiveUpdates,
   drainNarratedEvents,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   formatPoints,
   characterSheetHref,
   iconPreference,
@@ -297,7 +298,7 @@ const {
   updateWebControllerFallback,
 } = BunnylandPlay;
 
-const POLL_INTERVAL_MS = 2000;
+const LOBBY_POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
 const ICON_PREF_KEY = 'bunnyland.webRepl.showIcons';
 const META_COMMANDS = ['help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'image', 'img', 'sheet', 'profile', 'refresh', 'queued', 'cancel', 'clear'];
@@ -335,7 +336,10 @@ class WebRepl {
     this.history = [];
     this.historyIndex = 0;
     this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-repl');
-    this._pollTimer = null;
+    this._lobbyTimer = null;
+    this._liveUpdates = null;
+    this._liveToken = 0;
+    this._liveState = 'fallback';
 
     this._bindUi();
     this._restoreServerParam();
@@ -357,7 +361,10 @@ class WebRepl {
       this._syncClaimDialog();
       if (this.playerId) document.getElementById('claim-dialog')?.showModal();
     });
-    document.getElementById('btn-dialog-claim').addEventListener('click', () => this._claimPlayer());
+    document.getElementById('btn-dialog-claim').addEventListener('click', async () => {
+      await this._claimPlayer();
+      this._startPlayerUpdates();
+    });
     document.getElementById('btn-dialog-save-fallback').addEventListener('click', () => this._updateClaimFallback());
     document.getElementById('btn-dialog-release-controller').addEventListener('click', () => this._releaseController());
     document.getElementById('btn-dialog-release-claim').addEventListener('click', () => this._releaseClaim());
@@ -402,13 +409,13 @@ class WebRepl {
     this._setStatus('live', '● Connected');
     document.getElementById('btn-connect').textContent = 'Disconnect';
     BunnylandApi.setServerInUrl(this.apiBase);
-    this.refresh({ announce: true });
-    this._pollTimer = setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+    this._startLobbyPolling({ announce: true });
   }
 
   disconnect() {
-    clearInterval(this._pollTimer);
-    this._pollTimer = null;
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
     this.connected = false;
     this.characters = [];
     this.playerId = '';
@@ -441,7 +448,9 @@ class WebRepl {
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;
       }
       await this._refreshRecentEvents();
-      this._setStatus('live', `● Live · epoch ${this.epoch}s`);
+      if (!this.playerId || this._liveState === 'live') {
+        this._setStatus('live', `● Live · epoch ${this.epoch}s`);
+      }
       if (announce) this._write('Connected.', 'ok');
       this.render();
     } catch (err) {
@@ -466,6 +475,7 @@ class WebRepl {
   }
 
   _dropPlayer() {
+    this._stopPlayerUpdates();
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
@@ -473,6 +483,7 @@ class WebRepl {
     this.control = null;
     document.getElementById('player-select').value = '';
     document.getElementById('btn-claim-menu').disabled = true;
+    if (this.connected) this._startLobbyPolling();
     this.render();
   }
 
@@ -493,6 +504,7 @@ class WebRepl {
       this._write(`Could not claim ${chosen.name}.`, 'error');
       return;
     }
+    this._startPlayerUpdates();
     await this.refresh();
     this._write(`You are now ${chosen.name}.`, 'ok');
   }
@@ -919,12 +931,45 @@ class WebRepl {
   async _refreshRecentEvents() {
     if (!this.apiBase) return;
     try {
-      const data = await fetchRecentEvents(this.apiBase);
+      if (!this.playerId) return;
+      const data = await fetchCharacterRecentEvents(this.apiBase, this.playerId, this.control);
       this._drainEvents(data.events || [], { prime: !this.eventsPrimed });
       this.eventsPrimed = true;
     } catch (err) {
       console.warn('Could not refresh Bunnyland web REPL events', err);
     }
+  }
+
+  _startLobbyPolling({ announce = false } = {}) {
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = setInterval(() => this.refresh(), LOBBY_POLL_INTERVAL_MS);
+    this.refresh({ announce });
+  }
+
+  _stopPlayerUpdates() {
+    this._liveToken += 1;
+    this._liveUpdates?.close();
+    this._liveUpdates = null;
+  }
+
+  _startPlayerUpdates() {
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
+    if (!this.connected || !this.apiBase || !this.playerId) return;
+    const token = ++this._liveToken;
+    this._liveUpdates = createPlayerLiveUpdates({
+      base: this.apiBase,
+      characterId: this.playerId,
+      control: this.control,
+      refresh: () => this.refresh(),
+      onState: (state) => {
+        if (token !== this._liveToken) return;
+        this._liveState = state;
+        if (state === 'live') this._setStatus('live', '● Live');
+        else if (state !== 'closed') this._setStatus('error', '◌ Reconnecting · polling');
+      },
+    });
   }
 
   _drainEvents(messages, { prime = false } = {}) {
@@ -1086,6 +1131,7 @@ class WebRepl {
 }
 
 window.app = new WebRepl();
+window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 </body>
 </html>

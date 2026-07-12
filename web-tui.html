@@ -361,11 +361,12 @@ const {
   controlFromResponse,
   syncClaimControl,
   drainNarratedEvents,
+  createPlayerLiveUpdates,
   entityIcon,
   fetchCharacterList,
   fetchCharacterProjection,
   fetchQueuedCommands,
-  fetchRecentEvents,
+  fetchCharacterRecentEvents,
   filterActions,
   formatPoints,
   characterSheetHref,
@@ -426,7 +427,7 @@ BunnylandUI.initHelp({
   ],
 });
 
-const POLL_INTERVAL_MS = 2000;
+const LOBBY_POLL_INTERVAL_MS = 2000;
 const ACTIVITY_LIMIT = 8;
 const CLIENT_ID_KEY = 'bunnyland.webTui.clientId';
 const ICON_PREF_KEY = 'bunnyland.webTui.showIcons';
@@ -448,7 +449,10 @@ class WebTui {
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
     this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-tui');
-    this._pollTimer = null;
+    this._lobbyTimer = null;
+    this._liveUpdates = null;
+    this._liveToken = 0;
+    this._liveState = 'fallback';
 
     this._bindUi();
     this.render();
@@ -471,6 +475,7 @@ class WebTui {
     });
     document.getElementById('btn-dialog-claim').addEventListener('click', async () => {
       if (this.playerId) this.control = await this._claimPlayer(this.playerId);
+      this._startPlayerUpdates();
       await this.refresh();
     });
     document.getElementById('btn-dialog-save-fallback').addEventListener('click', () => this._updateClaimFallback());
@@ -514,13 +519,13 @@ class WebTui {
     this._setStatus('live', '● Connected');
     document.getElementById('btn-connect').textContent = 'Disconnect';
     BunnylandApi.setServerInUrl(this.apiBase);
-    this.refresh();
-    this._pollTimer = setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+    this._startLobbyPolling();
   }
 
   disconnect() {
-    clearInterval(this._pollTimer);
-    this._pollTimer = null;
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
     this.connected = false;
     this.characters = [];
     this.playerId = '';
@@ -553,10 +558,14 @@ class WebTui {
         this.queueProjection = queued?.characterId === this.playerId ? queued : null;
         this.control = syncClaimControl(this.control, this.projection, this.playerId);
       }
-      const events = await fetchRecentEvents(this.apiBase);
-      this._drainEvents(events.events || [], { prime: !this.eventsPrimed });
-      this.eventsPrimed = true;
-      this._setStatus('live', `● Connected · epoch ${this.projection?.worldEpoch || list.epoch || 0}s`);
+      if (this.playerId) {
+        const events = await fetchCharacterRecentEvents(this.apiBase, this.playerId, this.control);
+        this._drainEvents(events.events || [], { prime: !this.eventsPrimed });
+        this.eventsPrimed = true;
+      }
+      if (!this.playerId || this._liveState === 'live') {
+        this._setStatus('live', `● Live · epoch ${this.projection?.worldEpoch || list.epoch || 0}s`);
+      }
       this.render();
     } catch (err) {
       this._setStatus('err', `⚠ ${err.message || err}`);
@@ -570,10 +579,12 @@ class WebTui {
     this.queuedCommands = [];
     this.queueProjection = null;
     this.control = await this._claimPlayer(id);
+    this._startPlayerUpdates();
     await this.refresh();
   }
 
   _dropPlayer() {
+    this._stopPlayerUpdates();
     this.playerId = '';
     this.projection = null;
     this.queuedCommands = [];
@@ -582,7 +593,40 @@ class WebTui {
     this.selectedId = '';
     document.getElementById('player-select').value = '';
     document.getElementById('btn-release-character').disabled = true;
+    if (this.connected) this._startLobbyPolling();
     this.render();
+  }
+
+  _startLobbyPolling() {
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = setInterval(() => this.refresh(), LOBBY_POLL_INTERVAL_MS);
+    this.refresh();
+  }
+
+  _stopPlayerUpdates() {
+    this._liveToken += 1;
+    this._liveUpdates?.close();
+    this._liveUpdates = null;
+  }
+
+  _startPlayerUpdates() {
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
+    if (!this.connected || !this.apiBase || !this.playerId) return;
+    const token = ++this._liveToken;
+    this._liveUpdates = createPlayerLiveUpdates({
+      base: this.apiBase,
+      characterId: this.playerId,
+      control: this.control,
+      refresh: () => this.refresh(),
+      onState: (state) => {
+        if (token !== this._liveToken) return;
+        this._liveState = state;
+        if (state === 'live') this._setStatus('live', '● Live');
+        else if (state !== 'closed') this._setStatus('err', '◌ Reconnecting · polling');
+      },
+    });
   }
 
   async _claimPlayer(characterId) {
@@ -1048,6 +1092,7 @@ class WebTui {
 }
 
 window.app = new WebTui();
+window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 </body>
 </html>

@@ -213,7 +213,7 @@ def connect(page) -> None:
     page.locator("#api-url").fill("/api")
     page.locator("#btn-connect").click()
     page.wait_for_function("() => document.querySelectorAll('.character-row').length === 2")
-    expect(page.locator("#api-status")).to_contain_text("Connected")
+    expect(page.locator("#api-status")).to_contain_text("Live")
     expect(page.locator("#character-list")).to_contain_text("Juniper")
     expect(page.locator("#character-list")).to_contain_text("Hazel")
     expect(page.locator("#chat-title")).to_contain_text("No character selected")

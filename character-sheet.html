@@ -494,6 +494,7 @@ const {
   actionCost,
   actionLane,
   actionTitle,
+  createPlayerLiveUpdates,
   fetchCharacterList,
   fetchCharacterProjection,
   formatPoints,
@@ -502,12 +503,13 @@ const {
   storedClaimControl,
 } = BunnylandPlay;
 
-const POLL_INTERVAL_MS = 2000;
+const LOBBY_POLL_INTERVAL_MS = 2000;
 const DOCUMENT_TITLE_BASE = 'Bunnyland Character Sheet';
 const CLAIM_CLIENT_KEYS = [
   'bunnyland.webTui.clientId',
   'bunnyland.webRepl.clientId',
   'bunnyland.toon.clientId',
+  'bunnyland.3d',
 ];
 
 class CharacterSheetApp {
@@ -524,7 +526,10 @@ class CharacterSheetApp {
     this.uploadingPurpose = '';
     this._requestedPortraits = new Set();
     this._failedPortraits = new Set();
-    this._pollTimer = null;
+    this._lobbyTimer = null;
+    this._liveUpdates = null;
+    this._liveToken = 0;
+    this._liveState = 'fallback';
 
     this._bindUi();
     this.render();
@@ -560,6 +565,9 @@ class CharacterSheetApp {
       const id = this._hashCharacterId();
       if (id !== this.selectedId) this.selectCharacter(id, { updateHash: false });
     });
+    window.addEventListener('storage', () => {
+      if (this.connected && this.selectedId) this._startPlayerUpdates();
+    });
   }
 
   _hashCharacterId() {
@@ -593,13 +601,14 @@ class CharacterSheetApp {
     document.getElementById('btn-connect').textContent = 'Disconnect';
     BunnylandApi.setServerInUrl(this.apiBase);
     this._setStatus('live', '● Connected');
-    this.refresh();
-    this._pollTimer = setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+    if (this.selectedId) this._startPlayerUpdates();
+    else this._startLobbyPolling();
   }
 
   disconnect() {
-    clearInterval(this._pollTimer);
-    this._pollTimer = null;
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
     this.connected = false;
     this.characters = [];
     this.projection = null;
@@ -635,7 +644,9 @@ class CharacterSheetApp {
       } else {
         this.projection = null;
       }
-      this._setStatus('live', `● Connected · epoch ${this.projection?.worldEpoch || list.epoch || 0}s`);
+      if (!this.selectedId || this._liveState === 'live') {
+        this._setStatus('live', `● Live · epoch ${this.projection?.worldEpoch || list.epoch || 0}s`);
+      }
       this.render();
     } catch (err) {
       this._setStatus('err', `⚠ ${err.message || err}`);
@@ -655,7 +666,41 @@ class CharacterSheetApp {
       history.replaceState(null, '', url);
     }
     this.render();
+    if (this.selectedId) this._startPlayerUpdates();
+    else this._startLobbyPolling();
+  }
+
+  _startLobbyPolling() {
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = setInterval(() => this.refresh(), LOBBY_POLL_INTERVAL_MS);
     this.refresh();
+  }
+
+  _stopPlayerUpdates() {
+    this._liveToken += 1;
+    this._liveUpdates?.close();
+    this._liveUpdates = null;
+  }
+
+  _startPlayerUpdates() {
+    this._stopPlayerUpdates();
+    clearInterval(this._lobbyTimer);
+    this._lobbyTimer = null;
+    if (!this.connected || !this.apiBase || !this.selectedId) return;
+    const token = ++this._liveToken;
+    this._liveUpdates = createPlayerLiveUpdates({
+      base: this.apiBase,
+      characterId: this.selectedId,
+      control: this._claimControl(this.selectedId),
+      refresh: () => this.refresh(),
+      onState: (state) => {
+        if (token !== this._liveToken) return;
+        this._liveState = state;
+        if (state === 'live') this._setStatus('live', '● Live');
+        else if (state !== 'closed') this._setStatus('err', '◌ Reconnecting · polling');
+      },
+    });
   }
 
   _syncSelector() {
@@ -965,6 +1010,7 @@ class CharacterSheetApp {
 }
 
 window.app = new CharacterSheetApp();
+window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 </body>
 </html>

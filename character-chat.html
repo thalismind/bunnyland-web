@@ -378,6 +378,7 @@
     'bunnyland.webTui.clientId',
     'bunnyland.webRepl.clientId',
     'bunnyland.toon.clientId',
+    'bunnyland.3d',
   ];
   let base = '';
   let clientId = '';
@@ -387,6 +388,9 @@
   let characterFilter = '';
   let allowedTools = [];
   let markdownEnabled = localStorage.getItem(MARKDOWN_KEY) !== '0';
+  let liveUpdates = null;
+  let liveState = 'fallback';
+  let liveToken = 0;
   const pendingPolls = new Map();
   const characterProjections = new Map();
 
@@ -755,6 +759,7 @@
   }
 
   async function connect(server) {
+    stopLiveUpdates();
     base = BunnylandApi.normalizeBase(server);
     BunnylandApi.setServerInUrl(base);
     characterProjections.clear();
@@ -768,14 +773,14 @@
     renderCharacters();
     renderTranscript();
     resumePendingPolls();
-    setStatus('Connected');
+    setStatus('Live');
     els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character to start chatting.';
-    if (selectedId) loadSelectedProjection(selectedId);
+    if (selectedId) startLiveUpdates();
   }
 
-  async function loadSelectedProjection(characterId) {
+  async function loadSelectedProjection(characterId, { force = false } = {}) {
     if (!base || !characterId) return;
-    if (characterProjections.has(characterId)) {
+    if (!force && characterProjections.has(characterId)) {
       renderPortrait();
       return;
     }
@@ -806,8 +811,9 @@
     }
   }
 
-  function startPendingPoll(characterId, commandId) {
+  function startPendingPoll(characterId, commandId, { immediate = false, allowLive = false } = {}) {
     if (!base || !clientId || !characterId || !commandId) return;
+    if (liveState === 'live' && selectedId === characterId && !allowLive) return;
     const key = pendingKey(characterId, commandId);
     if (pendingPolls.has(key)) return;
     const poll = async () => {
@@ -835,13 +841,61 @@
           renderTranscript();
           els.line.textContent = response.action?.tool ? `${response.action.tool}: ${response.action.status}` : 'Waiting for action result...';
         }
-        pendingPolls.set(key, window.setTimeout(poll, PENDING_POLL_MS));
+        if (liveState !== 'live' || selectedId !== characterId) {
+          pendingPolls.set(key, window.setTimeout(poll, PENDING_POLL_MS));
+        } else {
+          pendingPolls.delete(key);
+        }
       } catch (err) {
         pendingPolls.delete(key);
         if (selectedId === characterId) els.line.textContent = err.message;
       }
     };
-    pendingPolls.set(key, window.setTimeout(poll, PENDING_POLL_MS));
+    pendingPolls.set(key, window.setTimeout(poll, immediate ? 0 : PENDING_POLL_MS));
+  }
+
+  async function refreshSelectedFromLive() {
+    if (!selectedId) return;
+    await loadSelectedProjection(selectedId, { force: true });
+    const state = loadState(selectedId);
+    for (const message of state.messages) {
+      if (message.role !== 'action' || message.action?.status !== 'queued' || !message.command_id) continue;
+      const key = pendingKey(selectedId, message.command_id);
+      const timer = pendingPolls.get(key);
+      if (timer) window.clearTimeout(timer);
+      pendingPolls.delete(key);
+      startPendingPoll(selectedId, message.command_id, { immediate: true, allowLive: true });
+    }
+  }
+
+  function stopLiveUpdates() {
+    liveToken += 1;
+    liveUpdates?.close();
+    liveUpdates = null;
+  }
+
+  function startLiveUpdates() {
+    stopLiveUpdates();
+    if (!base || !selectedId) return;
+    const characterId = selectedId;
+    const token = ++liveToken;
+    liveUpdates = BunnylandPlay.createPlayerLiveUpdates({
+      base,
+      characterId,
+      control: claimControl(characterId),
+      refresh: refreshSelectedFromLive,
+      onState: (state) => {
+        if (token !== liveToken) return;
+        liveState = state;
+        if (state === 'live') {
+          clearPendingPolls(characterId);
+          setStatus('Live');
+        } else if (state !== 'closed') {
+          setStatus('Reconnecting · polling', false);
+          resumePendingPolls();
+        }
+      },
+    });
   }
 
   async function send(message) {
@@ -909,6 +963,7 @@
     const row = event.target.closest('.character-row');
     if (!row) return;
     selectedId = row.dataset.id || '';
+    startLiveUpdates();
     renderCharacters();
     renderTranscript();
     loadSelectedProjection(selectedId);
@@ -935,6 +990,11 @@
     markdownEnabled = els.markdown.checked;
     localStorage.setItem(MARKDOWN_KEY, markdownEnabled ? '1' : '0');
     renderTranscript();
+  });
+  window.addEventListener('beforeunload', () => {
+    stopLiveUpdates();
+    for (const timer of pendingPolls.values()) window.clearTimeout(timer);
+    pendingPolls.clear();
   });
 
   BunnylandUI.initTheme();

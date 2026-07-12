@@ -73,7 +73,8 @@ The room-focused play client (`toon-client.html`) uses only play-facing contract
 touches an admin endpoint. It discovers selectable characters from the `/world/characters`
 claim lobby; renders with `/world/character/{id}` (viewer-scoped controls, points,
 controller state, action targets) and `/world/room/{id}`; reads
-`/world/character/{id}/commands` for the queued commands; and narrates `/world/events/recent`.
+`/world/character/{id}/commands` for queued commands; receives live visible events from
+`/world/character/{id}/updates`; and falls back to the character-scoped recent-event feed.
 It polls those projections on a timer rather than opening the admin-gated `/world/updates`
 stream or reading the full `/world/snapshot`.
 

@@ -7,7 +7,7 @@ through a room exit. Screenshots are written after each visible step.
 
 The Toon client is a pure player surface: it reads only the play-facing projections
 (``/world/characters``, ``/world/character/{id}``, ``/world/room/{id}``,
-``/world/character/{id}/commands``, ``/world/events/recent``) and never the admin-gated
+``/world/character/{id}/commands``, ``/world/character/{id}/events/recent``) and never the admin-gated
 snapshot or ``/world/updates`` stream. This test uses the same projections for its setup
 and assertions so it works without admin credentials.
 """

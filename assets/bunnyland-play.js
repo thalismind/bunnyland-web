@@ -512,6 +512,227 @@
     return BunnylandApi.sendJson(base, '/world/events/recent');
   }
 
+  async function fetchCharacterRecentEvents(base, characterId, control = null) {
+    return BunnylandApi.sendJson(
+      base,
+      `/world/character/${encodeURIComponent(characterId)}/events/recent${claimQuery(control)}`,
+      { headers: BunnylandApi.claimHeaders(control) }
+    );
+  }
+
+  const PLAYER_FRAME_TYPES = new Set(['ready', 'event', 'invalidate', 'resync', 'heartbeat']);
+  const RECONNECT_SECONDS = [1, 2, 4, 8, 16, 30];
+
+  function openPlayerUpdates({
+    base,
+    characterId,
+    control = null,
+    onFrame,
+    onOpen = () => {},
+    onClose = () => {},
+    onError = () => {},
+    onAnyFrame = () => {},
+    webSocketFactory = null,
+  }) {
+    const factory = webSocketFactory || (
+      typeof WebSocket === 'function' ? url => new WebSocket(url) : null
+    );
+    if (!factory) return null;
+    const path = `/world/character/${encodeURIComponent(characterId)}/updates`;
+    const socket = factory(BunnylandApi.socketUrl(base, path, BunnylandApi.getPlayerAuth()));
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: 'authenticate',
+        data: {
+          claim_id: control?.claimId || null,
+          claim_secret: control?.claimSecret || null,
+        },
+      }));
+      onOpen();
+    };
+    socket.onmessage = event => {
+      onAnyFrame();
+      let frame;
+      try {
+        frame = JSON.parse(String(event.data ?? ''));
+      } catch (_err) {
+        return;
+      }
+      if (!frame || typeof frame !== 'object' || !PLAYER_FRAME_TYPES.has(frame.type) ||
+          !frame.data || typeof frame.data !== 'object') return;
+      onFrame(frame);
+    };
+    socket.onclose = onClose;
+    socket.onerror = onError;
+    return socket;
+  }
+
+  function createPlayerLiveUpdates({
+    base,
+    characterId,
+    control = null,
+    refresh,
+    onFrame = () => {},
+    onState = () => {},
+    webSocketFactory = null,
+    random = Math.random,
+  }) {
+    let closed = false;
+    let state = 'connecting';
+    let socket = null;
+    let generation = 0;
+    let reconnectAttempt = 0;
+    let reconnectTimer = null;
+    let pollTimer = null;
+    let heartbeatTimer = null;
+    let refreshTimer = null;
+    let refreshing = false;
+    let refreshPending = false;
+    const setState = next => {
+      if (state === next) return;
+      state = next;
+      onState(next);
+    };
+    const clearHeartbeat = () => {
+      clearTimeout(heartbeatTimer);
+      heartbeatTimer = null;
+    };
+    const runRefresh = async () => {
+      refreshTimer = null;
+      if (closed) return;
+      if (refreshing) {
+        refreshPending = true;
+        return;
+      }
+      refreshing = true;
+      try {
+        await refresh();
+      } catch (_err) {
+        // Keep later polls and live frames active after a transient HTTP failure.
+      } finally {
+        refreshing = false;
+        if (refreshPending && !closed) {
+          refreshPending = false;
+          void runRefresh();
+        }
+      }
+    };
+    const requestRefresh = (delay = 0) => {
+      if (closed) return;
+      if (refreshing) {
+        refreshPending = true;
+        return;
+      }
+      if (refreshTimer != null) return;
+      refreshTimer = setTimeout(() => { void runRefresh(); }, delay);
+    };
+    const stopPolling = () => {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    };
+    const startPolling = () => {
+      if (closed || pollTimer != null) return;
+      requestRefresh();
+      pollTimer = setInterval(() => requestRefresh(), 2000);
+    };
+    const scheduleHeartbeat = token => {
+      clearHeartbeat();
+      heartbeatTimer = setTimeout(() => {
+        if (closed || token !== generation) return;
+        const stale = socket;
+        socket = null;
+        generation += 1;
+        stale?.close();
+        disconnected();
+      }, 70000);
+    };
+    const scheduleReconnect = () => {
+      if (closed || reconnectTimer != null) return;
+      const seconds = RECONNECT_SECONDS[Math.min(reconnectAttempt, RECONNECT_SECONDS.length - 1)];
+      reconnectAttempt += 1;
+      const delay = seconds * 1000 * (0.8 + random() * 0.4);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+    const disconnected = () => {
+      if (closed) return;
+      clearHeartbeat();
+      setState('fallback');
+      startPolling();
+      scheduleReconnect();
+    };
+    const connect = () => {
+      if (closed) return;
+      const token = ++generation;
+      setState('connecting');
+      startPolling();
+      const opened = openPlayerUpdates({
+        base,
+        characterId,
+        control,
+        webSocketFactory,
+        onOpen: () => {
+          if (!closed && token === generation) scheduleHeartbeat(token);
+        },
+        onAnyFrame: () => {
+          if (!closed && token === generation) scheduleHeartbeat(token);
+        },
+        onFrame: frame => {
+          if (closed || token !== generation) return;
+          onFrame(frame);
+          if (frame.type === 'ready') {
+            reconnectAttempt = 0;
+            stopPolling();
+            setState('live');
+          } else if (frame.type !== 'heartbeat') {
+            requestRefresh(150);
+          }
+        },
+        onClose: () => {
+          if (closed || token !== generation) return;
+          socket = null;
+          disconnected();
+        },
+        onError: () => {
+          if (closed || token !== generation) return;
+          const failed = socket;
+          socket = null;
+          generation += 1;
+          failed?.close();
+          disconnected();
+        },
+      });
+      if (closed || token !== generation) {
+        opened?.close();
+        return;
+      }
+      socket = opened;
+      if (!opened) disconnected();
+    };
+    onState(state);
+    connect();
+    return {
+      close() {
+        if (closed) return;
+        closed = true;
+        generation += 1;
+        clearTimeout(reconnectTimer);
+        clearTimeout(refreshTimer);
+        reconnectTimer = null;
+        refreshTimer = null;
+        stopPolling();
+        clearHeartbeat();
+        const current = socket;
+        socket = null;
+        current?.close();
+        setState('closed');
+      },
+      getState: () => state,
+    };
+  }
+
   async function fetchCharacterList(base) {
     return parseCharacterList(await BunnylandApi.sendJson(base, '/world/characters'));
   }
@@ -832,6 +1053,7 @@
     entityName,
     entityType,
     fetchCharacterList,
+    fetchCharacterRecentEvents,
     fetchCharacterProjection,
     fetchQueuedCommands,
     fetchRecentEvents,
@@ -849,6 +1071,8 @@
     inventoryEntries,
     latestImageCompletion,
     latestImageFailure,
+    openPlayerUpdates,
+    createPlayerLiveUpdates,
     isReferenceArg,
     perceivesEvent,
     orderActionsByAvailability,

@@ -187,12 +187,16 @@ def install_routes(page, posted: list[dict]) -> None:
             }),
         )
 
+    def recent_events_handler(route):
+        assert_claim(route)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(EVENTS))
+
     # Ids carry a colon that fetch() percent-encodes, so match by glob (``*`` does not
     # cross ``/``) rather than the literal id. More specific patterns are registered last
     # so Playwright (last-match-wins) prefers them.
-    page.route("**/world/events/recent", json_route(EVENTS))
     page.route("**/world/characters", json_route(CHARACTER_LIST))
     page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
+    page.route("**/world/character/**/events/recent**", recent_events_handler)
     page.route("**/world/room/*", json_route(ROOM_PROJECTION))
     page.route("**/world/character/**/commands**", commands_handler)
     page.route("**/world/controllers/web/claim", claim_handler)
