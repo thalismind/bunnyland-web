@@ -124,7 +124,12 @@ specific conventions.
 - Passive feed rows, logs, and activity entries must not reuse clickable row styling. Make
   the row secondary with subdued background or border treatment, but keep the text at
   normal readable contrast unless the content itself is disabled or unavailable.
+- Disclosed fact lines belong beneath their activity entry in server order. Treat them as
+  readable secondary context; do not hide critical facts by lowering contrast or recompute
+  disclosure from raw component values.
 - Empty states should be visible where a section matters, such as queued actions.
+- Action panels must have an explicit unavailable/empty state while registry metadata is
+  missing. Never substitute a static verb catalogue.
 - Inspector sections should be collapsible and data-dense. Use links for entity ids and
   targets so users can navigate without copying ids.
 - Progress bars, badges, and swatches should use semantic or entity palette colors.

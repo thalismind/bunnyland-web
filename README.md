@@ -75,8 +75,15 @@ claim lobby; renders with `/world/character/{id}` (viewer-scoped controls, point
 controller state, action targets) and `/world/room/{id}`; reads
 `/world/character/{id}/commands` for queued commands; receives live visible events from
 `/world/character/{id}/updates`; and falls back to the character-scoped recent-event feed.
-It polls those projections on a timer rather than opening the admin-gated `/world/updates`
-stream or reading the full `/world/snapshot`.
+The shared coordinator authenticates in its first WebSocket frame, coalesces event bursts,
+refreshes chat/sheet/Toon/TUI/REPL consumers, and resumes fallback polling only while the
+stream is unavailable. It never opens the admin-gated `/world/updates` stream or reads the
+full `/world/snapshot`.
+
+Player activity rows render server-disclosed `facts` as supplied. The server has already
+applied perspective, privacy, perception, and numeric detail cutoffs; clients must not infer
+hidden component state. Action menus likewise use only registry-derived `actions` and
+`target_groups`, showing an empty/disabled state if that metadata is unavailable.
 
 The inspector, world editor, and world generator are developer/admin surfaces and remain
 snapshot-based because they intentionally need broad world state (and authenticate as admin). Keep new play-facing
