@@ -291,6 +291,21 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
     nameFor: id => (id === 'character:1' ? 'Bun' : id),
   });
   assert.deepEqual(plain(looked), { text: 'A bright parlor.', kind: 'event', icon: '👁️' });
+
+  const inspected = BunnylandPlay.renderEventLine({
+    event_type: 'EntityInspectedEvent',
+    event: {
+      event_id: 'event:4',
+      actor_id: 'character:1',
+      name: 'Bun',
+      facts: [{ key: 'needs.hunger', text: 'You are not hungry.', detail: 30 }],
+    },
+  }, {
+    playerId: 'character:1',
+    nameFor: id => (id === 'character:1' ? 'Bun' : id),
+  });
+  assert.match(inspected.text, /You are not hungry\./);
+  assert.doesNotMatch(inspected.text, /needs\.hunger|\[object Object\]/);
 });
 
 test('BunnylandPlay builds character-sheet links and portrait state messages', () => {
