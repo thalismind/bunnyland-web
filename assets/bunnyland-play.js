@@ -522,6 +522,7 @@
 
   const PLAYER_FRAME_TYPES = new Set(['ready', 'event', 'invalidate', 'resync', 'heartbeat']);
   const RECONNECT_SECONDS = [1, 2, 4, 8, 16, 30];
+  const SEEN_EVENT_LIMIT = 512;
 
   function openPlayerUpdates({
     base,
@@ -588,6 +589,9 @@
     let refreshTimer = null;
     let refreshing = false;
     let refreshPending = false;
+    let lastStreamSequence = 0;
+    const seenEventIds = new Set();
+    const seenEventOrder = [];
     const setState = next => {
       if (state === next) return;
       state = next;
@@ -666,6 +670,7 @@
     const connect = () => {
       if (closed) return;
       const token = ++generation;
+      lastStreamSequence = 0;
       setState('connecting');
       startPolling();
       const opened = openPlayerUpdates({
@@ -681,11 +686,28 @@
         },
         onFrame: frame => {
           if (closed || token !== generation) return;
+          const sequence = Number(frame.stream_sequence || 0);
+          const sequenceGap = sequence > 0 && lastStreamSequence > 0
+            && sequence !== lastStreamSequence + 1;
+          if (sequence > 0) lastStreamSequence = sequence;
+
+          const eventId = typeof frame.event_id === 'string' ? frame.event_id : '';
+          if (eventId && seenEventIds.has(eventId)) return;
+          if (eventId) {
+            seenEventIds.add(eventId);
+            seenEventOrder.push(eventId);
+            if (seenEventOrder.length > SEEN_EVENT_LIMIT) {
+              seenEventIds.delete(seenEventOrder.shift());
+            }
+          }
+
           onFrame(frame);
           if (frame.type === 'ready') {
             reconnectAttempt = 0;
             stopPolling();
             setState('live');
+          } else if (frame.type === 'resync' || sequenceGap) {
+            requestRefresh();
           } else if (frame.type !== 'heartbeat') {
             requestRefresh(150);
           }

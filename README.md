@@ -76,6 +76,7 @@ controller state, action targets) and `/world/room/{id}`; reads
 `/world/character/{id}/commands` for queued commands; receives live visible events from
 `/world/character/{id}/updates`; and falls back to the character-scoped recent-event feed.
 The shared coordinator authenticates in its first WebSocket frame, coalesces event bursts,
+deduplicates events by `event_id`, refreshes after a `stream_sequence` gap or `resync`,
 refreshes chat/sheet/Toon/TUI/REPL consumers, and resumes fallback polling only while the
 stream is unavailable. It never opens the admin-gated `/world/updates` stream or reads the
 full `/world/snapshot`.
