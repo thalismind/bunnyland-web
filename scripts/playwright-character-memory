@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -22,12 +23,13 @@ from playwright_server import ensure_web_server
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-character-memory.png"
-ADMIN_TOKEN = os.environ.get("BUNNYLAND_MEMORY_ADMIN_TOKEN", "character-memory-secret")
+ADMIN_TOKEN = os.environ.get("BUNNYLAND_OPERATOR_TOKEN", "")
 SERVER_IMAGE = os.environ.get(
     "BUNNYLAND_MEMORY_SERVER_IMAGE",
     "ghcr.io/thalismind/bunnyland-server:main",
 )
 SERVER_CONTAINER_NAME: str | None = None
+TOKEN_DATA_DIR: Path | None = None
 
 
 def _runtime_works(command: list[str]) -> bool:
@@ -79,7 +81,7 @@ def api_request(
     extra_headers: dict[str, str] | None = None,
 ) -> dict:
     data = None
-    headers = {"X-Bunnyland-Admin-Secret": ADMIN_TOKEN}
+    headers = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
     if extra_headers:
         headers.update(extra_headers)
     if body is not None:
@@ -115,19 +117,45 @@ def wait_for_api(api_url: str, proc: subprocess.Popen | None, timeout: float = 4
 
 
 def start_memory_api() -> tuple[str, subprocess.Popen | None]:
+    global ADMIN_TOKEN, SERVER_CONTAINER_NAME, TOKEN_DATA_DIR
     override = os.environ.get("BUNNYLAND_MEMORY_API_URL")
     if override:
+        if not ADMIN_TOKEN:
+            raise RuntimeError("BUNNYLAND_OPERATOR_TOKEN is required with BUNNYLAND_MEMORY_API_URL")
         api_url = override.rstrip("/")
         wait_for_api(api_url, None)
         return api_url, None
 
-    global SERVER_CONTAINER_NAME
     port = int(os.environ.get("BUNNYLAND_MEMORY_API_PORT") or reserve_port())
     api_url = f"http://127.0.0.1:{port}"
     log_path = Path(os.environ.get("BUNNYLAND_MEMORY_API_LOG", "/tmp/bunnyland-character-memory-api.log"))
     log = log_path.open("w", encoding="utf-8")
     SERVER_CONTAINER_NAME = f"bunnyland-memory-{port}"
     runtime = container_cli()
+    TOKEN_DATA_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-memory-auth-"))
+    provision = subprocess.run(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "-v",
+            f"{TOKEN_DATA_DIR}:/data",
+            SERVER_IMAGE,
+            "bunnyland",
+            "auth",
+            "provision-token",
+            "--db",
+            "/data/auth-tokens.sqlite3",
+            "--subject",
+            "character-memory-playwright",
+            "--scope",
+            "world:admin",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    ADMIN_TOKEN = provision.stdout.strip()
     proc = subprocess.Popen(
         [
             *runtime,
@@ -137,8 +165,8 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
             SERVER_CONTAINER_NAME,
             "-p",
             f"127.0.0.1:{port}:8765",
-            "-e",
-            f"BUNNYLAND_ADMIN_TOKEN={ADMIN_TOKEN}",
+            "-v",
+            f"{TOKEN_DATA_DIR}:/data",
             SERVER_IMAGE,
             "bunnyland",
             "serve",
@@ -154,6 +182,8 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
             "0.0.0.0",
             "--api-port",
             "8765",
+            "--token-db",
+            "/data/auth-tokens.sqlite3",
             "--claim-timeout-seconds",
             "0",
             "--memory-backend",
@@ -255,8 +285,9 @@ def launch_browser(playwright):
 
 def fresh_page(browser, coverage: PlaywrightCoverage, api_url: str):
     page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+    page.set_extra_http_headers({"Authorization": f"Bearer {ADMIN_TOKEN}"})
     page.goto(
-        f"{BASE_URL}/character-memory.html?server={api_url}&admin_token={ADMIN_TOKEN}",
+        f"{BASE_URL}/character-memory.html?server={api_url}",
         wait_until="networkidle",
     )
     return page

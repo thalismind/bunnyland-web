@@ -18,7 +18,6 @@ import json
 import os
 import re
 import time
-from base64 import b64encode
 from pathlib import Path
 from typing import Any
 
@@ -33,17 +32,11 @@ API_URL = os.environ.get(
     "BUNNYLAND_TOON_API_URL", "https://sandbox.bunnyland.dev/api"
 ).rstrip("/")
 OUT_DIR = Path(os.environ.get("BUNNYLAND_TOON_SCREENSHOT_DIR", "/tmp"))
-PLAYER_USER = os.environ.get("BUNNYLAND_PLAYER_USER", "")
-PLAYER_PASSWORD = os.environ.get("BUNNYLAND_PLAYER_PASSWORD", "")
+PLAY_TOKEN = os.environ.get("BUNNYLAND_PLAY_TOKEN", "")
 
 
 def player_auth_header() -> str:
-    if not PLAYER_USER and not PLAYER_PASSWORD:
-        return ""
-    if not PLAYER_USER or not PLAYER_PASSWORD:
-        raise RuntimeError("set both BUNNYLAND_PLAYER_USER and BUNNYLAND_PLAYER_PASSWORD")
-    token = b64encode(f"{PLAYER_USER}:{PLAYER_PASSWORD}".encode()).decode()
-    return f"Basic {token}"
+    return f"Bearer {PLAY_TOKEN}" if PLAY_TOKEN else ""
 
 
 def screenshot(page, name: str) -> str:

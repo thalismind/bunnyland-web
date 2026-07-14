@@ -113,19 +113,21 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def api_get(api_url: str, path: str) -> dict[str, Any]:
-    request = urllib.request.Request(f"{api_url}{path}", headers=player_headers())
+def api_get(
+    api_url: str,
+    path: str,
+    extra_headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    headers = player_headers()
+    headers.update(extra_headers or {})
+    request = urllib.request.Request(f"{api_url}{path}", headers=headers)
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def player_auth_header() -> str:
-    if not PLAYER_USER and not PLAYER_PASSWORD:
-        return ""
-    if not PLAYER_USER or not PLAYER_PASSWORD:
-        raise RuntimeError("set both BUNNYLAND_PLAYER_USER and BUNNYLAND_PLAYER_PASSWORD")
-    token = b64encode(f"{PLAYER_USER}:{PLAYER_PASSWORD}".encode()).decode()
-    return f"Basic {token}"
+    token = os.environ.get("BUNNYLAND_PLAY_TOKEN", "")
+    return f"Bearer {token}" if token else ""
 
 
 def player_headers() -> dict[str, str]:
@@ -320,8 +322,21 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
     return api_url, proc
 
 
-def projection(api_url: str, character_id: str) -> dict[str, Any]:
-    return api_get(api_url, f"/world/character/{urllib.parse.quote(character_id, safe='')}")
+def projection(
+    api_url: str,
+    character_id: str,
+    control: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    path = f"/world/character/{urllib.parse.quote(character_id, safe='')}"
+    headers: dict[str, str] = {}
+    if control:
+        claim_id = str(control.get("claimId") or "")
+        claim_secret = str(control.get("claimSecret") or "")
+        if claim_id:
+            path = f"{path}?{urllib.parse.urlencode({'claim_id': claim_id})}"
+        if claim_secret:
+            headers["X-Bunnyland-Claim-Secret"] = claim_secret
+    return api_get(api_url, path, headers)
 
 
 def playable_characters(api_url: str) -> list[dict[str, Any]]:
@@ -353,15 +368,25 @@ def playable_characters(api_url: str) -> list[dict[str, Any]]:
     return selected
 
 
-def room_id(api_url: str, character_id: str) -> str:
-    return str((projection(api_url, character_id).get("room") or {}).get("id") or "")
+def room_id(
+    api_url: str,
+    character_id: str,
+    control: dict[str, Any] | None = None,
+) -> str:
+    return str((projection(api_url, character_id, control).get("room") or {}).get("id") or "")
 
 
-def wait_for_room_change(api_url: str, character_id: str, old_room: str, timeout: float = 30.0) -> str:
+def wait_for_room_change(
+    api_url: str,
+    character_id: str,
+    old_room: str,
+    control: dict[str, Any],
+    timeout: float = 30.0,
+) -> str:
     deadline = time.monotonic() + timeout
     current = old_room
     while time.monotonic() < deadline:
-        current = room_id(api_url, character_id)
+        current = room_id(api_url, character_id, control)
         if current and current != old_room:
             return current
         time.sleep(0.5)
@@ -418,41 +443,61 @@ def select_repl(page, character_id: str, room_title: str) -> None:
     expect(page.locator("#repl-log")).to_contain_text(room_title, timeout=10000)
 
 
-def submit_toon_move(page, api_url: str, character_id: str) -> str:
-    before = room_id(api_url, character_id)
+def submit_toon_move(
+    page,
+    api_url: str,
+    character_id: str,
+    control: dict[str, Any],
+) -> str:
+    before = room_id(api_url, character_id, control)
     page.locator('.verb.ready[data-tool="move"]').click()
     page.locator("#action-form-overlay select.af-input").first.select_option(index=1)
     page.locator("#action-form-overlay .af-submit").click()
-    return wait_for_room_change(api_url, character_id, before)
+    return wait_for_room_change(api_url, character_id, before, control)
 
 
-def submit_tui_move(page, api_url: str, character_id: str) -> str:
-    before = room_id(api_url, character_id)
+def submit_tui_move(
+    page,
+    api_url: str,
+    character_id: str,
+    control: dict[str, Any],
+) -> str:
+    before = room_id(api_url, character_id, control)
     page.locator("#action-filter").fill("move")
     page.locator("#verbs .option").filter(has_text="Move").first.click()
     page.locator("#action-form-overlay select.form-input").first.select_option(index=1)
     page.locator("#action-form-overlay .form-submit").click()
-    return wait_for_room_change(api_url, character_id, before)
+    return wait_for_room_change(api_url, character_id, before, control)
 
 
-def submit_repl_move(page, api_url: str, character: dict[str, Any]) -> str:
-    before = room_id(api_url, character["id"])
+def submit_repl_move(
+    page,
+    api_url: str,
+    character: dict[str, Any],
+    control: dict[str, Any],
+) -> str:
+    before = room_id(api_url, character["id"], control)
     exits = (character["view"].get("room") or {}).get("exits") or []
     direction = exits[0].get("direction") or exits[0].get("label") or exits[0].get("id")
     page.locator("#repl-input").fill(f"go {direction}")
     page.locator("#btn-send").click()
     expect(page.locator("#repl-log")).to_contain_text("» move", timeout=10000)
-    return wait_for_room_change(api_url, character["id"], before)
+    return wait_for_room_change(api_url, character["id"], before, control)
 
 
-def submit_repl_command(page, api_url: str, character: dict[str, Any]) -> str:
+def submit_repl_command(
+    page,
+    api_url: str,
+    character: dict[str, Any],
+    control: dict[str, Any],
+) -> str:
     exits = (character["view"].get("room") or {}).get("exits") or []
     if exits:
-        return submit_repl_move(page, api_url, character)
+        return submit_repl_move(page, api_url, character, control)
     page.locator("#repl-input").fill("say release repl smoke")
     page.locator("#btn-send").click()
     expect(page.locator("#repl-log")).to_contain_text("» say", timeout=10000)
-    return room_id(api_url, character["id"])
+    return room_id(api_url, character["id"], control)
 
 
 def assert_distinct_controls(pages: dict[str, Any]) -> dict[str, Any]:
@@ -503,9 +548,15 @@ def main() -> None:
             controls = assert_distinct_controls({"toon": toon, "tui": tui, "repl": repl})
 
             moved = {
-                "toon": submit_toon_move(toon, api_url, characters[0]["id"]),
-                "tui": submit_tui_move(tui, api_url, characters[1]["id"]),
-                "repl": submit_repl_command(repl, api_url, characters[2]),
+                "toon": submit_toon_move(
+                    toon, api_url, characters[0]["id"], controls["toon"]
+                ),
+                "tui": submit_tui_move(
+                    tui, api_url, characters[1]["id"], controls["tui"]
+                ),
+                "repl": submit_repl_command(
+                    repl, api_url, characters[2], controls["repl"]
+                ),
             }
 
             toon.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-release-toon.png"), full_page=True)
@@ -514,6 +565,10 @@ def main() -> None:
             browser.close()
 
         otel_span_count = assert_trace_artifact()
+        reported_controls = {
+            name: {key: value for key, value in control.items() if key != "claimSecret"}
+            for name, control in controls.items()
+        }
         print(json.dumps({
             "release_multiclient": "ok",
             "api": api_url,
@@ -526,7 +581,7 @@ def main() -> None:
             },
             "otel_span_count": otel_span_count,
             "characters": [item["id"] for item in characters],
-            "controls": controls,
+            "controls": reported_controls,
             "moved_to": moved,
         }, indent=2))
     finally:

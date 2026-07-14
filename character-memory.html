@@ -210,7 +210,7 @@ const esc = BunnylandUI.escapeHtml;
 class CharacterMemoryApp {
   constructor() {
     this.base = '';
-    this.authHeader = this._adminHeaderFromUrl();
+    this.authHeader = null;
     this.characters = [];
     this.documents = [];
     this.collection = '';
@@ -252,11 +252,6 @@ class CharacterMemoryApp {
 
   _readUrl() {
     BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
-  }
-
-  _adminHeaderFromUrl() {
-    const token = new URLSearchParams(location.search).get('admin_token') || '';
-    return token ? `Token ${token}` : null;
   }
 
   _syncUrl() {

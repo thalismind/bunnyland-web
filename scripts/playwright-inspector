@@ -55,6 +55,7 @@ def main() -> None:
             window.__promptCalls = [];
             window.__promptResponses = [];
             window.__webSocketUrls = [];
+            window.__webSocketFrames = [];
             window.prompt = (message) => {
               window.__promptCalls.push(String(message || ''));
               return window.__promptResponses.length ? window.__promptResponses.shift() : null;
@@ -128,6 +129,7 @@ def main() -> None:
             window.__promptResponses = ['admin', 'secret'];
             window.__promptCalls = [];
             window.__webSocketUrls = [];
+            window.__webSocketFrames = [];
             window.prompt = (message) => {
               window.__promptCalls.push(String(message || ''));
               return window.__promptResponses.shift() || null;
@@ -137,30 +139,39 @@ def main() -> None:
                 window.__webSocketUrls.push(String(url));
                 setTimeout(() => { if (this.onopen) this.onopen({}); }, 0);
               }
+              send(frame) { window.__webSocketFrames.push(String(frame)); }
               close() {}
             };
             """
         )
+        authenticated = {"value": False}
+        auth_page.route("**/api/auth/login", lambda route: (
+            authenticated.update(value=True),
+            route.fulfill(status=200, json={"subject": "admin", "scopes": ["world:play", "world:admin"], "expires_at": 2000000000, "rotate_after": 1990000000}),
+        )[-1])
         auth_page.route("**/api/world/overview", lambda route: route.fulfill(
-            status=200 if route.request.headers.get("authorization") == "Basic YWRtaW46c2VjcmV0" else 401,
-            json={"ok": True} if route.request.headers.get("authorization") == "Basic YWRtaW46c2VjcmV0" else {"detail": "locked"},
+            status=200 if authenticated["value"] else 401,
+            json={"ok": True} if authenticated["value"] else {"detail": "locked"},
         ))
         auth_page.route("**/api/admin/runtime", lambda route: route.fulfill(status=200, json={"ok": True, "running": True, "paused": False}))
         auth_page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi#map", wait_until="domcontentloaded")
-        auth_page.wait_for_function("window.__webSocketUrls.length > 0")
+        auth_page.wait_for_function("window.__webSocketFrames.length > 0")
         auth_result = auth_page.evaluate(
             """
             () => ({
               prompts: window.__promptCalls,
               sockets: window.__webSocketUrls,
+              frames: window.__webSocketFrames,
               apiBase: window.app._apiBase,
             })
             """
         )
-        if auth_result["prompts"] != ["Admin username", "Admin password"]:
+        if auth_result["prompts"] != ["Bunnyland username", "Bunnyland password"]:
             raise AssertionError(f"inspector did not prompt for admin auth: {auth_result!r}")
-        if auth_result["sockets"] != [f"ws://admin:secret@127.0.0.1:8091/api/world/updates"]:
+        if auth_result["sockets"] != ["/api/world/updates"]:
             raise AssertionError(f"inspector did not authenticate websocket: {auth_result!r}")
+        if auth_result["frames"] != ['{"type":"authenticate","data":{}}']:
+            raise AssertionError(f"inspector did not send first-frame authentication: {auth_result!r}")
         if auth_result["apiBase"] != "/api":
             raise AssertionError(f"inspector changed relative API base unexpectedly: {auth_result!r}")
         auth_page.close()

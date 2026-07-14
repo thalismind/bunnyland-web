@@ -8,10 +8,8 @@ routes or fixture data; setup calls read the same live API that the pages use.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
-import secrets
 import shutil
 import socket
 import subprocess
@@ -72,26 +70,24 @@ def static_page_url(web_url: str, path: str) -> str:
     return f"{web_url.rstrip('/')}/{path}"
 
 
-def admin_headers(admin_auth: str | None = None, admin_token: str | None = None) -> dict[str, str]:
-    if admin_token:
-        return {"X-Bunnyland-Admin-Secret": admin_token}
-    if admin_auth:
-        return {"Authorization": admin_auth}
+def operator_headers(operator_token: str | None = None) -> dict[str, str]:
+    if operator_token:
+        token = operator_token.removeprefix("Bearer ")
+        return {"Authorization": f"Bearer {token}"}
     return {}
 
 
-def admin_headers_js(admin_auth: str | None = None, admin_token: str | None = None) -> dict[str, str]:
-    return admin_headers(admin_auth, admin_token)
+def operator_headers_js(operator_token: str | None = None) -> dict[str, str]:
+    return operator_headers(operator_token)
 
 
 def api_get(
     api_url: str,
     path: str,
-    auth: str | None = None,
-    admin_token: str | None = None,
+    operator_token: str | None = None,
 ) -> dict[str, Any]:
     request = urllib.request.Request(f"{api_url.rstrip('/')}{path}")
-    for key, value in admin_headers(auth, admin_token).items():
+    for key, value in operator_headers(operator_token).items():
         request.add_header(key, value)
     with urllib.request.urlopen(request, timeout=25) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -101,8 +97,7 @@ def api_post(
     api_url: str,
     path: str,
     body: dict[str, Any],
-    auth: str | None = None,
-    admin_token: str | None = None,
+    operator_token: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
@@ -112,24 +107,12 @@ def api_post(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    for key, value in admin_headers(auth, admin_token).items():
+    for key, value in operator_headers(operator_token).items():
         request.add_header(key, value)
     for key, value in (extra_headers or {}).items():
         request.add_header(key, value)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
-
-
-def admin_auth_from_env() -> str | None:
-    explicit = os.environ.get("BUNNYLAND_ADMIN_AUTH")
-    if explicit:
-        return explicit
-    username = os.environ.get("BUNNYLAND_ADMIN_USERNAME")
-    password = os.environ.get("BUNNYLAND_ADMIN_PASSWORD")
-    if username and password is not None:
-        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-        return f"Basic {token}"
-    return None
 
 
 def reserve_port() -> int:
@@ -172,9 +155,22 @@ class ManagedProcess:
             self.process.wait(timeout=10)
 
 
-def start_local_api(server_repo: Path, port: int, admin_token: str) -> ManagedProcess:
+def start_local_api(server_repo: Path, port: int) -> tuple[ManagedProcess, str]:
     env = os.environ.copy()
-    env["BUNNYLAND_ADMIN_TOKEN"] = admin_token
+    token_db = Path("/tmp") / f"bunnyland-itch-auth-{port}.sqlite3"
+    provision = subprocess.run(
+        [
+            "uv", "run", "bunnyland", "auth", "provision-token",
+            "--db", str(token_db), "--subject", "itch-screenshots",
+            "--scope", "world:admin",
+        ],
+        cwd=server_repo,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    operator_token = provision.stdout.strip()
     process = subprocess.Popen(
         [
             "uv",
@@ -191,13 +187,13 @@ def start_local_api(server_repo: Path, port: int, admin_token: str) -> ManagedPr
             LOCAL_API_HOST,
             "--api-port",
             str(port),
-            "--admin-token",
-            admin_token,
+            "--token-db",
+            str(token_db),
         ],
         cwd=server_repo,
         env=env,
     )
-    return ManagedProcess("local Bunnyland API", process)
+    return ManagedProcess("local Bunnyland API", process), operator_token
 
 
 def start_local_web(web_repo: Path, port: int) -> ManagedProcess:
@@ -543,8 +539,7 @@ def capture_world_generator(
     web_url: str,
     api_url: str,
     out_path: Path,
-    admin_auth: str | None,
-    admin_token: str | None,
+    operator_token: str | None,
     run_generation: bool,
 ) -> None:
     page.goto(static_page_url(web_url, "world-generator.html"), wait_until="domcontentloaded")
@@ -556,16 +551,16 @@ def capture_world_generator(
     page.locator("#max-rooms").fill("6")
     if not page.locator("#confirm-reset").is_checked():
         page.locator("#confirm-reset").check()
-    headers = admin_headers_js(admin_auth, admin_token)
+    headers = operator_headers_js(operator_token)
     if not headers:
         page.evaluate(
             """async (apiUrl) => {
               window.app.base = apiUrl;
               await window.app._fetchSnapshot();
               window.app._renderGenerators();
-              window.app._setStatus('live snapshot · admin auth required for generation', 'err');
+              window.app._setStatus('live snapshot · operator token required for generation', 'err');
               window.app._log('Loaded live world snapshot from the configured server', 'ok');
-              window.app._log('Set BUNNYLAND_ADMIN_AUTH and BUNNYLAND_RUN_WORLD_GENERATION=1 to generate a replacement world', '');
+              window.app._log('Set BUNNYLAND_OPERATOR_TOKEN and BUNNYLAND_RUN_WORLD_GENERATION=1 to generate a replacement world', '');
             }""",
             api_url,
         )
@@ -626,7 +621,7 @@ def capture_world_generator(
         page.evaluate(
             """() => {
               window.app._log('Prompt staged for live generation preview', 'ok');
-              window.app._log('Set BUNNYLAND_RUN_WORLD_GENERATION=1 with admin auth to replace the live world', '');
+              window.app._log('Set BUNNYLAND_RUN_WORLD_GENERATION=1 with an operator token to replace the live world', '');
             }"""
         )
     page.wait_for_timeout(1000)
@@ -640,8 +635,7 @@ def capture_inspector(
     api_url: str,
     out_path: Path,
     character_id_value: str,
-    admin_auth: str | None,
-    admin_token: str | None,
+    operator_token: str | None,
 ) -> None:
     target = f"map/{character_id_value}"
     page.goto(
@@ -649,7 +643,7 @@ def capture_inspector(
         wait_until="domcontentloaded",
     )
     page.wait_for_function("() => window.app", timeout=15000)
-    headers = admin_headers_js(admin_auth, admin_token)
+    headers = operator_headers_js(operator_token)
     if headers:
         page.evaluate(
             """async ({apiUrl, headers}) => {
@@ -896,7 +890,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     managed: list[ManagedProcess] = []
-    local_admin_token: str | None = None
+    local_operator_token: str | None = None
     try:
         web_url_value = args.web_url
         api_url_value = args.api_url
@@ -908,10 +902,7 @@ def main(argv: list[str] | None = None) -> int:
             if not server_repo.exists():
                 raise RuntimeError(f"BUNNYLAND_SERVER_REPO does not exist: {server_repo}")
             api_port = int(os.environ.get("BUNNYLAND_LOCAL_API_PORT") or reserve_port())
-            local_admin_token = os.environ.get("BUNNYLAND_ADMIN_TOKEN") or (
-                "itch-screenshots-" + secrets.token_urlsafe(18)
-            )
-            api_process = start_local_api(server_repo, api_port, local_admin_token)
+            api_process, local_operator_token = start_local_api(server_repo, api_port)
             managed.append(api_process)
             api_url_value = f"http://{LOCAL_API_HOST}:{api_port}"
             wait_for_http(f"{api_url_value}/health", "local Bunnyland API")
@@ -927,7 +918,7 @@ def main(argv: list[str] | None = None) -> int:
 
         web_url = web_url_value.rstrip("/")
         api_url = api_url_value.rstrip("/")
-        return run_capture(web_url, api_url, width, height, args.out_dir, local_admin_token)
+        return run_capture(web_url, api_url, width, height, args.out_dir, local_operator_token)
     finally:
         for process in reversed(managed):
             process.stop()
@@ -939,17 +930,16 @@ def run_capture(
     width: int,
     height: int,
     out_dir: Path,
-    local_admin_token: str | None,
+    local_operator_token: str | None,
 ) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     wait_for_api(api_url)
     picked_character, _projection = choose_character(api_url)
-    admin_auth = admin_auth_from_env()
-    admin_token = local_admin_token or os.environ.get("BUNNYLAND_ADMIN_TOKEN")
+    operator_token = local_operator_token or os.environ.get("BUNNYLAND_OPERATOR_TOKEN")
     run_generation = os.environ.get("BUNNYLAND_RUN_WORLD_GENERATION") == "1"
-    if run_generation and not (admin_auth or admin_token):
-        raise RuntimeError("BUNNYLAND_RUN_WORLD_GENERATION=1 requires admin auth or token")
+    if run_generation and not operator_token:
+        raise RuntimeError("BUNNYLAND_RUN_WORLD_GENERATION=1 requires an operator token")
 
     outputs = {
         "toon": out_dir / "01-toon-client.png",
@@ -997,8 +987,7 @@ def run_capture(
             web_url,
             api_url,
             outputs["world_generator"],
-            admin_auth,
-            admin_token,
+            operator_token,
             run_generation,
         )
 
@@ -1009,8 +998,7 @@ def run_capture(
             api_url,
             outputs["inspector"],
             picked_character,
-            admin_auth,
-            admin_token,
+            operator_token,
         )
 
         discord = context.new_page()

@@ -1415,9 +1415,9 @@ class BunnylandInspector {
     this._clearEvents();
     this._apiBase = BunnylandApi.normalizeBase(url);
 
-    // The inspector is an admin tool. Authenticate the admin-gated overview endpoint first,
-    // then put those same Basic-auth credentials into the WebSocket URL because the
-    // WebSocket constructor cannot take custom Authorization headers.
+    // The inspector is an admin tool. Authenticate through the shared secure cookie before
+    // opening the global stream; the first frame selects the WebSocket auth protocol without
+    // placing credentials in its URL.
     const authenticated = await this._ensureLogin();
     if (!authenticated) return;
     if (this._apiBase !== BunnylandApi.normalizeBase(url)) return; // a newer connect superseded us
@@ -1427,6 +1427,7 @@ class BunnylandInspector {
     this._ws = ws;
 
     ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'authenticate', data: {} }));
       this._setApiStatus('live', '● Connected');
       document.getElementById('btn-connect').textContent = 'Disconnect';
       this._setRuntime(null, true);

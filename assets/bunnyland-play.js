@@ -545,6 +545,9 @@
       socket.send(JSON.stringify({
         type: 'authenticate',
         data: {
+          token: BunnylandApi.getPlayerAuth()?.startsWith('Bearer ')
+            ? BunnylandApi.getPlayerAuth().slice(7)
+            : null,
           claim_id: control?.claimId || null,
           claim_secret: control?.claimSecret || null,
         },

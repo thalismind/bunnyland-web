@@ -2,6 +2,7 @@
   'use strict';
 
   let playerAuthHeader = null;
+  let rotationTimer = null;
 
   function normalizeBase(url) {
     return String(url || '').trim().replace(/\/$/, '');
@@ -24,31 +25,73 @@
   }
 
   function mergedJsonHeaders(headers = null) {
-    const merged = {
-      ...jsonHeaders(playerAuthHeader),
+    return {
       ...(headers || {}),
+      ...jsonHeaders(playerAuthHeader),
     };
-    if (
-      playerAuthHeader
-      && headers?.Authorization
-      && String(headers.Authorization).startsWith('Basic ')
-      && headers.Authorization !== playerAuthHeader
-    ) {
-      merged.Authorization = playerAuthHeader;
+  }
+
+  function scheduleRotation(base, status) {
+    if (rotationTimer) clearTimeout(rotationTimer);
+    if (!status?.rotate_after) return;
+    const delay = Math.max(0, (Number(status.rotate_after) * 1000) - Date.now());
+    rotationTimer = setTimeout(async () => {
+      try {
+        const next = await rotateAuth(base);
+        scheduleRotation(base, next);
+      } catch (_error) {
+        rotationTimer = null;
+      }
+    }, Math.min(delay, 2147483647));
+  }
+
+  async function authMe(base) {
+    const res = await fetch(`${normalizeBase(base)}/auth/me`, { credentials: 'include' });
+    return parseJsonResponse(res);
+  }
+
+  async function login(base, username, password) {
+    const loginOrigin = new URL(normalizeBase(base) || '/', location.href).origin;
+    if (loginOrigin !== location.origin) {
+      throw new Error('Refusing to send Bunnyland credentials to a different origin');
     }
-    return merged;
+    const res = await fetch(`${normalizeBase(base)}/auth/login`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, delivery: 'cookie' }),
+    });
+    const status = await parseJsonResponse(res);
+    scheduleRotation(base, status);
+    return status;
   }
 
-  function hasAuthHeader(headers = null) {
-    return Boolean(headers?.Authorization || headers?.authorization || headers?.['X-Bunnyland-Admin-Secret']);
+  async function rotateAuth(base) {
+    const res = await fetch(`${normalizeBase(base)}/auth/rotate`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    return parseJsonResponse(res);
   }
 
-  function ensurePlayerAuth() {
-    if (playerAuthHeader) return true;
-    const auth = promptPlayerAuth();
-    if (!auth) return false;
-    setPlayerAuth(auth);
-    return true;
+  async function logout(base) {
+    const res = await fetch(`${normalizeBase(base)}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (rotationTimer) clearTimeout(rotationTimer);
+    rotationTimer = null;
+    return parseJsonResponse(res);
+  }
+
+  async function ensurePlayerAuth(base) {
+    try {
+      const status = await authMe(base);
+      scheduleRotation(base, status);
+      return true;
+    } catch (_error) {
+      return promptPlayerAuth(base);
+    }
   }
 
   async function applyConfigToInput({ inputId = 'api-url', isConnected = () => false, connect = null } = {}) {
@@ -56,7 +99,9 @@
     const input = document.getElementById(inputId);
     if (config.serverUrl && input && !isConnected()) input.value = config.serverUrl;
     if (config.autoConnect && config.serverUrl && !isConnected() && connect) {
-      if (!truthyConfig(config.playerAuthRequired) || ensurePlayerAuth()) connect(config.serverUrl);
+      if (!truthyConfig(config.playerAuthRequired) || await ensurePlayerAuth(config.serverUrl)) {
+        connect(config.serverUrl);
+      }
     }
     return config;
   }
@@ -71,24 +116,16 @@
   }
 
   function jsonHeaders(authHeader = null) {
-    if (authHeader && String(authHeader).startsWith('Token ')) {
-      return {
-        'Content-Type': 'application/json',
-        'X-Bunnyland-Admin-Secret': String(authHeader).slice(6),
-      };
-    }
     return {
       'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(String(authHeader || '').startsWith('Bearer ') ? { Authorization: authHeader } : {}),
     };
   }
 
   function adminHeaders(authHeader = null, contentType = null) {
     const headers = {};
     if (contentType) headers['Content-Type'] = contentType;
-    if (authHeader && String(authHeader).startsWith('Token ')) {
-      headers['X-Bunnyland-Admin-Secret'] = String(authHeader).slice(6);
-    } else if (authHeader) {
+    if (String(authHeader || '').startsWith('Bearer ')) {
       headers.Authorization = authHeader;
     }
     return headers;
@@ -113,36 +150,37 @@
       method,
       headers: currentHeaders(),
       body,
+      credentials: 'include',
     });
     if (res.status === 401 && promptAuth) {
-      const hadAuth = hasAuthHeader(currentHeaders());
-      const auth = promptPlayerAuth();
-      if (auth && (!hadAuth || auth !== playerAuthHeader)) {
-        setPlayerAuth(auth);
+      if (await promptPlayerAuth(base)) {
         res = await fetch(`${normalizeBase(base)}${path}`, {
           method,
           headers: currentHeaders(),
           body,
+          credentials: 'include',
         });
       }
     }
     return parseJsonResponse(res);
   }
 
-  function promptBasicAuth(label = 'Admin') {
-    const username = window.prompt(`${label} username`);
+  async function promptPlayerAuth(base) {
+    const username = window.prompt('Bunnyland username');
     if (!username) return null;
-    const password = window.prompt(`${label} password`);
+    const password = window.prompt('Bunnyland password');
     if (password == null) return null;
-    return `Basic ${btoa(`${username}:${password}`)}`;
-  }
-
-  function promptPlayerAuth() {
-    return promptBasicAuth('Player');
+    try {
+      await login(base, username, password);
+      return true;
+    } catch (error) {
+      window.alert(error.message || 'Login failed');
+      return false;
+    }
   }
 
   function setPlayerAuth(authHeader = null) {
-    playerAuthHeader = authHeader || null;
+    playerAuthHeader = String(authHeader || '').startsWith('Bearer ') ? authHeader : null;
   }
 
   function getPlayerAuth() {
@@ -154,22 +192,21 @@
     body = null,
     prompt = true,
     getAuth = () => null,
-    setAuth = () => {},
   } = {}) {
     const currentHeaders = () => jsonHeaders(getAuth());
     let res = await fetch(`${normalizeBase(base)}${path}`, {
       method,
       headers: currentHeaders(),
       body,
+      credentials: 'include',
     });
     if (res.status === 401 && prompt) {
-      const auth = promptBasicAuth();
-      if (auth) {
-        setAuth(auth);
+      if (await promptPlayerAuth(base)) {
         res = await fetch(`${normalizeBase(base)}${path}`, {
           method,
           headers: currentHeaders(),
           body,
+          credentials: 'include',
         });
       }
     }
@@ -179,7 +216,6 @@
   async function uploadCharacterImage(base, characterId, purpose, file, {
     prompt = true,
     getAuth = () => null,
-    setAuth = () => {},
   } = {}) {
     const path = `/admin/world/character/${encodeURIComponent(characterId)}/image/${encodeURIComponent(purpose)}`;
     const contentType = file?.type || 'application/octet-stream';
@@ -188,46 +224,24 @@
       method: 'POST',
       headers: currentHeaders(),
       body: file,
+      credentials: 'include',
     });
     if (res.status === 401 && prompt) {
-      const auth = promptBasicAuth();
-      if (auth) {
-        setAuth(auth);
+      if (await promptPlayerAuth(base)) {
         res = await fetch(`${normalizeBase(base)}${path}`, {
           method: 'POST',
           headers: currentHeaders(),
           body: file,
-        });
-      }
-    }
-    if (res.status === 403 && prompt && !getAuth()) {
-      const token = window.prompt('Admin token');
-      if (token) {
-        setAuth(`Token ${token}`);
-        res = await fetch(`${normalizeBase(base)}${path}`, {
-          method: 'POST',
-          headers: currentHeaders(),
-          body: file,
+          credentials: 'include',
         });
       }
     }
     return parseJsonResponse(res);
   }
 
-  function socketUrl(base, path = '/world/updates', authHeader = null) {
+  function socketUrl(base, path = '/world/updates', _authHeader = null) {
     const normalized = normalizeBase(base);
-    if (!authHeader || !String(authHeader).startsWith('Basic ')) {
-      return `${normalized.replace(/^http/, 'ws')}${path}`;
-    }
-    const url = new URL(`${normalized}${path}`, location.href);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const decoded = atob(String(authHeader).slice(6));
-    const separator = decoded.indexOf(':');
-    if (separator >= 0) {
-      url.username = decoded.slice(0, separator);
-      url.password = decoded.slice(separator + 1);
-    }
-    return url.toString();
+    return `${normalized.replace(/^http/, 'ws')}${path}`;
   }
 
   function mediaUrl(base, url) {
@@ -257,14 +271,16 @@
     applyConfigToInput,
     applyServerParam,
     adminHeaders,
+    authMe,
     claimHeaders,
     ensurePlayerAuth,
     getPlayerAuth,
     jsonHeaders,
+    login,
+    logout,
     mediaUrl,
     normalizeBase,
     parseJsonResponse,
-    promptBasicAuth,
     promptPlayerAuth,
     requestEventImage,
     requestSceneImage,
@@ -274,6 +290,7 @@
     setServerInUrl,
     setPlayerAuth,
     socketUrl,
+    rotateAuth,
     uploadCharacterImage,
   };
 }());

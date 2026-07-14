@@ -456,7 +456,15 @@ const {
   parseTraceText,
   traceTitle,
 } = BunnylandTrace;
-const { normalizeBase, promptBasicAuth, serverFromUrl } = BunnylandApi;
+const { normalizeBase, serverFromUrl } = BunnylandApi;
+
+function promptTempoBasicAuth() {
+  const username = window.prompt('Tempo username');
+  if (username === null) return null;
+  const password = window.prompt('Tempo password');
+  if (password === null) return null;
+  return `Basic ${btoa(`${username}:${password}`)}`;
+}
 
 // Tempo live connection: poll the search API for recent traces, fetch full spans only
 // when a trace is selected. See https://grafana.com/docs/tempo/latest/api_docs/#search
@@ -828,7 +836,7 @@ async function tempoFetch(path) {
   });
   let res = await fetch(url, { headers: headers() });
   if (res.status === 401) {
-    const auth = promptBasicAuth();
+    const auth = promptTempoBasicAuth();
     if (auth) {
       app.live.auth = auth;
       res = await fetch(url, { headers: headers() });
