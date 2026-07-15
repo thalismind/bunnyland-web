@@ -134,7 +134,7 @@ def recent_events_payload() -> dict:
 
 def route_api(page) -> None:
     page.route(
-        "**/mock/world/snapshot",
+        "**/mock/admin/world/snapshot",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -142,7 +142,7 @@ def route_api(page) -> None:
         ),
     )
     page.route(
-        "**/mock/world/events/recent",
+        "**/mock/admin/world/events/recent",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",

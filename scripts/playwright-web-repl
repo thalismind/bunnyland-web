@@ -2,7 +2,7 @@
 """Playwright regression test for the Bunnyland Web REPL.
 
 The test mocks the player-facing API, claims a character, submits a typed command, and
-asserts the command body sent to ``/world/commands``.
+asserts the command body sent to the play-zoned command operation.
 """
 
 from __future__ import annotations

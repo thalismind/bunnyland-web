@@ -56,10 +56,13 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
   const { BunnylandApi } = loadBrowserAssets(['assets/bunnyland-api.js']);
 
   assert.equal(BunnylandApi.normalizeBase(' http://server.test/api/ '), 'http://server.test/api');
-  assert.equal(BunnylandApi.socketUrl('https://server.test/api/', '/world/updates'), 'wss://server.test/api/world/updates');
   assert.equal(
-    BunnylandApi.socketUrl('/api', '/world/updates', `Basic ${Buffer.from('admin:p@ss').toString('base64')}`),
-    '/api/world/updates',
+    BunnylandApi.socketUrl('http://example.test/api/', '/admin/world/updates'),
+    'ws://example.test/api/admin/world/updates',
+  );
+  assert.equal(
+    BunnylandApi.socketUrl('/api', '/play/world/updates', `Basic ${Buffer.from('admin:p@ss').toString('base64')}`),
+    'ws://example.test/api/play/world/updates',
   );
 });
 
@@ -75,7 +78,7 @@ test('BunnylandApi prompts and reuses player auth for player routes', async () =
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  const result = await BunnylandApi.sendJson('/api/', '/world/characters');
+  const result = await BunnylandApi.sendJson('/api/', '/play/world/characters');
 
   assert.deepEqual(result, { ok: true });
   assert.equal(calls.length, 3);
@@ -99,9 +102,42 @@ test('BunnylandApi refuses to submit browser credentials cross-origin', async ()
 
   await assert.rejects(
     context.BunnylandApi.login('https://phishing.test/api', 'player', 'secret'),
-    /different origin/,
+    /page origin/,
   );
   assert.equal(fetched, false);
+});
+
+test('browser config, transports, media, and generated links reject cross-origin input', async () => {
+  const context = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+  const { BunnylandApi, BunnylandPlay } = context;
+  context.location.search = '?server=https%3A%2F%2Fevil.test%2Fapi';
+
+  assert.throws(() => BunnylandApi.serverFromUrl(), /page origin/);
+  assert.throws(() => BunnylandApi.socketUrl('https://evil.test/api'), /page origin/);
+  assert.throws(
+    () => BunnylandApi.mediaUrl('/api', 'https://evil.test/image.png'),
+    /page origin/,
+  );
+  assert.throws(
+    () => BunnylandPlay.characterSheetHref('https://evil.test/api', `x'\"><script>`),
+    /page origin/,
+  );
+});
+
+test('hostile entity and event identifiers use delegated data attributes, not inline handlers', () => {
+  const inspector = fs.readFileSync('inspector.html', 'utf8');
+  const editor = fs.readFileSync('world-editor.html', 'utf8');
+
+  assert.doesNotMatch(inspector, /onclick=/i);
+  assert.doesNotMatch(editor, /onclick=/i);
+  assert.match(inspector, /data-select-entity=/);
+  assert.match(inspector, /data-inspector-depth=/);
+  assert.match(editor, /data-editor-entity=/);
+  assert.match(inspector, /closest\('\[data-select-entity\]/);
+  assert.match(editor, /closest\('\[data-editor-entity\]'/);
 });
 
 test('BunnylandApi retries explicit claim headers with prompted player auth', async () => {
@@ -116,7 +152,7 @@ test('BunnylandApi retries explicit claim headers with prompted player auth', as
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  const result = await BunnylandApi.sendJson('/api/', '/world/character/c1?claim_id=claim1', {
+  const result = await BunnylandApi.sendJson('/api/', '/play/world/character/c1?claim_id=claim1', {
     headers: BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' }),
   });
 
@@ -142,7 +178,7 @@ test('BunnylandApi replaces stale explicit player auth after prompt', async () =
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  await BunnylandApi.sendJson('/api/', '/world/character/c1?claim_id=claim1', { headers });
+  await BunnylandApi.sendJson('/api/', '/play/world/character/c1?claim_id=claim1', { headers });
 
   assert.equal(calls[0].options.headers.Authorization, undefined);
   assert.equal(calls[1].url, '/api/auth/login');
@@ -341,10 +377,10 @@ test('BunnylandPlay builds character-sheet links and portrait state messages', (
   ]);
 
   assert.equal(
-    BunnylandPlay.characterSheetHref('http://server.test/api/', 'character:1'),
-    'character-sheet.html?server=http%3A%2F%2Fserver.test%2Fapi#character:1',
+    BunnylandPlay.characterSheetHref('http://example.test/api/', 'character:1'),
+    'character-sheet.html?server=http%3A%2F%2Fexample.test%2Fapi#character:1',
   );
-  assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: { url: '/media/p.png' } }), 'Portrait ready.');
+  assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: { url: '/public/media/p.png' } }), 'Portrait ready.');
   assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: {} }), 'Portrait pending.');
   assert.equal(
     BunnylandPlay.portraitStatusMessage({ portrait: {} }, 'requesting'),
@@ -412,7 +448,7 @@ test('BunnylandPlay parses queue timing and cancels commands with controller ide
   assert.equal(request.options.method, 'DELETE');
   assert.equal(
     request.url,
-    '/api/world/character/character%3A1/commands/queued%3A1?controller_id=web%3Atui&controller_generation=7',
+    '/api/play/world/character/character%3A1/commands/queued%3A1?controller_id=web%3Atui&controller_generation=7',
   );
 });
 
@@ -441,30 +477,33 @@ test('BunnylandApi builds media URLs and image-request requests', async () => {
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
 
-  assert.equal(BunnylandApi.mediaUrl('http://s.test/', '/media/portraits/a.png'), 'http://s.test/media/portraits/a.png');
-  assert.equal(BunnylandApi.mediaUrl('http://s.test', 'https://cdn.test/x.png'), 'https://cdn.test/x.png');
-  assert.equal(BunnylandApi.mediaUrl('http://s.test', ''), '');
+  assert.equal(BunnylandApi.mediaUrl('http://example.test/', '/public/media/portraits/a.png'), 'http://example.test/public/media/portraits/a.png');
+  assert.throws(
+    () => BunnylandApi.mediaUrl('http://example.test', 'https://cdn.test/x.png'),
+    /page origin/,
+  );
+  assert.equal(BunnylandApi.mediaUrl('http://example.test', ''), '');
 
   const calls = [];
   context.fetch = async (url, options) => {
     calls.push({ url, options });
-    return { ok: true, status: 200, json: async () => ({ status: 'queued', url: '/media/events/x.png' }) };
+    return { ok: true, status: 200, json: async () => ({ status: 'queued', url: '/public/media/events/x.png' }) };
   };
 
-  const scene = await BunnylandApi.requestSceneImage('http://s.test/', 'character:1');
+  const scene = await BunnylandApi.requestSceneImage('http://example.test/', 'character:1');
   assert.equal(scene.status, 'queued');
-  assert.equal(calls[0].url, 'http://s.test/world/character/character%3A1/scene-image');
+  assert.equal(calls[0].url, 'http://example.test/play/world/character/character%3A1/scene-image');
   assert.equal(calls[0].options.method, 'POST');
 
-  await BunnylandApi.requestEventImage('http://s.test', 'rec:9', 'dramatic');
-  assert.equal(calls[1].url, 'http://s.test/world/event/rec%3A9/image');
+  await BunnylandApi.requestEventImage('http://example.test', 'rec:9', 'dramatic');
+  assert.equal(calls[1].url, 'http://example.test/admin/world/event/rec%3A9/image');
   assert.deepEqual(JSON.parse(calls[1].options.body), { extra: 'dramatic' });
 
   const file = { type: 'image/png' };
-  await BunnylandApi.uploadCharacterImage('http://s.test/', 'character:1', 'sprite', file, {
+  await BunnylandApi.uploadCharacterImage('http://example.test/', 'character:1', 'sprite', file, {
     getAuth: () => 'Token secret',
   });
-  assert.equal(calls[2].url, 'http://s.test/admin/world/character/character%3A1/image/sprite');
+  assert.equal(calls[2].url, 'http://example.test/admin/world/character/character%3A1/image/sprite');
   assert.equal(calls[2].options.method, 'POST');
   assert.equal(calls[2].options.headers['Content-Type'], 'image/png');
   assert.equal(calls[2].options.headers.Authorization, undefined);
@@ -480,15 +519,15 @@ test('BunnylandPlay exposes portraits and image-request messages', () => {
 
   const projection = BunnylandPlay.parseCharacterProjection({
     character_id: 'character:1',
-    portrait: { url: '/media/portraits/p.png', alpha_url: '/media/alpha/p.png' },
-    room: { id: 'room:1', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/media/portraits/m.png' } }] },
+    portrait: { url: '/public/media/portraits/p.png', alpha_url: '/public/media/alpha/p.png' },
+    room: { id: 'room:1', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/public/media/portraits/m.png' } }] },
   });
-  assert.equal(projection.portrait.url, '/media/portraits/p.png');
+  assert.equal(projection.portrait.url, '/public/media/portraits/p.png');
 
   const room = BunnylandPlay.parseRoomProjection({
-    room: { id: 'room:1', title: 'Parlor', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/media/portraits/m.png' } }] },
+    room: { id: 'room:1', title: 'Parlor', entities: [{ id: 'character:2', name: 'Marlow', is_character: true, portrait: { url: '/public/media/portraits/m.png' } }] },
   });
-  assert.equal(room.entities[0].portrait.url, '/media/portraits/m.png');
+  assert.equal(room.entities[0].portrait.url, '/public/media/portraits/m.png');
 
   assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'queued' }), '👀 image requested');
   assert.equal(BunnylandPlay.imageRequestMessage({ ok: true, status: 'skipped' }), '📸 image ready');
@@ -507,14 +546,14 @@ test('BunnylandPlay extracts and ranks image-completion events', () => {
       event_type: 'ImageGenerationCompletedEvent',
       event: {
         event_id: 'e1', world_epoch: 5, entity_id: 'history:1', purpose: 'event',
-        url: '/media/events/a.png', alpha_url: '/media/alpha/a.png',
+        url: '/public/media/events/a.png', alpha_url: '/public/media/alpha/a.png',
       },
     },
   };
-  const img = BunnylandPlay.imageCompletionFromMessage(completed, 'http://s.test');
+  const img = BunnylandPlay.imageCompletionFromMessage(completed, 'http://example.test');
   assert.equal(img.purpose, 'event');
-  assert.equal(img.url, 'http://s.test/media/events/a.png');
-  assert.equal(img.alphaUrl, 'http://s.test/media/alpha/a.png');
+  assert.equal(img.url, 'http://example.test/public/media/events/a.png');
+  assert.equal(img.alphaUrl, 'http://example.test/public/media/alpha/a.png');
   assert.equal(img.epoch, 5);
 
   // Non-completion and url-less messages are ignored.
@@ -525,13 +564,13 @@ test('BunnylandPlay extracts and ranks image-completion events', () => {
   const messages = [
     completed,
     { data: { event_type: 'ImageGenerationCompletedEvent',
-              event: { event_id: 'e2', world_epoch: 9, purpose: 'portrait', url: '/media/portraits/p.png' } } },
+              event: { event_id: 'e2', world_epoch: 9, purpose: 'portrait', url: '/public/media/portraits/p.png' } } },
     { data: { event_type: 'ImageGenerationCompletedEvent',
-              event: { event_id: 'e3', world_epoch: 12, purpose: 'event', url: '/media/events/b.png' } } },
+              event: { event_id: 'e3', world_epoch: 12, purpose: 'event', url: '/public/media/events/b.png' } } },
   ];
   // Newest event-purpose image wins; portrait is filtered out.
-  const latest = BunnylandPlay.latestImageCompletion(messages, { base: 'http://s.test', purpose: 'event' });
-  assert.equal(latest.url, 'http://s.test/media/events/b.png');
+  const latest = BunnylandPlay.latestImageCompletion(messages, { base: 'http://example.test', purpose: 'event' });
+  assert.equal(latest.url, 'http://example.test/public/media/events/b.png');
   assert.equal(latest.epoch, 12);
   // Without a purpose filter, the newest overall wins.
   assert.equal(BunnylandPlay.latestImageCompletion(messages).epoch, 12);

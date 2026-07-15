@@ -232,13 +232,13 @@ def wait_for_api(api_url: str) -> None:
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            api_get(api_url, "/health")
+            api_get(api_url, "/public/health")
             return
         except urllib.error.HTTPError as exc:
             last_error = exc
             if exc.code in {401, 403, 404}:
                 try:
-                    api_get(api_url, "/world/characters")
+                    api_get(api_url, "/play/world/characters")
                     return
                 except (
                     urllib.error.URLError,
@@ -274,14 +274,14 @@ def entity_is_door(entity: dict[str, Any]) -> bool:
 
 
 def choose_character(api_url: str) -> tuple[str, dict[str, Any]]:
-    lobby = api_get(api_url, "/world/characters")
+    lobby = api_get(api_url, "/play/world/characters")
     candidates: list[tuple[int, str, dict[str, Any]]] = []
     for summary in lobby.get("characters", []):
         cid = character_id(summary)
         if not cid:
             continue
         try:
-            projection = api_get(api_url, f"/world/character/{urllib.parse.quote(cid, safe='')}")
+            projection = api_get(api_url, f"/play/world/character/{urllib.parse.quote(cid, safe='')}")
         except urllib.error.URLError:
             continue
         room = projection.get("room") or {}
@@ -443,7 +443,7 @@ def queue_visible_say(page, api_url: str, character_id_value: str, text: str) ->
     claim_secret = control.get("claimSecret") or control.get("claim_secret") or ""
     api_post(
         api_url,
-        "/world/commands",
+        "/play/world/commands",
         {
             "character_id": character_id_value,
             "controller_id": control.get("controllerId") or control.get("controller_id"),
@@ -579,7 +579,7 @@ def capture_world_generator(
           };
           const [generators, snapshot] = await Promise.all([
             getJson('/admin/world/generators'),
-            getJson('/world/snapshot'),
+            getJson('/admin/world/snapshot'),
           ]);
           window.app.base = apiUrl;
           window.app.generators = generators.generators || [];
@@ -647,7 +647,7 @@ def capture_inspector(
     if headers:
         page.evaluate(
             """async ({apiUrl, headers}) => {
-              const response = await fetch(`${apiUrl}/world/snapshot`, {headers});
+              const response = await fetch(`${apiUrl}/admin/world/snapshot`, {headers});
               const data = await response.json().catch(() => ({}));
               if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
               window.app._apiBase = apiUrl;
@@ -905,7 +905,7 @@ def main(argv: list[str] | None = None) -> int:
             api_process, local_operator_token = start_local_api(server_repo, api_port)
             managed.append(api_process)
             api_url_value = f"http://{LOCAL_API_HOST}:{api_port}"
-            wait_for_http(f"{api_url_value}/health", "local Bunnyland API")
+            wait_for_http(f"{api_url_value}/public/health", "local Bunnyland API")
             api_process.check_running()
 
         if not web_url_value:

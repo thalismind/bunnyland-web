@@ -6,9 +6,8 @@ connect, claim a character with the web controller, move its in-room sprite, the
 through a room exit. Screenshots are written after each visible step.
 
 The Toon client is a pure player surface: it reads only the play-facing projections
-(``/world/characters``, ``/world/character/{id}``, ``/world/room/{id}``,
-``/world/character/{id}/commands``, ``/world/character/{id}/events/recent``) and never the admin-gated
-snapshot or ``/world/updates`` stream. This test uses the same projections for its setup
+play-zoned character and room projections and never the admin-gated snapshot or global
+stream. This test uses the same projections for its setup
 and assertions so it works without admin credentials.
 """
 
@@ -58,11 +57,11 @@ def api_get(page, path: str) -> Any:
 
 def character_room(page, character_id: str) -> dict[str, Any]:
     """The character's perceived room id via the character projection."""
-    return api_get(page, f"/world/character/{character_id}")
+    return api_get(page, f"/play/world/character/{character_id}")
 
 
 def room_view(page, room_id: str) -> dict[str, Any]:
-    return api_get(page, f"/world/room/{room_id}")
+    return api_get(page, f"/play/world/room/{room_id}")
 
 
 def room_entity(room: dict[str, Any], entity_id: str) -> dict[str, Any] | None:
@@ -82,7 +81,7 @@ def sprite_pos(room: dict[str, Any], entity_id: str) -> tuple[float, float] | No
 
 def choose_character_with_exit(page) -> tuple[str, str, str]:
     """Pick a character whose perceived room has at least one exit, using only projections."""
-    lobby = api_get(page, "/world/characters")
+    lobby = api_get(page, "/play/world/characters")
     for summary in lobby.get("characters", []):
         character_id = summary["character_id"]
         projection = character_room(page, character_id)

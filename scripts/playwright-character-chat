@@ -254,7 +254,7 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
     expect(page.locator(".action-message.executed")).to_contain_text("look")
     expect(page.locator(f'.character-row[data-id="{CHARACTER}"].has-history')).to_have_count(1)
     expect(page.locator(f'.character-row[data-id="{CHARACTER}"] .history-icon')).to_contain_text("●")
-    assert posted[-1]["url"].endswith("/world/character/character%3A1/chat")
+    assert posted[-1]["url"].endswith("/play/world/character/character%3A1/chat")
     payload = posted[-1]["payload"]
     if payload["client_id"] != CLIENT_ID or payload["history"] != []:
         raise AssertionError(f"unexpected initial chat payload: {payload!r}")
@@ -383,7 +383,7 @@ def assert_character_selection(page, posted: list[dict]) -> None:
         "src", re.compile(r"/api/media/portraits/hazel\.png$")
     )
     submit_message(page, "hazel hello")
-    if not posted[-1]["url"].endswith("/world/character/character%3A2/chat"):
+    if not posted[-1]["url"].endswith("/play/world/character/character%3A2/chat"):
         raise AssertionError(f"Hazel chat used wrong URL: {posted[-1]['url']!r}")
     expect(page.locator("#transcript")).to_contain_text("hazel hello")
     expect(page.locator("#transcript")).to_contain_text("reply to hazel hello")

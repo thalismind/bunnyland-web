@@ -829,7 +829,7 @@ function clockNow() {
 }
 
 async function tempoFetch(path) {
-  const url = `${normalizeBase(app.live.base)}${path}`;
+  const url = `${BunnylandApi.assertSameOriginBase(app.live.base)}${path}`;
   const headers = () => ({
     Accept: 'application/json',
     ...(app.live.auth ? { Authorization: app.live.auth } : {}),

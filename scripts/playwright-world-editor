@@ -110,21 +110,21 @@ def main() -> None:
             ),
         )
         page.route(
-            "**/admin/runtime",
+            "**/admin/world/runtime",
             lambda route: route.fulfill(status=200, json=runtime_state),
         )
         page.route(
-            "**/admin/pause",
+            "**/admin/world/pause",
             lambda route: (
-                admin_calls.append({"path": "/admin/pause", "method": route.request.method, "body": {}}),
+                admin_calls.append({"path": "/admin/world/pause", "method": route.request.method, "body": {}}),
                 runtime_state.update({"paused": True, "running": False, "world_epoch": 3}),
                 route.fulfill(status=200, json=runtime_state),
             ),
         )
         page.route(
-            "**/admin/resume",
+            "**/admin/world/resume",
             lambda route: (
-                admin_calls.append({"path": "/admin/resume", "method": route.request.method, "body": {}}),
+                admin_calls.append({"path": "/admin/world/resume", "method": route.request.method, "body": {}}),
                 runtime_state.update({"paused": False, "running": True, "world_epoch": 4}),
                 route.fulfill(status=200, json=runtime_state),
             ),
@@ -173,19 +173,19 @@ def main() -> None:
         )
         page.route("**/world/library", lambda route: route.fulfill(status=200, json={"fragments": []}))
         page.goto(
-            f"{BASE_URL}/world-editor.html?server=http://bunnyland.test#map/linked_entity",
+            f"{BASE_URL}/world-editor.html?server=%2Fapi#map/linked_entity",
             wait_until="networkidle",
         )
         page.wait_for_function("window.app && window.app.selectedId === 'linked_entity'")
-        assert page.locator("#api-url").input_value() == "http://bunnyland.test"
+        assert page.locator("#api-url").input_value() == "/api"
         assert page.locator("#selected-label").text_content() == "linked_entity"
-        assert page.evaluate("location.search") == "?server=http%3A%2F%2Fbunnyland.test"
+        assert page.evaluate("location.search") == "?server=%2Fapi"
         assert page.evaluate("decodeURIComponent(location.hash)") == "#linked_entity"
         inspector_href = page.locator("#inspector-link").get_attribute("href")
         if (
             not inspector_href
             or "inspector.html" not in inspector_href
-            or "server=http%3A%2F%2Fbunnyland.test" not in inspector_href
+            or "server=%2Fapi" not in inspector_href
             or "#map/linked_entity" not in inspector_href
         ):
             raise AssertionError(f"unexpected inspector link: {inspector_href!r}")
@@ -232,7 +232,7 @@ def main() -> None:
             "document.querySelector('#status').textContent === 'Live ECS entity IDs cannot be renamed'"
         )
         live_paths = [call["path"] for call in admin_calls]
-        for expected in ["/admin/world/save", "/admin/pause", "/admin/resume", "/admin/world"]:
+        for expected in ["/admin/world/save", "/admin/world/pause", "/admin/world/resume", "/admin/world"]:
             if expected not in live_paths:
                 raise AssertionError(f"missing live admin call {expected}: {admin_calls!r}")
         if not any(

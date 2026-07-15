@@ -69,17 +69,16 @@ npm run check    # lint + unit tests
 
 ## API contracts
 
-The room-focused play client (`toon-client.html`) uses only play-facing contracts and never
-touches an admin endpoint. It discovers selectable characters from the `/world/characters`
-claim lobby; renders with `/world/character/{id}` (viewer-scoped controls, points,
-controller state, action targets) and `/world/room/{id}`; reads
-`/world/character/{id}/commands` for queued commands; receives live visible events from
-`/world/character/{id}/updates`; and falls back to the character-scoped recent-event feed.
+The room-focused play client (`toon-client.html`) uses only play-zoned contracts and never
+touches an admin operation. It discovers selectable characters, renders character and room
+projections, reads queued commands, receives live perspective-safe events, and falls back
+to the character-scoped recent-event feed. Consult the server OpenAPI document for the
+concrete HTTP operations and payloads.
 The shared coordinator authenticates in its first WebSocket frame, coalesces event bursts,
 deduplicates events by `event_id`, refreshes after a `stream_sequence` gap or `resync`,
 refreshes chat/sheet/Toon/TUI/REPL consumers, and resumes fallback polling only while the
-stream is unavailable. It never opens the admin-gated `/world/updates` stream or reads the
-full `/world/snapshot`.
+stream is unavailable. It never opens the admin-gated global stream or reads the full
+administrative snapshot.
 
 Player activity rows render server-disclosed `facts` as supplied. The server has already
 applied perspective, privacy, perception, and numeric detail cutoffs; clients must not infer
@@ -243,7 +242,7 @@ isn't shown for static snapshots, which carry no event stream.
 
 **Event feed** — toggle **events** in the toolbar to open a live feed under the inspector.
 It streams `DomainEvent`s from the connected server (moved, gathered, crafted, downed,
-born, …) and primes from `/world/events/recent` on connect. Each row shows the epoch, an
+born, …) and primes from the admin recent-event operation on connect. Each row shows the epoch, an
 icon, and a one-line summary with the actor linked into the inspector. Updates arrive per
 event, independent of the debounced graph refresh.
 

@@ -764,10 +764,10 @@
     BunnylandApi.setServerInUrl(base);
     characterProjections.clear();
     clientId = BunnylandPlay.persistentClientId(CLIENT_ID_KEY, 'character-chat');
-    const status = await BunnylandApi.sendJson(base, '/world/chat/status');
+    const status = await BunnylandApi.sendJson(base, '/play/world/chat/status');
     if (!status.enabled) throw new Error('character chat is disabled');
     allowedTools = status.allowed_tools || [];
-    const list = await BunnylandApi.sendJson(base, '/world/characters');
+    const list = await BunnylandApi.sendJson(base, '/play/world/characters');
     characters = list.characters || [];
     if (!characters.some(character => character.character_id === selectedId)) selectedId = '';
     renderCharacters();
@@ -788,7 +788,7 @@
     try {
       const projection = await BunnylandApi.sendJson(
         base,
-        `/world/character/${encodeURIComponent(characterId)}`,
+        `/play/world/character/${encodeURIComponent(characterId)}`,
       );
       characterProjections.set(characterId, projection || {});
       if (selectedId === characterId && requestId === portraitRequestId) renderPortrait();
@@ -821,7 +821,7 @@
         const control = claimControl(characterId);
         const response = await BunnylandApi.sendJson(
           base,
-          `/world/character/${encodeURIComponent(characterId)}/chat/pending/${encodeURIComponent(commandId)}${claimQuery(control, { client_id: clientId })}`,
+          `/play/world/character/${encodeURIComponent(characterId)}/chat/pending/${encodeURIComponent(commandId)}${claimQuery(control, { client_id: clientId })}`,
           { headers: BunnylandApi.claimHeaders(control) },
         );
         if (response.action?.tool) {
@@ -916,7 +916,7 @@
     els.line.textContent = 'Waiting for reply...';
     const response = await BunnylandApi.sendJson(
       base,
-      `/world/character/${encodeURIComponent(characterId)}/chat`,
+      `/play/world/character/${encodeURIComponent(characterId)}/chat`,
       { method: 'POST', headers: BunnylandApi.claimHeaders(control), body: JSON.stringify(payload) },
     );
     const action = response.action || {};

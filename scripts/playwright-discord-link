@@ -47,9 +47,15 @@ def mock_config(page, discord_url: str) -> None:
             status=200, content_type="application/json", body=body
         ),
     )
+    page.route(
+        "**/api/play/world/status",
+        lambda route: route.fulfill(status=200, json={"features": {}}),
+    )
 
 
 def check_present(page) -> None:
+    page_errors = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     mock_config(page, DISCORD_URL)
     page.add_init_script(
         """
@@ -75,11 +81,13 @@ def check_present(page) -> None:
     page.keyboard.press("Escape")
 
     page.locator('[data-copy="cmd-tui"]').click()
-    page.locator('[data-copy="cmd-tui"]').wait_for()
+    page.wait_for_timeout(100)
     writes = page.evaluate("window.__clipboardWrites")
     expected_copy = f"uv run --extra tui bunnyland-tui --server {BASE_URL}/api"
     if writes != [expected_copy]:
-        raise AssertionError(f"welcome copy button wrote unexpected text: {writes!r}")
+        raise AssertionError(
+            f"welcome copy button wrote unexpected text: {writes!r}; page errors: {page_errors!r}"
+        )
     if page.locator('[data-copy="cmd-tui"]').text_content() != "Copied":
         raise AssertionError("welcome copy button did not show copied feedback")
 

@@ -291,7 +291,7 @@ class WorldGeneratorApp {
   }
 
   async _fetchSnapshot() {
-    const snapshot = await this._send('/world/snapshot');
+    const snapshot = await this._send('/admin/world/snapshot');
     this._applySnapshot(snapshot);
   }
 

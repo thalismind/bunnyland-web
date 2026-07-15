@@ -906,7 +906,7 @@ class RoomClient {
     this.apiBase = BunnylandApi.normalizeBase(url);
     this.connected = true;
     // The player surface polls the ungated per-room projections; it never opens the
-    // admin-only /world/updates stream or reads the full snapshot.
+    // admin-only world update stream or reads the full snapshot.
     this._setStatus('live', '● Connected');
     document.getElementById('btn-connect').textContent = 'Disconnect';
     this._syncUrl();

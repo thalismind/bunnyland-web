@@ -399,7 +399,7 @@ class EventStreamApp {
   async refresh() {
     if (!this.base) return;
     try {
-      const data = await BunnylandApi.sendAdmin(this.base, '/world/events/recent', {
+      const data = await BunnylandApi.sendAdmin(this.base, '/admin/world/events/recent', {
         getAuth: () => this.authHeader,
         setAuth: (auth) => { this.authHeader = auth; },
       });
@@ -413,7 +413,7 @@ class EventStreamApp {
   async loadEntityNames() {
     if (!this.base) return;
     try {
-      const snapshot = await BunnylandApi.sendAdmin(this.base, '/world/snapshot', {
+      const snapshot = await BunnylandApi.sendAdmin(this.base, '/admin/world/snapshot', {
         getAuth: () => this.authHeader,
         setAuth: (auth) => { this.authHeader = auth; },
       });

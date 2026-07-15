@@ -190,12 +190,12 @@ def wait_for_api(api_url: str, proc: subprocess.Popen | None = None, timeout: fl
         if proc is not None and proc.poll() is not None:
             raise RuntimeError(f"bunnyland server exited early with code {proc.returncode}")
         try:
-            api_get(api_url, "/health")
+            api_get(api_url, "/public/health")
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
             last_error = exc
             time.sleep(0.5)
-    raise RuntimeError(f"timed out waiting for {api_url}/health: {last_error}")
+    raise RuntimeError(f"timed out waiting for {api_url}/public/health: {last_error}")
 
 
 def start_server() -> tuple[str, subprocess.Popen | None]:
@@ -327,7 +327,7 @@ def projection(
     character_id: str,
     control: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    path = f"/world/character/{urllib.parse.quote(character_id, safe='')}"
+    path = f"/play/world/character/{urllib.parse.quote(character_id, safe='')}"
     headers: dict[str, str] = {}
     if control:
         claim_id = str(control.get("claimId") or "")
@@ -340,7 +340,7 @@ def projection(
 
 
 def playable_characters(api_url: str) -> list[dict[str, Any]]:
-    lobby = api_get(api_url, "/world/characters")
+    lobby = api_get(api_url, "/play/world/characters")
     movable: list[dict[str, Any]] = []
     others: list[dict[str, Any]] = []
     for summary in lobby.get("characters", []):

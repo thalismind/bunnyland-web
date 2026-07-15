@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from playwright.sync_api import expect, sync_playwright
@@ -108,12 +109,12 @@ def wait_for_api(api_url: str, proc: subprocess.Popen | None, timeout: float = 4
         if proc is not None and proc.poll() is not None:
             raise RuntimeError(f"character memory API exited early with code {proc.returncode}")
         try:
-            api_get(api_url, "/health")
+            api_get(api_url, "/public/health")
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
             last_error = exc
             time.sleep(0.5)
-    raise RuntimeError(f"timed out waiting for {api_url}/health: {last_error}")
+    raise RuntimeError(f"timed out waiting for {api_url}/public/health: {last_error}")
 
 
 def start_memory_api() -> tuple[str, subprocess.Popen | None]:
@@ -156,6 +157,32 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
         text=True,
     )
     ADMIN_TOKEN = provision.stdout.strip()
+    password_hash = subprocess.run(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "-i",
+            SERVER_IMAGE,
+            "bunnyland",
+            "auth",
+            "hash-password",
+            "--password-stdin",
+        ],
+        input="character-memory-smoke-only\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    users_file = TOKEN_DATA_DIR / "auth-users.yml"
+    users_file.write_text(
+        "users:\n"
+        "  character-memory-playwright:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    scopes: [world:admin]\n",
+        encoding="utf-8",
+    )
+    users_file.chmod(0o600)
     proc = subprocess.Popen(
         [
             *runtime,
@@ -184,6 +211,8 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
             "8765",
             "--token-db",
             "/data/auth-tokens.sqlite3",
+            "--auth-users-file",
+            "/data/auth-users.yml",
             "--claim-timeout-seconds",
             "0",
             "--memory-backend",
@@ -221,7 +250,7 @@ def select_memory_character(api_url: str) -> dict:
 def claim_character(api_url: str, character_id: str) -> dict:
     return api_request(
         api_url,
-        "/world/controllers/web/claim",
+        "/play/world/controllers/web/claim",
         method="POST",
         body={
             "character_id": character_id,
@@ -238,7 +267,7 @@ def seed_memory_note(api_url: str, character: dict) -> str:
     command_id = "character-memory-note"
     response = api_request(
         api_url,
-        "/world/commands",
+        "/play/world/commands",
         method="POST",
         body={
             "character_id": character["id"],
@@ -286,8 +315,18 @@ def launch_browser(playwright):
 def fresh_page(browser, coverage: PlaywrightCoverage, api_url: str):
     page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
     page.set_extra_http_headers({"Authorization": f"Bearer {ADMIN_TOKEN}"})
+
+    def proxy_api(route) -> None:
+        parsed = urllib.parse.urlsplit(route.request.url)
+        path = parsed.path.removeprefix("/api-memory")
+        target = f"{api_url}{path}"
+        if parsed.query:
+            target = f"{target}?{parsed.query}"
+        route.fulfill(response=route.fetch(url=target))
+
+    page.route("**/api-memory/**", proxy_api)
     page.goto(
-        f"{BASE_URL}/character-memory.html?server={api_url}",
+        f"{BASE_URL}/character-memory.html?server=%2Fapi-memory",
         wait_until="networkidle",
     )
     return page

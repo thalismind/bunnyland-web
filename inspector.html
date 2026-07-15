@@ -1059,7 +1059,7 @@ function renderRelationships(entity, world) {
         : '';
       rows += `<div class="rel-row">
         <span class="rel-edge-type">${esc(rtype)}</span> →
-        <span class="rel-target" onclick="window.app.selectEntity('${esc(target)}')">${esc(targetName)}</span>${edgeSummary}
+        <span class="rel-target" data-select-entity="${esc(target)}">${esc(targetName)}</span>${edgeSummary}
       </div>`;
     }
   }
@@ -1422,7 +1422,7 @@ class BunnylandInspector {
     if (!authenticated) return;
     if (this._apiBase !== BunnylandApi.normalizeBase(url)) return; // a newer connect superseded us
 
-    const wsUrl = BunnylandApi.socketUrl(this._apiBase, '/world/updates', this._authHeader);
+    const wsUrl = BunnylandApi.socketUrl(this._apiBase, '/admin/world/updates', this._authHeader);
     const ws = new WebSocket(wsUrl);
     this._ws = ws;
 
@@ -1483,7 +1483,7 @@ class BunnylandInspector {
   async _ensureLogin() {
     if (!this._apiBase) return;
     try {
-      await this._sendAdmin('/world/overview', { method: 'GET', prompt: true });
+      await this._sendAdmin('/admin/world/overview', { method: 'GET', prompt: true });
       return true;
     } catch (err) {
       this._setApiStatus('error', `⚠ ${err.message}`);
@@ -1493,7 +1493,7 @@ class BunnylandInspector {
 
   async _refreshFromApi() {
     try {
-      const data = await this._sendAdmin('/world/snapshot', { method: 'GET', prompt: false });
+      const data = await this._sendAdmin('/admin/world/snapshot', { method: 'GET', prompt: false });
       this._applyWorld(parseApiSnapshot(data), { resetView: false });
       this._setApiStatus('live', `● Live · epoch ${this.world.epoch}s`);
       if (this._authHeader) this._refreshRuntime({ prompt: false });
@@ -1521,7 +1521,7 @@ class BunnylandInspector {
 
   async _refreshRuntime({ prompt = false } = {}) {
     try {
-      const data = await this._sendAdmin('/admin/runtime', { method: 'GET', prompt });
+      const data = await this._sendAdmin('/admin/world/runtime', { method: 'GET', prompt });
       this._applyRuntime(data);
     } catch (err) {
       this._setRuntime(null, Boolean(this._ws));
@@ -1535,7 +1535,7 @@ class BunnylandInspector {
     try {
       if (this._runtimePaused == null) await this._refreshRuntime({ prompt: true });
       if (this._runtimePaused == null) throw new Error('Runtime status unavailable');
-      const path = this._runtimePaused ? '/admin/resume' : '/admin/pause';
+      const path = this._runtimePaused ? '/admin/world/resume' : '/admin/world/pause';
       const data = await this._sendAdmin(path, { method: 'POST', prompt: true });
       this._applyRuntime(data);
       this._setApiStatus('live', this._runtimePaused ? '● Paused' : '● Playing');
@@ -1762,7 +1762,7 @@ class BunnylandInspector {
     const icon = eventHelpers.icon(type);
     const epoch = ev.world_epoch != null ? `${ev.world_epoch}s` : '';
     const actor = ev.actor_id != null
-      ? `<span class="ev-actor" onclick="window.app.selectEntity('${esc(ev.actor_id)}')">${esc(this._nameFor(ev.actor_id))}</span> `
+      ? `<span class="ev-actor" data-select-entity="${esc(ev.actor_id)}">${esc(this._nameFor(ev.actor_id))}</span> `
       : '';
     return `<div class="ev-row" title="${esc(type)}">`
       + `<span class="ev-epoch">${esc(epoch)}</span>`
@@ -1787,7 +1787,7 @@ class BunnylandInspector {
   async _primeEvents() {
     if (!this._apiBase) return;
     try {
-      const data = await this._sendAdmin('/world/events/recent', { method: 'GET', prompt: false });
+      const data = await this._sendAdmin('/admin/world/events/recent', { method: 'GET', prompt: false });
       for (const msg of (data.events || [])) this._appendEvent(msg.data || msg);
     } catch (_) { /* feed just stays empty */ }
   }
@@ -2369,7 +2369,7 @@ class BunnylandInspector {
     // Root crumb reflects the active top-level view (Room Map or Social).
     const root = this._rootLabel();
     if (this.viewStack.length > 0) {
-      parts.push(`<span class="crumb" onclick="window.app._goToRoot()">${esc(root)}</span>`);
+      parts.push(`<span class="crumb" data-inspector-root>${esc(root)}</span>`);
     } else {
       parts.push(`<span class="crumb-current">${esc(label || root)}</span>`);
     }
@@ -2380,7 +2380,7 @@ class BunnylandInspector {
       if (i === this.viewStack.length - 1) {
         parts.push(`<span class="crumb-current">${esc(lbl)}</span>`);
       } else {
-        parts.push(`<span class="crumb" onclick="window.app._goToDepth(${i})">${esc(lbl)}</span>`);
+        parts.push(`<span class="crumb" data-inspector-depth="${i}">${esc(lbl)}</span>`);
       }
     }
 
@@ -2553,6 +2553,13 @@ class BunnylandInspector {
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 window.app = new BunnylandInspector();
+document.addEventListener('click', (event) => {
+  const target = event.target.closest('[data-select-entity], [data-inspector-root], [data-inspector-depth]');
+  if (!target) return;
+  if (target.matches('[data-select-entity]')) window.app.selectEntity(target.dataset.selectEntity);
+  else if (target.matches('[data-inspector-root]')) window.app._goToRoot();
+  else window.app._goToDepth(Number(target.dataset.inspectorDepth));
+});
 
 // Deep link: ?server=<url> in the query string, #<tab>/<entity> in the hash.
 // (a server= embedded in the hash is also accepted, for links pasted as #tab/entity?server=…)
@@ -2561,7 +2568,10 @@ function parseDeepLink() {
   let hash = location.hash.replace(/^#/, '');
   const qi = hash.indexOf('?');
   if (qi >= 0) {
-    if (!server) server = new URLSearchParams(hash.slice(qi + 1)).get('server');
+    if (!server) {
+      const configured = new URLSearchParams(hash.slice(qi + 1)).get('server');
+      server = configured ? BunnylandApi.assertSameOriginBase(configured) : '';
+    }
     hash = hash.slice(0, qi);
   }
   const parts = hash.split('/').filter(Boolean).map(decodeURIComponent);

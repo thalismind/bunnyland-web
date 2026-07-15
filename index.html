@@ -589,6 +589,7 @@
   </div>
 
   <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
+  <script src="assets/bunnyland-api.js"></script>
   <script>
   'use strict';
 
@@ -632,7 +633,7 @@
       }
     }
 
-    const base = new URL(serverUrl, location.href).href.replace(/\/+$/, '');
+    const base = new URL(BunnylandApi.assertSameOriginBase(serverUrl), location.href).href.replace(/\/+$/, '');
     const fill = (id, program) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -662,8 +663,7 @@
       state.textContent = enabled ? 'Available on this server.' : 'Disabled on this server.';
     };
     try {
-      const health = await fetch(`${base}/health`, { cache: 'no-store' });
-      const body = health.ok ? await health.json() : {};
+      const body = await BunnylandApi.sendJson(base, '/play/world/status');
       const features = body.features || {};
       setFeature('character_sheets', Boolean(features.character_sheets), sheetHref);
       setFeature('character_chat', Boolean(features.character_chat), chatHref);

@@ -509,13 +509,13 @@
   }
 
   async function fetchRecentEvents(base) {
-    return BunnylandApi.sendJson(base, '/world/events/recent');
+    return BunnylandApi.sendJson(base, '/admin/world/events/recent');
   }
 
   async function fetchCharacterRecentEvents(base, characterId, control = null) {
     return BunnylandApi.sendJson(
       base,
-      `/world/character/${encodeURIComponent(characterId)}/events/recent${claimQuery(control)}`,
+      `/play/world/character/${encodeURIComponent(characterId)}/events/recent${claimQuery(control)}`,
       { headers: BunnylandApi.claimHeaders(control) }
     );
   }
@@ -539,7 +539,7 @@
       typeof WebSocket === 'function' ? url => new WebSocket(url) : null
     );
     if (!factory) return null;
-    const path = `/world/character/${encodeURIComponent(characterId)}/updates`;
+    const path = `/play/world/character/${encodeURIComponent(characterId)}/updates`;
     const socket = factory(BunnylandApi.socketUrl(base, path, BunnylandApi.getPlayerAuth()));
     socket.onopen = () => {
       socket.send(JSON.stringify({
@@ -759,14 +759,14 @@
   }
 
   async function fetchCharacterList(base) {
-    return parseCharacterList(await BunnylandApi.sendJson(base, '/world/characters'));
+    return parseCharacterList(await BunnylandApi.sendJson(base, '/play/world/characters'));
   }
 
   async function fetchCharacterProjection(base, characterId, control = null) {
     return parseCharacterProjection(
       await BunnylandApi.sendJson(
         base,
-        `/world/character/${encodeURIComponent(characterId)}${claimQuery(control)}`,
+        `/play/world/character/${encodeURIComponent(characterId)}${claimQuery(control)}`,
         { headers: BunnylandApi.claimHeaders(control) }
       )
     );
@@ -774,7 +774,7 @@
 
   async function fetchRoomProjection(base, roomId) {
     return parseRoomProjection(
-      await BunnylandApi.sendJson(base, `/world/room/${encodeURIComponent(roomId)}`)
+      await BunnylandApi.sendJson(base, `/play/world/room/${encodeURIComponent(roomId)}`)
     );
   }
 
@@ -782,7 +782,7 @@
     return parseQueuedCommands(
       await BunnylandApi.sendJson(
         base,
-        `/world/character/${encodeURIComponent(characterId)}/commands${claimQuery(control)}`,
+        `/play/world/character/${encodeURIComponent(characterId)}/commands${claimQuery(control)}`,
         { headers: BunnylandApi.claimHeaders(control) }
       )
     );
@@ -796,13 +796,13 @@
     if (control?.claimId) params.set('claim_id', control.claimId);
     return BunnylandApi.sendJson(
       base,
-      `/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`,
+      `/play/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`,
       { method: 'DELETE', headers: BunnylandApi.claimHeaders(control) }
     );
   }
 
   async function claimWebController(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/world/controllers/web/claim', {
+    return BunnylandApi.sendJson(base, '/play/world/controllers/web/claim', {
       method: 'POST',
       headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
@@ -810,7 +810,7 @@
   }
 
   async function updateWebControllerFallback(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/world/controllers/web/fallback', {
+    return BunnylandApi.sendJson(base, '/play/world/controllers/web/fallback', {
       method: 'PATCH',
       headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
@@ -818,7 +818,7 @@
   }
 
   async function releaseWebController(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/world/controllers/web/release-controller', {
+    return BunnylandApi.sendJson(base, '/play/world/controllers/web/release-controller', {
       method: 'POST',
       headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
@@ -826,7 +826,7 @@
   }
 
   async function releaseWebClaim(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/world/controllers/web/release-claim', {
+    return BunnylandApi.sendJson(base, '/play/world/controllers/web/release-claim', {
       method: 'POST',
       headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
@@ -834,7 +834,7 @@
   }
 
   async function submitCommand(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/world/commands', {
+    return BunnylandApi.sendJson(base, '/play/world/commands', {
       method: 'POST',
       headers: BunnylandApi.claimHeaders(control),
       body: JSON.stringify(payload),
@@ -1036,11 +1036,13 @@
 
   function characterSheetHref(apiBase, characterId, page = 'character-sheet.html') {
     const url = new URL(page, location.href);
-    const normalized = BunnylandApi.normalizeBase(apiBase);
+    if (url.origin !== location.origin) {
+      throw new Error('Bunnyland browser links must use the page origin');
+    }
+    const normalized = BunnylandApi.assertSameOriginBase(apiBase);
     if (normalized) url.searchParams.set('server', normalized);
     else url.searchParams.delete('server');
     url.hash = characterId || '';
-    if (url.origin !== location.origin) return url.toString();
     return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
   }
 

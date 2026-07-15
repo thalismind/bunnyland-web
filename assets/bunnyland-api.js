@@ -8,13 +8,23 @@
     return String(url || '').trim().replace(/\/$/, '');
   }
 
+  function assertSameOriginBase(base) {
+    const normalized = normalizeBase(base);
+    const resolved = new URL(normalized || '/', location.href);
+    if (resolved.origin !== location.origin) {
+      throw new Error('Bunnyland browser connections must use the page origin');
+    }
+    return normalized;
+  }
+
   function serverFromUrl() {
-    return new URLSearchParams(location.search).get('server') || '';
+    const configured = new URLSearchParams(location.search).get('server') || '';
+    return configured ? assertSameOriginBase(configured) : '';
   }
 
   function setServerInUrl(base) {
     const url = new URL(location.href);
-    const normalized = normalizeBase(base);
+    const normalized = assertSameOriginBase(base);
     if (normalized) url.searchParams.set('server', normalized);
     else url.searchParams.delete('server');
     history.replaceState(null, '', url);
@@ -46,16 +56,12 @@
   }
 
   async function authMe(base) {
-    const res = await fetch(`${normalizeBase(base)}/auth/me`, { credentials: 'include' });
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/me`, { credentials: 'include' });
     return parseJsonResponse(res);
   }
 
   async function login(base, username, password) {
-    const loginOrigin = new URL(normalizeBase(base) || '/', location.href).origin;
-    if (loginOrigin !== location.origin) {
-      throw new Error('Refusing to send Bunnyland credentials to a different origin');
-    }
-    const res = await fetch(`${normalizeBase(base)}/auth/login`, {
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/login`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -67,7 +73,7 @@
   }
 
   async function rotateAuth(base) {
-    const res = await fetch(`${normalizeBase(base)}/auth/rotate`, {
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/rotate`, {
       method: 'POST',
       credentials: 'include',
     });
@@ -75,7 +81,7 @@
   }
 
   async function logout(base) {
-    const res = await fetch(`${normalizeBase(base)}/auth/logout`, {
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
     });
@@ -146,7 +152,7 @@
 
   async function sendJson(base, path, { method = 'GET', body = null, headers = null, promptAuth = true } = {}) {
     const currentHeaders = () => mergedJsonHeaders(headers);
-    let res = await fetch(`${normalizeBase(base)}${path}`, {
+    let res = await fetch(`${assertSameOriginBase(base)}${path}`, {
       method,
       headers: currentHeaders(),
       body,
@@ -154,7 +160,7 @@
     });
     if (res.status === 401 && promptAuth) {
       if (await promptPlayerAuth(base)) {
-        res = await fetch(`${normalizeBase(base)}${path}`, {
+        res = await fetch(`${assertSameOriginBase(base)}${path}`, {
           method,
           headers: currentHeaders(),
           body,
@@ -194,7 +200,7 @@
     getAuth = () => null,
   } = {}) {
     const currentHeaders = () => jsonHeaders(getAuth());
-    let res = await fetch(`${normalizeBase(base)}${path}`, {
+    let res = await fetch(`${assertSameOriginBase(base)}${path}`, {
       method,
       headers: currentHeaders(),
       body,
@@ -202,7 +208,7 @@
     });
     if (res.status === 401 && prompt) {
       if (await promptPlayerAuth(base)) {
-        res = await fetch(`${normalizeBase(base)}${path}`, {
+        res = await fetch(`${assertSameOriginBase(base)}${path}`, {
           method,
           headers: currentHeaders(),
           body,
@@ -220,7 +226,7 @@
     const path = `/admin/world/character/${encodeURIComponent(characterId)}/image/${encodeURIComponent(purpose)}`;
     const contentType = file?.type || 'application/octet-stream';
     const currentHeaders = () => adminHeaders(getAuth(), contentType);
-    let res = await fetch(`${normalizeBase(base)}${path}`, {
+    let res = await fetch(`${assertSameOriginBase(base)}${path}`, {
       method: 'POST',
       headers: currentHeaders(),
       body: file,
@@ -228,7 +234,7 @@
     });
     if (res.status === 401 && prompt) {
       if (await promptPlayerAuth(base)) {
-        res = await fetch(`${normalizeBase(base)}${path}`, {
+        res = await fetch(`${assertSameOriginBase(base)}${path}`, {
           method: 'POST',
           headers: currentHeaders(),
           body: file,
@@ -239,29 +245,33 @@
     return parseJsonResponse(res);
   }
 
-  function socketUrl(base, path = '/world/updates', _authHeader = null) {
-    const normalized = normalizeBase(base);
-    return `${normalized.replace(/^http/, 'ws')}${path}`;
+  function socketUrl(base, path = '/admin/world/updates', _authHeader = null) {
+    const normalized = assertSameOriginBase(base);
+    return new URL(`${normalized}${path}`, location.href).href.replace(/^http/, 'ws');
   }
 
   function mediaUrl(base, url) {
     if (!url) return '';
-    if (/^https?:\/\//.test(url)) return url;
-    return `${normalizeBase(base)}${url}`;
+    if (url.startsWith('data:')) return url;
+    if (/^https?:\/\//.test(url)) {
+      assertSameOriginBase(url);
+      return url;
+    }
+    return `${assertSameOriginBase(base)}${url}`;
   }
 
   async function requestSceneImage(base, characterId, control = null) {
     const params = new URLSearchParams();
     if (control?.claimId) params.set('claim_id', control.claimId);
     const query = params.toString();
-    return sendJson(base, `/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
+    return sendJson(base, `/play/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
       method: 'POST',
       headers: claimHeaders(control),
     });
   }
 
   async function requestEventImage(base, recordId, extra = '') {
-    return sendJson(base, `/world/event/${encodeURIComponent(recordId)}/image`, {
+    return sendJson(base, `/admin/world/event/${encodeURIComponent(recordId)}/image`, {
       method: 'POST',
       body: JSON.stringify({ extra }),
     });
@@ -271,6 +281,7 @@
     applyConfigToInput,
     applyServerParam,
     adminHeaders,
+    assertSameOriginBase,
     authMe,
     claimHeaders,
     ensurePlayerAuth,

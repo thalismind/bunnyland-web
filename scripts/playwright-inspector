@@ -75,8 +75,8 @@ def main() -> None:
             """
         )
         page.route("**/world/overview", lambda route: route.fulfill(status=200, json={"ok": True}))
-        page.route("**/admin/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
-        page.goto(f"{BASE_URL}/inspector.html?server=http://127.0.0.1:18080", wait_until="domcontentloaded")
+        page.route("**/admin/world/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
+        page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi", wait_until="domcontentloaded")
         page.wait_for_function("window.app && window.app._apiBase")
         page.wait_for_timeout(200)
         if not page.locator("#client-menu-dialog:not(.hidden)").is_visible():
@@ -107,16 +107,16 @@ def main() -> None:
         if website_link.get_attribute("target") != "_blank" or website_link.get_attribute("rel") != "noopener":
             raise AssertionError("bunnyland.dev menu link should open as an external link")
         toon_href = page.locator('.client-menu-item[href^="toon-client.html"]').get_attribute("href")
-        if not toon_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in toon_href:
+        if not toon_href or "server=%2Fapi" not in toon_href:
             raise AssertionError(f"toon client menu link did not preserve server URL: {toon_href!r}")
         tui_href = page.locator('.client-menu-item[href^="web-tui.html"]').get_attribute("href")
-        if not tui_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in tui_href:
+        if not tui_href or "server=%2Fapi" not in tui_href:
             raise AssertionError(f"web tui menu link did not preserve server URL: {tui_href!r}")
         repl_href = page.locator('.client-menu-item[href^="web-repl.html"]').get_attribute("href")
-        if not repl_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in repl_href:
+        if not repl_href or "server=%2Fapi" not in repl_href:
             raise AssertionError(f"web repl menu link did not preserve server URL: {repl_href!r}")
         chat_href = page.locator('.client-menu-item[href^="character-chat.html"]').get_attribute("href")
-        if not chat_href or "server=http%3A%2F%2F127.0.0.1%3A18080" not in chat_href:
+        if not chat_href or "server=%2Fapi" not in chat_href:
             raise AssertionError(f"character chat menu link did not preserve server URL: {chat_href!r}")
         page.keyboard.press("Escape")
         prompt_calls = page.evaluate("window.__promptCalls")
@@ -149,11 +149,11 @@ def main() -> None:
             authenticated.update(value=True),
             route.fulfill(status=200, json={"subject": "admin", "scopes": ["world:play", "world:admin"], "expires_at": 2000000000, "rotate_after": 1990000000}),
         )[-1])
-        auth_page.route("**/api/world/overview", lambda route: route.fulfill(
+        auth_page.route("**/api/admin/world/overview", lambda route: route.fulfill(
             status=200 if authenticated["value"] else 401,
             json={"ok": True} if authenticated["value"] else {"detail": "locked"},
         ))
-        auth_page.route("**/api/admin/runtime", lambda route: route.fulfill(status=200, json={"ok": True, "running": True, "paused": False}))
+        auth_page.route("**/api/admin/world/runtime", lambda route: route.fulfill(status=200, json={"ok": True, "running": True, "paused": False}))
         auth_page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi#map", wait_until="domcontentloaded")
         auth_page.wait_for_function("window.__webSocketFrames.length > 0")
         auth_result = auth_page.evaluate(
@@ -168,7 +168,8 @@ def main() -> None:
         )
         if auth_result["prompts"] != ["Bunnyland username", "Bunnyland password"]:
             raise AssertionError(f"inspector did not prompt for admin auth: {auth_result!r}")
-        if auth_result["sockets"] != ["/api/world/updates"]:
+        expected_socket = f"{BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://')}/api/admin/world/updates"
+        if auth_result["sockets"] != [expected_socket]:
             raise AssertionError(f"inspector did not authenticate websocket: {auth_result!r}")
         if auth_result["frames"] != ['{"type":"authenticate","data":{}}']:
             raise AssertionError(f"inspector did not send first-frame authentication: {auth_result!r}")

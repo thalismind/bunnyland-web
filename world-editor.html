@@ -429,9 +429,12 @@ class WorldEditor {
     const base = BunnylandApi.normalizeBase(document.getElementById('api-url').value);
     if (!base) return;
     try {
-      this.world = parseWorld(await BunnylandApi.sendJson(base, '/world/snapshot'));
-      this._selectEntity(this._initialEntityId(), { sync: false });
       this.liveBase = base;
+      this.world = parseWorld(await this._sendAdmin('/admin/world/snapshot', {
+        method: 'GET',
+        prompt: true
+      }));
+      this._selectEntity(this._initialEntityId(), { sync: false });
       this._renderAll();
       await this._refreshRuntime({ prompt: true });
       await this._refreshSchema({ prompt: true });
@@ -497,7 +500,7 @@ class WorldEditor {
 
   async _refreshRuntime({ prompt = false } = {}) {
     try {
-      const data = await this._sendAdmin('/admin/runtime', { method: 'GET', prompt });
+      const data = await this._sendAdmin('/admin/world/runtime', { method: 'GET', prompt });
       this._applyRuntime(data);
     } catch (err) {
       this._setRuntime(null, false);
@@ -511,7 +514,7 @@ class WorldEditor {
       return;
     }
     try {
-      const data = await BunnylandApi.sendJson(this.liveBase, '/world/schema');
+      const data = await BunnylandApi.sendJson(this.liveBase, '/play/world/schema');
       this.worldSchema = data;
       this._renderAll();
     } catch (err) {
@@ -526,7 +529,7 @@ class WorldEditor {
       return;
     }
     try {
-      const data = await BunnylandApi.sendJson(this.liveBase, '/world/library');
+      const data = await BunnylandApi.sendJson(this.liveBase, '/play/world/library');
       this.libraryFragments = this._normalizeFragmentPayload(data, data.library_id || 'server');
       this._renderLibraryControls();
       if (prompt) this._status(`Loaded ${this.libraryFragments.length} library fragments`, 'ok');
@@ -574,7 +577,7 @@ class WorldEditor {
     try {
       if (this.runtimePaused == null) await this._refreshRuntime({ prompt: true });
       if (this.runtimePaused == null) throw new Error('Runtime status unavailable');
-      const data = await this._sendAdmin(this.runtimePaused ? '/admin/resume' : '/admin/pause', {
+      const data = await this._sendAdmin(this.runtimePaused ? '/admin/world/resume' : '/admin/world/pause', {
         method: 'POST',
         status: this.runtimePaused ? 'World resumed' : 'World paused'
       });
@@ -2137,7 +2140,7 @@ class WorldEditor {
 
   _renderProblem(problem) {
     if (!problem.entityId || !this.world.entities[problem.entityId]) return esc(problem.message);
-    return `<button type="button" class="problem-link" onclick="window.app._selectEntity('${esc(problem.entityId)}', { render: true })">${esc(problem.entityId)}</button> ${esc(problem.message)}`;
+    return `<button type="button" class="problem-link" data-editor-entity="${esc(problem.entityId)}">${esc(problem.entityId)}</button> ${esc(problem.message)}`;
   }
 
   _download() {
@@ -2165,13 +2168,20 @@ class WorldEditor {
 }
 
 window.app = new WorldEditor();
+document.addEventListener('click', (event) => {
+  const target = event.target.closest('[data-editor-entity]');
+  if (target) window.app._selectEntity(target.dataset.editorEntity, { render: true });
+});
 
 function parseEditorDeepLink() {
   let server = BunnylandApi.serverFromUrl();
   let hash = location.hash.replace(/^#/, '');
   const qi = hash.indexOf('?');
   if (qi >= 0) {
-    if (!server) server = new URLSearchParams(hash.slice(qi + 1)).get('server');
+    if (!server) {
+      const configured = new URLSearchParams(hash.slice(qi + 1)).get('server');
+      server = configured ? BunnylandApi.assertSameOriginBase(configured) : '';
+    }
     hash = hash.slice(0, qi);
   }
   const parts = hash.split('/').filter(Boolean).map(decodeURIComponent);
