@@ -133,6 +133,7 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
     log = log_path.open("w", encoding="utf-8")
     SERVER_CONTAINER_NAME = f"bunnyland-memory-{port}"
     runtime = container_cli()
+    subprocess.run([*runtime, "pull", SERVER_IMAGE], check=True)
     TOKEN_DATA_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-memory-auth-"))
     provision = subprocess.run(
         [
