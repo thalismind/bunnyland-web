@@ -427,6 +427,24 @@ test('BunnylandPlay scopes room projections to the claimed character', async () 
   assert.equal(calls[0][2].headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
 
+test('player pages use the current shared play helper cache key', () => {
+  const pages = [
+    'toon-client.html',
+    'web-tui.html',
+    'web-repl.html',
+    'character-chat.html',
+    'character-sheet.html',
+  ];
+  for (const page of pages) {
+    const html = fs.readFileSync(page, 'utf8');
+    assert.match(
+      html,
+      /assets\/bunnyland-play\.js\?v=20260715-room-claims/,
+      `${page} must load the current shared play helper`,
+    );
+  }
+});
+
 test('BunnylandPlay builds character-sheet links and portrait state messages', () => {
   const { BunnylandPlay } = loadBrowserAssets([
     'assets/bunnyland-api.js',

@@ -217,7 +217,9 @@ def main() -> None:
         expect(page.locator("#fp-value")).to_contain_text("✦")
         expect(page.locator("#fp-value")).to_contain_text("3 / 3 points")
         expect(page.locator("#fp-value .bl-point-icon-focus")).to_have_css("color", "rgb(59, 130, 246)")
-        assert "v=character-sheet-ecs" in page.locator('script[src*="bunnyland-play.js"]').get_attribute("src")
+        assert "v=20260715-room-claims" in page.locator(
+            'script[src*="bunnyland-play.js"]'
+        ).get_attribute("src")
         expect(page.locator("#sheet-overview")).to_contain_text("Dusty from a long patrol")
         expect(page.locator("#vitals")).to_contain_text("Health")
         expect(page.locator("#vitals")).not_to_contain_text("Initiative")
