@@ -399,6 +399,34 @@ test('BunnylandPlay normalizes projections, filters actions, and drains events',
   assert.doesNotMatch(inspected.text, /needs\.hunger|\[object Object\]/);
 });
 
+test('BunnylandPlay scopes room projections to the claimed character', async () => {
+  const context = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+  const calls = [];
+  context.BunnylandApi.sendJson = async (...args) => {
+    calls.push(args);
+    return {
+      room: { id: 'room:1', title: 'Kitchen' },
+      entities: [],
+    };
+  };
+
+  await context.BunnylandPlay.fetchRoomProjection(
+    '/api',
+    'room:1',
+    'character:1',
+    { claimId: 'claim:1', claimSecret: 'claim-secret' },
+  );
+
+  assert.equal(
+    calls[0][1],
+    '/play/world/room/room%3A1?claim_id=claim%3A1&character_id=character%3A1',
+  );
+  assert.equal(calls[0][2].headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
+});
+
 test('BunnylandPlay builds character-sheet links and portrait state messages', () => {
   const { BunnylandPlay } = loadBrowserAssets([
     'assets/bunnyland-api.js',

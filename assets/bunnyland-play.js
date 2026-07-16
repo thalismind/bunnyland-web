@@ -772,9 +772,15 @@
     );
   }
 
-  async function fetchRoomProjection(base, roomId) {
+  async function fetchRoomProjection(base, roomId, characterId, control = null) {
+    const params = claimParams(control);
+    params.set('character_id', characterId);
     return parseRoomProjection(
-      await BunnylandApi.sendJson(base, `/play/world/room/${encodeURIComponent(roomId)}`)
+      await BunnylandApi.sendJson(
+        base,
+        `/play/world/room/${encodeURIComponent(roomId)}?${params.toString()}`,
+        { headers: BunnylandApi.claimHeaders(control) }
+      )
     );
   }
 

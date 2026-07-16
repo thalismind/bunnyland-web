@@ -989,7 +989,12 @@ class RoomClient {
       return null;
     }
     try {
-      const projection = await fetchRoomProjection(this.apiBase, roomId);
+      const projection = await fetchRoomProjection(
+        this.apiBase,
+        roomId,
+        this.playerId,
+        this.control,
+      );
       this.roomProjection = projection?.room?.id === roomId ? projection : null;
       if (render) this.render();
       return this.roomProjection;
