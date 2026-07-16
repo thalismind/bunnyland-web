@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Capture Bunnyland screenshots for an itch.io game page from a real server.
-
-The browser clients default to the live sandbox. The script never installs Playwright
-routes or fixture data; setup calls read the same live API that the pages use.
-"""
+"""Capture Bunnyland screenshots for an itch.io game page from a real server."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -30,7 +28,6 @@ DEFAULT_WEB_URL = "https://sandbox.bunnyland.dev"
 DEFAULT_API_URL = "https://sandbox.bunnyland.dev/api"
 DEFAULT_OUT_DIR = Path("/tmp/bunnyland-itch-screenshots")
 LOCAL_API_HOST = "127.0.0.1"
-LOCAL_WEB_HOST = "127.0.0.1"
 RESOLUTION_PRESETS = {
     "480p": (854, 480),
     "720p": (1280, 720),
@@ -86,7 +83,10 @@ def api_get(
     path: str,
     operator_token: str | None = None,
 ) -> dict[str, Any]:
-    request = urllib.request.Request(f"{api_url.rstrip('/')}{path}")
+    request = urllib.request.Request(
+        f"{api_url.rstrip('/')}{path}",
+        headers={"User-Agent": "bunnyland-itch-screenshots/1"},
+    )
     for key, value in operator_headers(operator_token).items():
         request.add_header(key, value)
     with urllib.request.urlopen(request, timeout=25) as response:
@@ -107,6 +107,7 @@ def api_post(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    request.add_header("User-Agent", "bunnyland-itch-screenshots/1")
     for key, value in operator_headers(operator_token).items():
         request.add_header(key, value)
     for key, value in (extra_headers or {}).items():
@@ -135,9 +136,15 @@ def wait_for_http(url: str, label: str) -> None:
 
 
 class ManagedProcess:
-    def __init__(self, name: str, process: subprocess.Popen):
+    def __init__(
+        self,
+        name: str,
+        process: subprocess.Popen,
+        cleanup_paths: tuple[Path, ...] = (),
+    ):
         self.name = name
         self.process = process
+        self.cleanup_paths = cleanup_paths
 
     def check_running(self) -> None:
         code = self.process.poll()
@@ -145,19 +152,45 @@ class ManagedProcess:
             raise RuntimeError(f"{self.name} exited early with status {code}")
 
     def stop(self) -> None:
-        if self.process.poll() is not None:
-            return
-        self.process.terminate()
-        try:
-            self.process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=10)
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=10)
+        for path in self.cleanup_paths:
+            path.unlink(missing_ok=True)
 
 
 def start_local_api(server_repo: Path, port: int) -> tuple[ManagedProcess, str]:
     env = os.environ.copy()
     token_db = Path("/tmp") / f"bunnyland-itch-auth-{port}.sqlite3"
+    users_file = Path("/tmp") / f"bunnyland-itch-users-{port}.yml"
+    password = secrets.token_urlsafe(32)
+    password_hash = subprocess.run(
+        ["uv", "run", "bunnyland", "auth", "hash-password", "--password-stdin"],
+        cwd=server_repo,
+        env=env,
+        input=f"{password}\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    users_file.write_text(
+        "\n".join(
+            (
+                "users:",
+                "  - username: itch-screenshots",
+                f"    password_hash: '{password_hash}'",
+                "    enabled: true",
+                "    scopes: [world:play, world:admin]",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    users_file.chmod(0o600)
     provision = subprocess.run(
         [
             "uv", "run", "bunnyland", "auth", "provision-token",
@@ -189,26 +222,22 @@ def start_local_api(server_repo: Path, port: int) -> tuple[ManagedProcess, str]:
             str(port),
             "--token-db",
             str(token_db),
+            "--auth-users-file",
+            str(users_file),
         ],
         cwd=server_repo,
         env=env,
     )
-    return ManagedProcess("local Bunnyland API", process), operator_token
-
-
-def start_local_web(web_repo: Path, port: int) -> ManagedProcess:
-    process = subprocess.Popen(
-        [
-            "python3",
-            "-m",
-            "http.server",
-            str(port),
-            "--bind",
-            LOCAL_WEB_HOST,
-        ],
-        cwd=web_repo,
-    )
-    return ManagedProcess("local Bunnyland web server", process)
+    return ManagedProcess(
+        "local Bunnyland API",
+        process,
+        (
+            token_db,
+            token_db.with_name(f"{token_db.name}-wal"),
+            token_db.with_name(f"{token_db.name}-shm"),
+            users_file,
+        ),
+    ), operator_token
 
 
 def launch_browser(playwright):
@@ -227,7 +256,7 @@ def launch_browser(playwright):
     return playwright.chromium.launch(**kwargs)
 
 
-def wait_for_api(api_url: str) -> None:
+def wait_for_api(api_url: str, operator_token: str | None) -> None:
     deadline = time.monotonic() + 45
     last_error: Exception | None = None
     while time.monotonic() < deadline:
@@ -238,7 +267,7 @@ def wait_for_api(api_url: str) -> None:
             last_error = exc
             if exc.code in {401, 403, 404}:
                 try:
-                    api_get(api_url, "/play/world/characters")
+                    api_get(api_url, "/play/world/characters", operator_token)
                     return
                 except (
                     urllib.error.URLError,
@@ -273,15 +302,22 @@ def entity_is_door(entity: dict[str, Any]) -> bool:
     )
 
 
-def choose_character(api_url: str) -> tuple[str, dict[str, Any]]:
-    lobby = api_get(api_url, "/play/world/characters")
+def choose_character(
+    api_url: str,
+    operator_token: str | None,
+) -> tuple[str, dict[str, Any]]:
+    lobby = api_get(api_url, "/play/world/characters", operator_token)
     candidates: list[tuple[int, str, dict[str, Any]]] = []
     for summary in lobby.get("characters", []):
         cid = character_id(summary)
         if not cid:
             continue
         try:
-            projection = api_get(api_url, f"/play/world/character/{urllib.parse.quote(cid, safe='')}")
+            projection = api_get(
+                api_url,
+                f"/play/world/character/{urllib.parse.quote(cid, safe='')}",
+                operator_token,
+            )
         except urllib.error.URLError:
             continue
         room = projection.get("room") or {}
@@ -338,6 +374,11 @@ def clean_screenshot_overlays(page) -> None:
     )
 
 
+def release_page_claim(page) -> None:
+    page.evaluate("async () => { await window.app?._releaseClaim?.(); }")
+    page.wait_for_function("() => !window.app?.control", timeout=10000)
+
+
 def select_player(page, character_id_value: str, app_expr: str) -> None:
     page.locator("#player-select").select_option(character_id_value)
     page.wait_for_function(app_expr, arg=character_id_value, timeout=20000)
@@ -371,10 +412,22 @@ def connect_toon(page, web_url: str, api_url: str, character_id_value: str) -> N
           && window.app.characterProjection.actions?.length
         )""",
     )
-    page.wait_for_function(
-        "() => document.querySelectorAll('#stage .sprite').length >= 1",
-        timeout=20000,
-    )
+    try:
+        page.wait_for_function(
+            "() => document.querySelector('#stage-empty')?.classList.contains('hidden')",
+            timeout=20000,
+        )
+    except PlaywrightTimeoutError as exc:
+        state = page.evaluate(
+            """() => ({
+              playerId: window.app?.playerId,
+              viewRoomId: window.app?.viewRoomId,
+              projectionRoom: window.app?.characterProjection?.room?.id,
+              roomProjection: window.app?.roomProjection,
+              roomTitle: document.querySelector('#room-title')?.textContent,
+            })"""
+        )
+        raise RuntimeError(f"Toon room did not render: {state!r}") from exc
     clean_screenshot_overlays(page)
 
 
@@ -419,7 +472,13 @@ def submit_repl_command(page, line: str) -> None:
     page.wait_for_timeout(350)
 
 
-def queue_visible_say(page, api_url: str, character_id_value: str, text: str) -> None:
+def queue_visible_say(
+    page,
+    api_url: str,
+    character_id_value: str,
+    text: str,
+    operator_token: str | None,
+) -> None:
     state = page.evaluate(
         """() => ({
           projection: window.app?.projection || window.app?.characterProjection || null,
@@ -458,6 +517,7 @@ def queue_visible_say(page, api_url: str, character_id_value: str, text: str) ->
             "lane": say.get("lane") or "world",
             "on_insufficient_points": "queue",
         },
+        operator_token,
         extra_headers=(
             {"X-Bunnyland-Claim-Secret": claim_secret}
             if claim_secret
@@ -472,9 +532,16 @@ def capture_toon(
     api_url: str,
     character_id_value: str,
     out_path: Path,
+    operator_token: str | None,
 ) -> None:
     connect_toon(page, web_url, api_url, character_id_value)
-    queue_visible_say(page, api_url, character_id_value, "hello from the itch screenshot run")
+    queue_visible_say(
+        page,
+        api_url,
+        character_id_value,
+        "hello from the itch screenshot run",
+        operator_token,
+    )
     page.evaluate("() => window.app?.refresh?.()")
     page.wait_for_timeout(1000)
     clean_screenshot_overlays(page)
@@ -502,9 +569,16 @@ def capture_web_tui(
     api_url: str,
     character_id_value: str,
     out_path: Path,
+    operator_token: str | None,
 ) -> None:
     connect_web_tui(page, web_url, api_url, character_id_value)
-    queue_visible_say(page, api_url, character_id_value, "queued from the itch screenshot run")
+    queue_visible_say(
+        page,
+        api_url,
+        character_id_value,
+        "queued from the itch screenshot run",
+        operator_token,
+    )
     page.evaluate("() => window.app?.refresh?.()")
     page.wait_for_timeout(1000)
     clean_screenshot_overlays(page)
@@ -722,6 +796,7 @@ def capture_terminal_tui(
     out_path: Path,
     width: int,
     height: int,
+    operator_token: str | None,
     open_target_action: bool = False,
 ) -> bool:
     command = terminal_capture_command(out_path, width, height, api_url)
@@ -741,7 +816,20 @@ def capture_terminal_tui(
         rows = max(24, min(90, height // 22))
         with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as handle:
             svg_path = Path(handle.name)
+        token_path: Path | None = None
         try:
+            token_args: list[str] = []
+            if operator_token:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".token",
+                    delete=False,
+                    encoding="utf-8",
+                ) as token_handle:
+                    token_handle.write(operator_token.removeprefix("Bearer "))
+                    token_path = Path(token_handle.name)
+                token_path.chmod(0o600)
+                token_args = ["--token-file", str(token_path)]
             subprocess.run(
                 [
                     "uv",
@@ -757,6 +845,7 @@ def capture_terminal_tui(
                     str(columns),
                     "--rows",
                     str(rows),
+                    *token_args,
                     *(["--open-target-action"] if open_target_action else []),
                 ],
                 check=True,
@@ -766,6 +855,8 @@ def capture_terminal_tui(
             return out_path.exists()
         finally:
             svg_path.unlink(missing_ok=True)
+            if token_path is not None:
+                token_path.unlink(missing_ok=True)
 
     page = browser.new_page(viewport={"width": width, "height": height})
     try:
@@ -851,8 +942,8 @@ def main(argv: list[str] | None = None) -> int:
         "--web-url",
         default=os.environ.get("BUNNYLAND_WEB_URL"),
         help=(
-            "Existing Bunnyland web URL. If omitted, the script starts a local static "
-            "web server from this checkout."
+            "Existing Bunnyland web URL. If omitted, this checkout is served at the API "
+            "origin through the browser test harness."
         ),
     )
     parser.add_argument(
@@ -891,6 +982,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     managed: list[ManagedProcess] = []
     local_operator_token: str | None = None
+    static_web_root: Path | None = None
     try:
         web_url_value = args.web_url
         api_url_value = args.api_url
@@ -909,16 +1001,25 @@ def main(argv: list[str] | None = None) -> int:
             api_process.check_running()
 
         if not web_url_value:
-            web_port = int(os.environ.get("BUNNYLAND_LOCAL_WEB_PORT") or reserve_port())
-            web_process = start_local_web(web_repo, web_port)
-            managed.append(web_process)
-            web_url_value = f"http://{LOCAL_WEB_HOST}:{web_port}"
-            wait_for_http(f"{web_url_value}/toon-client.html", "local Bunnyland web server")
-            web_process.check_running()
+            api_parts = urllib.parse.urlparse(api_url_value)
+            web_url_value = f"{api_parts.scheme}://{api_parts.netloc}"
+            static_web_root = web_repo
 
         web_url = web_url_value.rstrip("/")
         api_url = api_url_value.rstrip("/")
-        return run_capture(web_url, api_url, width, height, args.out_dir, local_operator_token)
+        web_parts = urllib.parse.urlparse(web_url)
+        api_parts = urllib.parse.urlparse(api_url)
+        if (web_parts.scheme, web_parts.netloc) != (api_parts.scheme, api_parts.netloc):
+            raise RuntimeError("browser web and API URLs must use the same origin")
+        return run_capture(
+            web_url,
+            api_url,
+            width,
+            height,
+            args.out_dir,
+            local_operator_token,
+            static_web_root,
+        )
     finally:
         for process in reversed(managed):
             process.stop()
@@ -931,12 +1032,13 @@ def run_capture(
     height: int,
     out_dir: Path,
     local_operator_token: str | None,
+    static_web_root: Path | None = None,
 ) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    wait_for_api(api_url)
-    picked_character, _projection = choose_character(api_url)
     operator_token = local_operator_token or os.environ.get("BUNNYLAND_OPERATOR_TOKEN")
+    wait_for_api(api_url, operator_token)
+    picked_character, _projection = choose_character(api_url, operator_token)
     run_generation = os.environ.get("BUNNYLAND_RUN_WORLD_GENERATION") == "1"
     if run_generation and not operator_token:
         raise RuntimeError("BUNNYLAND_RUN_WORLD_GENERATION=1 requires an operator token")
@@ -962,9 +1064,54 @@ def run_capture(
             viewport={"width": width, "height": height},
             device_scale_factor=1,
         )
+        if static_web_root is not None:
+            root = static_web_root.resolve()
+
+            def serve_local_web(route) -> None:
+                request_path = urllib.parse.unquote(
+                    urllib.parse.urlparse(route.request.url).path
+                ).lstrip("/")
+                candidate = (root / request_path).resolve()
+                if candidate.is_relative_to(root) and candidate.is_file():
+                    route.fulfill(
+                        path=candidate,
+                        content_type=(
+                            mimetypes.guess_type(candidate.name)[0]
+                            or "application/octet-stream"
+                        ),
+                    )
+                    return
+                route.continue_()
+
+            context.route(f"{api_url}/**", serve_local_web)
+        if operator_token:
+            token = json.dumps(operator_token.removeprefix("Bearer "))
+            context.add_init_script(
+                f"""(() => {{
+                  const token = {token};
+                  let api = null;
+                  Object.defineProperty(window, 'BunnylandApi', {{
+                    configurable: true,
+                    get: () => api,
+                    set: (value) => {{
+                      api = value;
+                      api?.setPlayerAuth?.(`Bearer ${{token}}`);
+                    }},
+                  }});
+                }})();"""
+            )
 
         toon = context.new_page()
-        capture_toon(toon, web_url, api_url, picked_character, outputs["toon"])
+        capture_toon(
+            toon,
+            web_url,
+            api_url,
+            picked_character,
+            outputs["toon"],
+            operator_token,
+        )
+        release_page_claim(toon)
+        toon.close()
 
         toon_selector = context.new_page()
         capture_toon_action_selector(
@@ -974,12 +1121,25 @@ def run_capture(
             picked_character,
             outputs["toon_action_selector"],
         )
+        release_page_claim(toon_selector)
+        toon_selector.close()
 
         tui = context.new_page()
-        capture_web_tui(tui, web_url, api_url, picked_character, outputs["web_tui"])
+        capture_web_tui(
+            tui,
+            web_url,
+            api_url,
+            picked_character,
+            outputs["web_tui"],
+            operator_token,
+        )
+        release_page_claim(tui)
+        tui.close()
 
         repl = context.new_page()
         capture_web_repl(repl, web_url, api_url, picked_character, outputs["web_repl"])
+        release_page_claim(repl)
+        repl.close()
 
         generator = context.new_page()
         capture_world_generator(
@@ -1013,6 +1173,7 @@ def run_capture(
             outputs["terminal_tui"],
             width,
             height,
+            operator_token,
         ):
             skipped.append("07-terminal-tui: set BUNNYLAND_TEXTUAL_CAPTURE_CMD")
 
@@ -1024,6 +1185,7 @@ def run_capture(
             outputs["terminal_tui_action_selector"],
             width,
             height,
+            operator_token,
             open_target_action=True,
         ):
             skipped.append("10-terminal-tui-action-selector: set BUNNYLAND_TEXTUAL_CAPTURE_CMD")
