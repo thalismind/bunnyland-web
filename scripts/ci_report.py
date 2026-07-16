@@ -36,6 +36,7 @@ def write_case(args: argparse.Namespace) -> None:
         },
     )
     log = Path(args.log_file).read_text(encoding="utf-8", errors="replace") if args.log_file else ""
+    log = _xml_text(log)
     if args.status == "failed":
         failure = ElementTree.SubElement(
             testcase,
@@ -273,6 +274,18 @@ def _annotation(level: str, title: str, message: str) -> None:
 
 def _escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _xml_text(value: str) -> str:
+    """Remove control characters that XML 1.0 cannot represent."""
+    return "".join(
+        character
+        for character in value
+        if character in "\t\n\r"
+        or "\x20" <= character <= "\ud7ff"
+        or "\ue000" <= character <= "\ufffd"
+        or "\U00010000" <= character <= "\U0010ffff"
+    )
 
 
 def _int_attr(node: ElementTree.Element, key: str, default: int) -> int:

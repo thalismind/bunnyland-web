@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -51,6 +54,32 @@ class MapStorage {
     this.items.set(key, String(value));
   }
 }
+
+test('CI reports remove XML-invalid terminal control characters', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bunnyland-ci-report-'));
+  const logFile = path.join(directory, 'test.log');
+  const reportFile = path.join(directory, 'test.xml');
+  fs.writeFileSync(logFile, 'pulling\u001b[32m complete\u0000\n', 'utf8');
+
+  const report = childProcess.spawnSync('python3', [
+    'scripts/ci_report.py', 'write-case',
+    '--output', reportFile,
+    '--suite', 'terminal-output',
+    '--name', 'terminal-output',
+    '--status', 'passed',
+    '--time', '1',
+    '--log-file', logFile,
+  ], { encoding: 'utf8' });
+  assert.equal(report.status, 0, report.stderr);
+
+  const parse = childProcess.spawnSync(
+    'python3',
+    ['-c', 'import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])', reportFile],
+    { encoding: 'utf8' },
+  );
+  assert.equal(parse.status, 0, parse.stderr);
+  assert.doesNotMatch(fs.readFileSync(reportFile, 'utf8'), /[\u0000\u001b]/u);
+});
 
 test('BunnylandApi normalizes URLs and websocket endpoints', () => {
   const { BunnylandApi } = loadBrowserAssets(['assets/bunnyland-api.js']);
