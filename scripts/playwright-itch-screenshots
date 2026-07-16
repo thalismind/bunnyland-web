@@ -309,6 +309,8 @@ def choose_character(
     lobby = api_get(api_url, "/play/world/characters", operator_token)
     candidates: list[tuple[int, str, dict[str, Any]]] = []
     for summary in lobby.get("characters", []):
+        if not summary.get("suspended"):
+            continue
         cid = character_id(summary)
         if not cid:
             continue
@@ -845,6 +847,8 @@ def capture_terminal_tui(
                     str(columns),
                     "--rows",
                     str(rows),
+                    "--character-id",
+                    character_id_value,
                     *token_args,
                     *(["--open-target-action"] if open_target_action else []),
                 ],
