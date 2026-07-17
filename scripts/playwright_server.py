@@ -63,7 +63,7 @@ def ensure_web_server(base_url: str) -> None:
 
     atexit.register(cleanup)
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             break

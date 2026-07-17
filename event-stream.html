@@ -521,9 +521,30 @@ class EventStreamApp {
 
     const list = document.getElementById('event-list');
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
-    list.innerHTML = events.length
-      ? events.map((data) => this._eventHtml(data)).join('')
-      : '<div class="empty">No matching events.</div>';
+    const renderList = window.BunnylandPreact?.renderEventList;
+    if (renderList) {
+      renderList(list, { events: events.map((data) => {
+        const type = data.event_type || 'Event';
+        const event = data.event || {};
+        const eventId = event.event_id || JSON.stringify(data);
+        return {
+          actor: event.actor_id ? this._nameFor(event.actor_id) : 'system',
+          epoch: String(event.world_epoch ?? '-'),
+          eventId,
+          icon: eventHelpers.icon(type),
+          involved: eventHelpers.involvedIds(data).map((id) => ({ id, name: this._nameFor(id) })),
+          json: JSON.stringify(data, null, 2),
+          open: this.expanded.has(eventId),
+          summary: eventHelpers.eventSummary(type, event, (id) => this._nameFor(id)),
+          type,
+          visibility: event.visibility || '',
+        };
+      }) });
+    } else {
+      list.innerHTML = events.length
+        ? events.map((data) => this._eventHtml(data)).join('')
+        : '<div class="empty">No matching events.</div>';
+    }
     if (document.getElementById('auto-scroll').checked && atBottom) list.scrollTop = list.scrollHeight;
   }
 
@@ -581,5 +602,6 @@ class EventStreamApp {
 
 window.app = new EventStreamApp();
 </script>
+<script type="module" src="/src/event-stream/event-list.tsx"></script>
 </body>
 </html>

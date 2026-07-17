@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Launch the Bunnyland snapshot inspector at http://localhost:8080
+# Build and launch the same production output used by the nginx image.
 PORT=${1:-8080}
 echo "Bunnyland Inspector → http://localhost:$PORT"
-exec python3 -m http.server "$PORT"
+npm run build || exit $?
+exec python3 -m http.server "$PORT" --directory dist

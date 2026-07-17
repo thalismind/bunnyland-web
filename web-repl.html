@@ -1117,26 +1117,53 @@ class WebRepl {
         `<div class="side-row"><strong>AP ${formatPoints(pts.action)}/${formatPoints(pts.action_max)}</strong><span>FP ${formatPoints(pts.focus)}/${formatPoints(pts.focus_max)}</span></div>`
       : `<div class="side-empty">${this.connected ? 'Pick a player.' : 'Connect to a running server.'}</div>`;
 
-    const actionRows = orderActionsByAvailability(this._actions()).map(action => {
-      const cost = actionCost(action);
-      const parts = [];
-      if (cost.action) parts.push(`${cost.action} AP`);
-      if (cost.focus) parts.push(`${cost.focus} FP`);
-      const reason = actionUnavailableReason(action);
-      const meta = [parts.join(' + ') || 'free', reason].filter(Boolean).join(' - ');
-      const icon = this.showActionIcons
-        ? `<span class="action-icon">${BunnylandUI.escapeHtml(actionIcon(action))}</span>`
-        : '';
-      return `<div class="side-row${actionAvailable(action) ? '' : ' unavailable'}" title="${BunnylandUI.escapeHtml(reason)}">` +
-        `<strong>${icon}${BunnylandUI.escapeHtml(actionTool(action))}</strong>` +
-        `<span${reason ? ' class="reason"' : ''}>${BunnylandUI.escapeHtml(meta)}</span></div>`;
-    }).join('');
-    actions.innerHTML = actionRows || '<div class="side-empty">Pick a player to load available actions.</div>';
+    const orderedActions = orderActionsByAvailability(this._actions());
+    const visibleTargets = this._allTargets().slice(0, 24);
+    if (window.BunnylandToolPreact?.renderContextLists) {
+      window.BunnylandToolPreact.renderContextLists({ actions, targets }, {
+        actions: orderedActions.map(action => {
+          const cost = actionCost(action);
+          const parts = [];
+          if (cost.action) parts.push(`${cost.action} AP`);
+          if (cost.focus) parts.push(`${cost.focus} FP`);
+          const reason = actionUnavailableReason(action);
+          return {
+            available: actionAvailable(action),
+            icon: this.showActionIcons ? actionIcon(action) : '',
+            key: `${actionLane(action)}:${actionTool(action)}`,
+            label: actionTool(action),
+            meta: [parts.join(' + ') || 'free', reason].filter(Boolean).join(' - '),
+            reason,
+          };
+        }),
+        targets: visibleTargets.map(target => ({
+          key: target.value,
+          kind: target.kind || target.value,
+          label: target.label,
+        })),
+      });
+    } else {
+      const actionRows = orderedActions.map(action => {
+        const cost = actionCost(action);
+        const parts = [];
+        if (cost.action) parts.push(`${cost.action} AP`);
+        if (cost.focus) parts.push(`${cost.focus} FP`);
+        const reason = actionUnavailableReason(action);
+        const meta = [parts.join(' + ') || 'free', reason].filter(Boolean).join(' - ');
+        const icon = this.showActionIcons
+          ? `<span class="action-icon">${BunnylandUI.escapeHtml(actionIcon(action))}</span>`
+          : '';
+        return `<div class="side-row${actionAvailable(action) ? '' : ' unavailable'}" title="${BunnylandUI.escapeHtml(reason)}">` +
+          `<strong>${icon}${BunnylandUI.escapeHtml(actionTool(action))}</strong>` +
+          `<span${reason ? ' class="reason"' : ''}>${BunnylandUI.escapeHtml(meta)}</span></div>`;
+      }).join('');
+      actions.innerHTML = actionRows || '<div class="side-empty">Pick a player to load available actions.</div>';
 
-    const targetRows = this._allTargets().slice(0, 24).map(target =>
-      `<div class="side-row"><strong>${BunnylandUI.escapeHtml(target.label)}</strong><span>${BunnylandUI.escapeHtml(target.kind || target.value)}</span></div>`
-    ).join('');
-    targets.innerHTML = targetRows || '<div class="side-empty">Visible target names appear here.</div>';
+      const targetRows = visibleTargets.map(target =>
+        `<div class="side-row"><strong>${BunnylandUI.escapeHtml(target.label)}</strong><span>${BunnylandUI.escapeHtml(target.kind || target.value)}</span></div>`
+      ).join('');
+      targets.innerHTML = targetRows || '<div class="side-empty">Visible target names appear here.</div>';
+    }
     this._updateCompletions();
   }
 }
@@ -1144,5 +1171,6 @@ class WebRepl {
 window.app = new WebRepl();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
+<script type="module" src="/src/web-repl/context-lists.tsx"></script>
 </body>
 </html>

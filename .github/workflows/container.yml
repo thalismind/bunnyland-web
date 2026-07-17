@@ -33,14 +33,11 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Run JS, CSS, and HTML lint
-        run: npm run lint
-
-      - name: Run shared script unit tests
+      - name: Run type, build, lint, and unit checks
         run: |
           mkdir -p artifacts/test-results
           python -m unittest scripts/test_playwright_server.py
-          npm test -- --test-reporter=junit --test-reporter-destination=artifacts/test-results/node-unit.xml
+          npm run check
 
       - name: Install Playwright (pip)
         run: |
@@ -80,7 +77,7 @@ jobs:
           fi
 
       - name: Run Playwright regressions
-        run: scripts/playwright-all
+        run: scripts/playwright-all --coverage
 
       - name: Publish test and coverage summary
         if: always()

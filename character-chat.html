@@ -701,10 +701,6 @@
   }
 
   function renderCharacters() {
-    if (!characters.length) {
-      els.list.innerHTML = '<div class="side-empty">No characters found.</div>';
-      return;
-    }
     const filter = characterFilter.trim().toLowerCase();
     const filtered = filter
       ? characters.filter(character => [
@@ -714,8 +710,24 @@
         character.suspended ? 'suspended' : '',
       ].join(' ').toLowerCase().includes(filter))
       : characters;
+    const renderList = window.BunnylandPreact?.renderCharacterList;
+    if (renderList) {
+      renderList(els.list, {
+        characters: filtered.map(character => ({
+          characterId: character.character_id,
+          hasHistory: hasState(character.character_id),
+          kind: character.kind || 'character',
+          name: character.name || character.character_id,
+          selected: character.character_id === selectedId,
+          suspended: Boolean(character.suspended),
+        })),
+        emptyMessage: characters.length ? 'No matching characters.' : 'No characters found.',
+        onSelect: selectCharacter,
+      });
+      return;
+    }
     if (!filtered.length) {
-      els.list.innerHTML = '<div class="side-empty">No matching characters.</div>';
+      els.list.innerHTML = `<div class="side-empty">${characters.length ? 'No matching characters.' : 'No characters found.'}</div>`;
       return;
     }
     els.list.innerHTML = filtered.map(character => {
@@ -728,6 +740,18 @@
     `;
     }).join('');
   }
+
+  function selectCharacter(characterId) {
+    selectedId = characterId || '';
+    startLiveUpdates();
+    renderCharacters();
+    renderTranscript();
+    loadSelectedProjection(selectedId);
+    resumePendingPolls();
+    els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character.';
+  }
+
+  window.renderCharacterChatCharacters = renderCharacters;
 
   function renderTranscript() {
     renderChatTools();
@@ -959,17 +983,6 @@
     renderCharacters();
     els.characterFilter.focus();
   });
-  els.list.addEventListener('click', event => {
-    const row = event.target.closest('.character-row');
-    if (!row) return;
-    selectedId = row.dataset.id || '';
-    startLiveUpdates();
-    renderCharacters();
-    renderTranscript();
-    loadSelectedProjection(selectedId);
-    resumePendingPolls();
-    els.line.textContent = selectedId ? `Chatting with ${currentName()}.` : 'Pick a character.';
-  });
   els.form.addEventListener('submit', event => {
     event.preventDefault();
     const message = els.input.value.trim();
@@ -1003,5 +1016,6 @@
   BunnylandApi.applyServerParam({ connect });
 })();
 </script>
+<script type="module" src="/src/character-chat/character-list.tsx"></script>
 </body>
 </html>

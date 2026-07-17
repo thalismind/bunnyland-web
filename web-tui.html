@@ -982,47 +982,82 @@ class WebTui {
     const room = this._currentRoom();
     document.getElementById('room-title').textContent = room?.title || 'Room';
 
-    const members = room?.entities || [];
-    document.getElementById('members').innerHTML = members.length ? members
-      .filter(entity => entity.kind !== 'room')
-      .map(entity => {
-        const selected = entity.id === this.selectedId ? ' selected' : '';
-        const me = entity.id === this.playerId ? ' ← you' : '';
-        return `<button class="option${selected}" type="button" data-entity="${esc(entity.id)}">` +
-          `<span class="option-main">${esc(entityIcon(entity))} ${esc(entity.name || entity.id)}${me}</span>` +
-          `<span class="option-meta">${esc(entity.kind || '')}</span></button>`;
-      }).join('') : '<div class="empty">Select a character above to play as and see their room.</div>';
-
-    document.querySelectorAll('#members .option[data-entity]').forEach(button => {
-      button.addEventListener('click', () => {
-        this.selectedId = button.dataset.entity;
-        this._renderWorld();
-      });
-    });
-
+    const members = (room?.entities || []).filter(entity => entity.kind !== 'room');
     const exits = room?.exits || [];
-    document.getElementById('doors').innerHTML = exits.length ? exits
-      .map((exit, index) => `<button class="option" type="button" data-exit-index="${index}"><span class="option-main">🚪 ${esc(exit.direction || exit.label || exit.id)}</span><span class="option-meta">${exit.locked ? 'locked' : ''}</span></button>`)
-      .join('') : '<div class="empty">No visible exits.</div>';
-    document.querySelectorAll('#doors .option[data-exit-index]').forEach(button => {
-      button.addEventListener('click', () => this._moveThroughExit(exits[Number(button.dataset.exitIndex)]));
-    });
-
     const carried = inventoryEntries(this.projection);
-    document.getElementById('inventory').innerHTML = carried.length ? carried
-      .map(item => {
-        const selected = item.id === this.selectedId ? ' selected' : '';
-        return `<button class="option${selected}" type="button" data-entity="${esc(item.id)}">` +
-        `<span class="option-main">${esc(item.icon)} ${esc(item.label)}</span>` +
-        `<span class="option-meta">${esc(item.kind)}</span></button>`;
-      })
-      .join('') : `<div class="empty">${this.playerId ? 'Nothing carried.' : 'Select a character above.'}</div>`;
-    document.querySelectorAll('#inventory .option[data-entity]').forEach(button => {
-      button.addEventListener('click', () => {
-        this.selectedId = button.dataset.entity;
-        this._renderWorld();
+    if (window.BunnylandToolPreact?.renderWorldLists) {
+      window.BunnylandToolPreact.renderWorldLists({
+        doors: document.getElementById('doors'),
+        inventory: document.getElementById('inventory'),
+        members: document.getElementById('members'),
+      }, {
+        exits: exits.map((exit, index) => ({
+          index,
+          key: [exit.id, exit.direction, exit.label].filter(Boolean).join(':') || String(index),
+          label: exit.direction || exit.label || exit.id,
+          locked: Boolean(exit.locked),
+        })),
+        inventory: carried.map(item => ({
+          icon: item.icon,
+          id: item.id,
+          kind: item.kind,
+          label: item.label,
+          selected: item.id === this.selectedId,
+        })),
+        inventoryEmpty: this.playerId ? 'Nothing carried.' : 'Select a character above.',
+        members: members.map(entity => ({
+          icon: entityIcon(entity),
+          id: entity.id,
+          isPlayer: entity.id === this.playerId,
+          kind: entity.kind || '',
+          label: entity.name || entity.id,
+          selected: entity.id === this.selectedId,
+        })),
+        onExit: index => this._moveThroughExit(exits[index]),
+        onSelect: id => {
+          this.selectedId = id;
+          this._renderWorld();
+        },
       });
-    });
+    } else {
+      document.getElementById('members').innerHTML = members.length ? members
+        .map(entity => {
+          const selected = entity.id === this.selectedId ? ' selected' : '';
+          const me = entity.id === this.playerId ? ' ← you' : '';
+          return `<button class="option${selected}" type="button" data-entity="${esc(entity.id)}">` +
+            `<span class="option-main">${esc(entityIcon(entity))} ${esc(entity.name || entity.id)}${me}</span>` +
+            `<span class="option-meta">${esc(entity.kind || '')}</span></button>`;
+        }).join('') : '<div class="empty">Select a character above to play as and see their room.</div>';
+
+      document.querySelectorAll('#members .option[data-entity]').forEach(button => {
+        button.addEventListener('click', () => {
+          this.selectedId = button.dataset.entity;
+          this._renderWorld();
+        });
+      });
+
+      document.getElementById('doors').innerHTML = exits.length ? exits
+        .map((exit, index) => `<button class="option" type="button" data-exit-index="${index}"><span class="option-main">🚪 ${esc(exit.direction || exit.label || exit.id)}</span><span class="option-meta">${exit.locked ? 'locked' : ''}</span></button>`)
+        .join('') : '<div class="empty">No visible exits.</div>';
+      document.querySelectorAll('#doors .option[data-exit-index]').forEach(button => {
+        button.addEventListener('click', () => this._moveThroughExit(exits[Number(button.dataset.exitIndex)]));
+      });
+
+      document.getElementById('inventory').innerHTML = carried.length ? carried
+        .map(item => {
+          const selected = item.id === this.selectedId ? ' selected' : '';
+          return `<button class="option${selected}" type="button" data-entity="${esc(item.id)}">` +
+            `<span class="option-main">${esc(item.icon)} ${esc(item.label)}</span>` +
+            `<span class="option-meta">${esc(item.kind)}</span></button>`;
+        })
+        .join('') : `<div class="empty">${this.playerId ? 'Nothing carried.' : 'Select a character above.'}</div>`;
+      document.querySelectorAll('#inventory .option[data-entity]').forEach(button => {
+        button.addEventListener('click', () => {
+          this.selectedId = button.dataset.entity;
+          this._renderWorld();
+        });
+      });
+    }
 
     document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
       .map(line => {
@@ -1102,5 +1137,6 @@ class WebTui {
 window.app = new WebTui();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
+<script type="module" src="/src/web-tui/world-lists.tsx"></script>
 </body>
 </html>

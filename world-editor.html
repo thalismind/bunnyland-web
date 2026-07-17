@@ -257,6 +257,7 @@
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
 <script src="assets/bunnyland-world.js"></script>
+<script type="module" src="/src/world-editor/entity-list.tsx"></script>
 <script>
 'use strict';
 
@@ -892,6 +893,21 @@ class WorldEditor {
       .sort((a, b) => entityName(a).localeCompare(entityName(b)))
       .filter(entity => matchesEditorSearch(entity, this.world, parsed));
     document.getElementById('entity-count').textContent = `${entities.length}/${Object.keys(this.world.entities).length}`;
+    if (window.BunnylandPreact?.renderEntityList) {
+      window.BunnylandPreact.renderEntityList(
+        list,
+        entities.map(entity => ({
+          id: entity.id,
+          icon: entityIcon(entity),
+          invalid: hasInvalidEdges(entity, this.world),
+          name: entityName(entity),
+          type: entityType(entity)
+        })),
+        this.selectedId,
+        id => this._selectEntity(id, { render: true })
+      );
+      return;
+    }
     if (!entities.length) {
       list.innerHTML = '<div class="empty">No entities.</div>';
       return;

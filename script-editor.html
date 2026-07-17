@@ -163,6 +163,7 @@
 
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-world.js"></script>
+<script type="module" src="/src/script-editor/block-list.tsx"></script>
 <script>
 'use strict';
 
@@ -275,6 +276,8 @@ class ScriptEditor {
     this.selectedEntityId = null;
     this.script = clone(DEFAULT_SCRIPT);
     this.selectedBlock = 0;
+    this._blockKeys = new WeakMap();
+    this._nextBlockKey = 0;
     this.entitySearch = '';
     this._bindDom();
     this._renderAll();
@@ -499,6 +502,26 @@ class ScriptEditor {
     const list = document.getElementById('block-list');
     document.getElementById('block-count').textContent = String(this.script.blocks.length);
     document.getElementById('btn-delete-block').disabled = this.script.blocks.length === 0;
+    if (window.BunnylandScriptPreact?.renderBlockList) {
+      window.BunnylandScriptPreact.renderBlockList(
+        list,
+        this.script.blocks.map((block, i) => {
+          if (!this._blockKeys.has(block)) this._blockKeys.set(block, `block:${++this._nextBlockKey}`);
+          return {
+            key: this._blockKeys.get(block),
+            name: block.name || `block_${i + 1}`,
+            meta: `${this._triggerLabel(block.trigger)} · ${block.execution || 'once'}`,
+          };
+        }),
+        this.selectedBlock,
+        (index) => {
+          this.selectedBlock = index;
+          this._renderBlocks();
+          this._renderBlockEditor();
+        },
+      );
+      return;
+    }
     if (!this.script.blocks.length) {
       list.innerHTML = '<div class="empty">No blocks.</div>';
       return;

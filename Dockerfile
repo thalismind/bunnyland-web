@@ -1,3 +1,13 @@
+FROM node:24-bookworm AS build
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY vendor ./vendor
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
 FROM nginx:1.27-bookworm
 
 ENV BUNNYLAND_API_UPSTREAM=http://server:8765 \
@@ -15,6 +25,4 @@ COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY docker/config.json.template /usr/share/nginx/config/config.json.template
 COPY docker/40-render-web-config.sh /docker-entrypoint.d/40-render-web-config.sh
 
-COPY *.html favicon.png robots.txt LICENSE README.md /usr/share/nginx/html/
-COPY assets /usr/share/nginx/html/assets
-COPY examples /usr/share/nginx/html/examples
+COPY --from=build /app/dist /usr/share/nginx/html

@@ -395,6 +395,23 @@ class CharacterMemoryApp {
   _renderCharacters() {
     const root = document.getElementById('character-list');
     document.getElementById('character-count').textContent = String(this.characters.length);
+    const renderList = window.BunnylandPreact?.renderMemoryCharacterList;
+    if (renderList) {
+      renderList(root, {
+        activeCollection: this.collection || '',
+        characters: this.characters.map(character => ({
+          characterId: character.character_id,
+          name: character.name,
+          collections: [
+            { scope: 'Private', name: character.private_collection },
+            ...(character.shared_collections || []).map(name => ({ scope: 'Shared', name })),
+          ].filter(item => item.name),
+        })),
+        emptyMessage: this.base ? 'No memory-enabled characters.' : 'Connect to load characters.',
+        onCollection: (name) => this.loadCollection(name),
+      });
+      return;
+    }
     if (!this.characters.length) {
       root.innerHTML = `<div class="empty">${this.base ? 'No memory-enabled characters.' : 'Connect to load characters.'}</div>`;
       return;
@@ -560,5 +577,6 @@ class CharacterMemoryApp {
 
 window.app = new CharacterMemoryApp();
 </script>
+<script type="module" src="/src/character-memory/character-list.tsx"></script>
 </body>
 </html>

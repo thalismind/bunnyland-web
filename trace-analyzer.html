@@ -617,6 +617,23 @@ function renderOverview(trace, spans) {
 }
 
 function renderRows(trace, spans) {
+  if (window.BunnylandToolPreact?.renderSpanRows) {
+    window.BunnylandToolPreact.renderSpanRows(els.rows, spans.map(span => ({
+      childCount: span.children.length,
+      className: spanClass(span, trace),
+      depth: span.depth,
+      duration: formatDuration(span.durationNs),
+      durationClassName: spanClass(span, trace),
+      durationLeft: `${barLeft(span, trace)}%`,
+      durationWidth: `${barWidth(span, trace)}%`,
+      id: span.spanId,
+      labelLeft: `${Math.min(92, Math.max(0, barLeft(span, trace)))}%`,
+      name: span.name,
+      selected: span.spanId === app.selectedSpanId,
+      service: span.service,
+    })));
+    return;
+  }
   if (!spans.length) {
     els.rows.innerHTML = '<div class="detail-empty" style="padding:12px">No spans match the current filters.</div>';
     return;
@@ -928,5 +945,6 @@ function handleLiveError(err) {
 const initialServer = serverFromUrl();
 els.tempoUrl.value = initialServer ? `${normalizeBase(initialServer)}/tempo` : TEMPO.defaultBase;
 </script>
+<script type="module" src="/src/trace-analyzer/span-rows.tsx"></script>
 </body>
 </html>

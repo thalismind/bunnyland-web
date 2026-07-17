@@ -133,6 +133,7 @@
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
 <script src="assets/bunnyland-world.js"></script>
+<script type="module" src="/src/world-generator/entity-list.tsx"></script>
 <script>
 'use strict';
 
@@ -429,11 +430,21 @@ class WorldGeneratorApp {
   _renderEntities() {
     const list = document.getElementById('entity-list');
     document.getElementById('entity-count').textContent = String(this.entities.length);
-    if (!this.entities.length) {
+    const sorted = [...this.entities].sort((a, b) => entityKind(a).localeCompare(entityKind(b)) || entityName(a).localeCompare(entityName(b)));
+    if (window.BunnylandWorldGeneratorPreact?.renderGeneratedEntityList) {
+      window.BunnylandWorldGeneratorPreact.renderGeneratedEntityList(list, sorted.map(entity => ({
+        generated: this.lastAdded.has(entity.id),
+        icon: entityKind(entity) === 'room' ? 'R' : entityKind(entity) === 'character' ? 'C' : 'E',
+        id: entity.id,
+        kind: entityKind(entity),
+        name: entityName(entity),
+      })));
+      return;
+    }
+    if (!sorted.length) {
       list.innerHTML = '<div id="empty-entities">No snapshot loaded.</div>';
       return;
     }
-    const sorted = [...this.entities].sort((a, b) => entityKind(a).localeCompare(entityKind(b)) || entityName(a).localeCompare(entityName(b)));
     list.innerHTML = sorted.map(entity => `
       <div class="entity-row ${this.lastAdded.has(entity.id) ? 'generated' : ''}">
         <div>${entityKind(entity) === 'room' ? 'R' : entityKind(entity) === 'character' ? 'C' : 'E'}</div>

@@ -176,6 +176,7 @@
 
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
+<script type="module" src="/src/behavior-editor/library-list.tsx"></script>
 <script>
 'use strict';
 
@@ -389,6 +390,15 @@ class BehaviorEditor {
   _renderLibrary() {
     document.getElementById('library-source').textContent =
       this.connected ? 'from server' : 'built-in';
+    if (window.BunnylandBehaviorPreact?.renderNamedList) {
+      window.BunnylandBehaviorPreact.renderNamedList(
+        document.getElementById('condition-list'), this.conditions, 'pill', 'none');
+      window.BunnylandBehaviorPreact.renderNamedList(
+        document.getElementById('action-list'), this.actions, 'pill', 'none');
+      window.BunnylandBehaviorPreact.renderNamedList(
+        document.getElementById('behavior-list'), this.serverBehaviors, 'behavior-name-row', 'Connect to list.');
+      return;
+    }
     const pills = (names) => names.length
       ? names.map((name) => `<span class="pill">${esc(name)}</span>`).join('')
       : '<span class="tiny">none</span>';

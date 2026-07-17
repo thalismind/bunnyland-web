@@ -864,6 +864,11 @@ class CharacterSheetApp {
 
   _renderMetrics(id, rows, empty) {
     const target = document.getElementById(id);
+    const renderMetrics = window.BunnylandPreact?.renderMetricList;
+    if (renderMetrics) {
+      renderMetrics(target, { metrics: rows, emptyMessage: empty });
+      return;
+    }
     target.className = rows.length ? 'metric-list' : 'sheet-empty';
     target.innerHTML = rows.length ? rows.map(row => this._metricRow(row)).join('') : empty;
   }
@@ -1012,5 +1017,6 @@ class CharacterSheetApp {
 window.app = new CharacterSheetApp();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
+<script type="module" src="/src/character-sheet/metrics.tsx"></script>
 </body>
 </html>

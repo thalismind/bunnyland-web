@@ -56,15 +56,26 @@ The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_UR
 `scripts/playwright-all` enables browser JS/CSS coverage automatically and writes the
 merged summary to `artifacts/playwright-coverage/coverage-summary.json`.
 
-## JS/CSS/HTML checks
+## Vite, TypeScript, and Preact
 
-The static clients use npm only for linting and unit tests; there is no bundle output.
+The browser clients are built as a Vite multi-page application. Every existing HTML URL is
+an independent build entry, so bookmarks and server links continue to use paths such as
+`world-editor.html` and `toon-client.html`; this is not a single-page router.
+
+New UI uses direct `preact` functional components and hooks. The World Editor entity list
+and Toon room stage are the first keyed Preact islands. Their existing page controllers are
+temporary adapters so the rest of each large client can move in independently verified
+slices without changing the API or Playwright contracts. Shared controls and theme behavior
+come from the pinned, self-contained `@bunnyland/ui-web` artifact in `vendor/`; builds and
+tests never import an adjacent source checkout.
 
 ```bash
 npm ci
 npm run lint     # ESLint for JS/inline scripts, Stylelint for CSS/style blocks, HTMLHint for HTML
-npm test         # Node unit tests for shared scripts
-npm run check    # lint + unit tests
+npm run typecheck
+npm test         # Node helper tests plus Vitest component tests
+npm run build    # production multi-page output in dist/
+npm run check    # artifact sync + lint + types + tests + production build
 ```
 
 ## API contracts

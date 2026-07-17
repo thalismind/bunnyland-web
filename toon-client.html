@@ -29,6 +29,7 @@
       outline: none;
     }
     #stage.spectating { cursor: default; }
+    #stage-items { display: contents; }
 
     #room-bg {
       position: absolute;
@@ -554,6 +555,7 @@
   <div id="stage-wrapper">
     <div id="stage" tabindex="0">
       <div id="room-bg"></div>
+      <div id="stage-items"></div>
     </div>
     <div id="stage-hint"></div>
     <div id="stage-empty">
@@ -573,6 +575,7 @@
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
 <script src="assets/bunnyland-play.js?v=20260715-room-claims"></script>
+<script type="module" src="/src/toon-client/stage.tsx"></script>
 <script>
 'use strict';
 
@@ -1978,9 +1981,18 @@ class RoomClient {
     const empty = document.getElementById('stage-empty');
     const room = this._currentRoom();
 
-    for (const el of stage.querySelectorAll('.sprite, .door, .debug-box')) el.remove();
+    for (const el of stage.querySelectorAll('.debug-box')) el.remove();
+    if (!window.BunnylandPreact?.renderStageItems) {
+      for (const el of stage.querySelectorAll('.sprite, .door')) el.remove();
+    }
 
     if (!room) {
+      const items = document.getElementById('stage-items');
+      if (window.BunnylandPreact?.renderStageItems) {
+        window.BunnylandPreact.renderStageItems(items, {
+          doors: [], sprites: [], onDoor: () => {}, onSprite: () => {}
+        });
+      }
       empty.classList.remove('hidden');
       document.getElementById('room-bg').style.backgroundImage = '';
       document.getElementById('room-bg').textContent = '';
@@ -2006,14 +2018,17 @@ class RoomClient {
     const members = this._roomMembers(this.viewRoomId)
       .filter(e => !e.components?.DoorComponent)
       .sort((a, b) => this._spriteLayer(a) - this._spriteLayer(b));
-    for (const member of members) {
-      const isPlayer = member.id === this.playerId;
-      const pos = (isPlayer && this.localPos) ? this.localPos : this._spritePos(member);
-      const point = this._roomToStagePoint(pos, rect, room);
-      stage.appendChild(this._spriteEl(member, point.x, point.y, isPlayer));
+    if (window.BunnylandPreact?.renderStageItems) {
+      this._renderStageItems(room, rect, members);
+    } else {
+      for (const member of members) {
+        const isPlayer = member.id === this.playerId;
+        const pos = (isPlayer && this.localPos) ? this.localPos : this._spritePos(member);
+        const point = this._roomToStagePoint(pos, rect, room);
+        stage.appendChild(this._spriteEl(member, point.x, point.y, isPlayer));
+      }
+      this._renderDoors(stage, room);
     }
-
-    this._renderDoors(stage, room);
     this._renderDebugBounds(stage, room, rect);
 
     const hint = document.getElementById('stage-hint');
@@ -2043,6 +2058,67 @@ class RoomClient {
       this.render();
     });
     return el;
+  }
+
+  _renderStageItems(room, rect, members) {
+    const sprites = members.map(member => {
+      const isPlayer = member.id === this.playerId;
+      const pos = (isPlayer && this.localPos) ? this.localPos : this._spritePos(member);
+      const point = this._roomToStagePoint(pos, rect, room);
+      return {
+        id: member.id,
+        glyph: entityIcon(member),
+        imageUrl: member.sprite?.image_url || member.sprite?.image_data || member.components?.SpriteImageComponent?.url,
+        isPlayer,
+        label: entityName(member),
+        layer: this._spriteLayer(member),
+        left: point.x,
+        scale: this._spriteScale(member),
+        selected: member.id === this.selectedId,
+        top: point.y
+      };
+    });
+    const exits = this.roomProjection?.room?.id === room.id ? (room.exits || []) : [];
+    const doors = exits.map(exit => {
+      const direction = (exit.direction || '').toLowerCase();
+      const [ox, oy] = DIR_EDGE[direction] || [1, 0];
+      const margin = '14px';
+      return {
+        id: exit.id,
+        direction,
+        label: exit.label,
+        position: {
+          left: ox === 0 ? '50%' : (ox < 0 ? margin : undefined),
+          right: ox > 0 ? margin : undefined,
+          top: oy === 0 ? '50%' : (oy < 0 ? margin : undefined),
+          bottom: oy > 0 ? margin : undefined
+        },
+        title: this._playerInView() ? `Walk through ${exit.label}` : `Look into ${exit.label}`,
+        transform: ox === 0 ? 'translateX(-50%)' : (oy === 0 ? 'translateY(-50%)' : undefined)
+      };
+    });
+    const exitsById = new Map(exits.map(exit => [exit.id, exit]));
+    window.BunnylandPreact.renderStageItems(document.getElementById('stage-items'), {
+      doors,
+      sprites,
+      onSprite: id => {
+        this.selectedId = id;
+        this.render();
+      },
+      onDoor: id => {
+        const exit = exitsById.get(id);
+        if (!exit) return;
+        if (this._playerInView()) {
+          this._moveThroughExit(exit);
+        } else {
+          this.viewRoomId = exit.id;
+          this.followPlayer = false;
+          this.roomProjection = null;
+          this._refreshRoomProjection(exit.id, { render: true });
+          this.render();
+        }
+      }
+    });
   }
 
   _renderDoors(stage, room) {

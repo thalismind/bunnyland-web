@@ -31,6 +31,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and build web client
+        run: |
+          npm ci
+          npm run build
+
       - name: Install Playwright
         run: |
           python -m pip install --upgrade pip

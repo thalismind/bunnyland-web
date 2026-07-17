@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import html from 'eslint-plugin-html';
+import tseslint from 'typescript-eslint';
 
 const browserGlobals = {
   ...globals.browser,
@@ -20,9 +21,14 @@ export default [
     ignores: [
       'node_modules/**',
       'artifacts/**',
+      'dist/**',
     ],
   },
   js.configs.recommended,
+  ...tseslint.configs.recommended.map(config => ({
+    ...config,
+    files: ['**/*.{ts,tsx}'],
+  })),
   {
     files: ['**/*.html'],
     plugins: { html },
@@ -51,6 +57,12 @@ export default [
       globals: {
         ...globals.node,
       },
+    },
+  },
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
     },
   },
 ];

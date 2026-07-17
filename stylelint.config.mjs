@@ -2,6 +2,7 @@ export default {
   ignoreFiles: [
     'node_modules/**',
     'artifacts/**',
+    'dist/**',
   ],
   overrides: [
     {

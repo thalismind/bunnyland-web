@@ -474,6 +474,7 @@
   </div>
 </div>
 
+<script type="module" src="/src/inspector/event-feed.tsx"></script>
 <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
@@ -1160,6 +1161,7 @@ class BunnylandInspector {
     this._runtimeRunning = false;
     this._movedAt = {}; // characterId → world_epoch of its last ActorMovedEvent
     this._events = [];  // rolling buffer of recent event messages for the feed
+    this._eventSequence = 0;
     this._eventsPrimed = false;
     this._socialLinks = []; // [{fromId,toId,color,off}] drawn behind nodes in social view
     this._searchHits = [];
@@ -1756,31 +1758,50 @@ class BunnylandInspector {
     return eventHelpers.eventSummary(type, ev, (id) => this._nameFor(id));
   }
 
-  _eventRow(data) {
+  _eventItem(data) {
     const type = data.event_type || 'Event';
     const ev = data.event || {};
-    const icon = eventHelpers.icon(type);
-    const epoch = ev.world_epoch != null ? `${ev.world_epoch}s` : '';
-    const actor = ev.actor_id != null
-      ? `<span class="ev-actor" data-select-entity="${esc(ev.actor_id)}">${esc(this._nameFor(ev.actor_id))}</span> `
+    return {
+      key: `event:${++this._eventSequence}`,
+      type,
+      epoch: ev.world_epoch != null ? `${ev.world_epoch}s` : '',
+      icon: eventHelpers.icon(type),
+      actorId: ev.actor_id != null ? String(ev.actor_id) : undefined,
+      actorName: ev.actor_id != null ? this._nameFor(ev.actor_id) : undefined,
+      summary: this._eventSummary(type, ev),
+    };
+  }
+
+  _eventRow(event) {
+    const actor = event.actorId
+      ? `<span class="ev-actor" data-select-entity="${esc(event.actorId)}">${esc(event.actorName)}</span> `
       : '';
-    return `<div class="ev-row" title="${esc(type)}">`
-      + `<span class="ev-epoch">${esc(epoch)}</span>`
-      + `<span class="ev-icon">${icon}</span>`
-      + `${actor}<span class="ev-text">${esc(this._eventSummary(type, ev))}</span></div>`;
+    return `<div class="ev-row" data-event-key="${esc(event.key)}" title="${esc(event.type)}">`
+      + `<span class="ev-epoch">${esc(event.epoch)}</span>`
+      + `<span class="ev-icon">${esc(event.icon)}</span>`
+      + `${actor}<span class="ev-text">${esc(event.summary)}</span></div>`;
   }
 
   _appendEvent(data) {
     const list = document.getElementById('event-list');
-    const empty = document.getElementById('event-empty');
-    if (empty) empty.remove();
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-    list.insertAdjacentHTML('beforeend', this._eventRow(data));
-    this._events.push(data);
-    while (list.children.length > 250) list.removeChild(list.firstChild);
+    const event = this._eventItem(data);
+    this._events.push(event);
     if (this._events.length > 250) this._events.splice(0, this._events.length - 250);
+    this._renderEventFeed();
     if (atBottom) list.scrollTop = list.scrollHeight; // keep the newest in view
     document.getElementById('event-count').textContent = `(${this._events.length})`;
+  }
+
+  _renderEventFeed() {
+    const list = document.getElementById('event-list');
+    if (window.BunnylandInspectorPreact?.renderEventFeed) {
+      window.BunnylandInspectorPreact.renderEventFeed(list, this._events);
+      return;
+    }
+    list.innerHTML = this._events.length
+      ? this._events.map(event => this._eventRow(event)).join('')
+      : '<div id="event-empty">Connect to a live server to stream world events.</div>';
   }
 
   // Prime the feed with the server's recent-event history on connect.
@@ -1794,8 +1815,7 @@ class BunnylandInspector {
 
   _clearEvents() {
     this._events = [];
-    document.getElementById('event-list').innerHTML =
-      '<div id="event-empty">Connect to a live server to stream world events.</div>';
+    this._renderEventFeed();
     document.getElementById('event-count').textContent = '';
   }
 
