@@ -31,3 +31,9 @@ Rough is fine.
 
 How would we prove it works — a unit test for shared logic, a Playwright
 regression for the UI, or both?
+
+## Security and hostile data
+
+Does the change render identifiers, labels, URLs, server events, or user-authored text?
+How will it preserve same-origin operation and prove that hostile values remain data rather
+than markup, script, or navigation?

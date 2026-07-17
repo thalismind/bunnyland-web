@@ -12,9 +12,17 @@ Spell out how you proved it works — this is the part reviewers lean on, for ev
 contributor equally.
 
 - [ ] `npm run check` passes (lint + unit tests)
-- [ ] `scripts/playwright-all` passes, with new/updated coverage for changed UI
+- [ ] `scripts/playwright-all --coverage` passes with its aggregate exit code controlling
 - [ ] No build artifacts, `node_modules`, or stray local files committed
 - [ ] New behavior is reachable and noted in the README where users look
+- [ ] Tests use this repository's declared artifacts and do not fall back to sibling source trees
+
+When applicable to the changed surface:
+
+- [ ] Browser operation remains same-origin and rejects unsafe server overrides
+- [ ] Hostile identifiers, labels, URLs, and event data are rendered and handled safely
+- [ ] Shared UI behavior lives in `@bunnyland/ui-web` rather than being copied between clients
+- [ ] Visual changes include focused screenshots or Playwright assertions at relevant viewports
 
 Paste relevant test output, new test/Playwright names, or screenshots:
 
