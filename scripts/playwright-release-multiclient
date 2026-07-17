@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -57,6 +58,8 @@ OTEL_TRACE_FILE = Path(
 PLAYER_USER = os.environ.get("BUNNYLAND_PLAYER_USER", "")
 PLAYER_PASSWORD = os.environ.get("BUNNYLAND_PLAYER_PASSWORD", "")
 SERVER_CONTAINER_NAME: str | None = None
+SERVER_AUTH_DIR: Path | None = None
+SERVER_TOKEN_VOLUME: str | None = None
 
 
 def _runtime_works(command: list[str]) -> bool:
@@ -91,6 +94,82 @@ def container_cli() -> list[str]:
     raise RuntimeError(
         "container runtime CLI not found; install nerdctl or set BUNNYLAND_CONTAINER_CLI"
     )
+
+
+def prepare_container_auth(runtime: list[str]) -> tuple[Path, str]:
+    global SERVER_AUTH_DIR, SERVER_TOKEN_VOLUME
+    SERVER_AUTH_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-release-auth-"))
+    SERVER_AUTH_DIR.chmod(0o700)
+    users_file = SERVER_AUTH_DIR / "auth-users.yml"
+    password_hash = subprocess.run(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "-i",
+            SERVER_IMAGE,
+            "auth",
+            "hash-password",
+            "--password-stdin",
+        ],
+        input="release-multiclient-fixture-only\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    users_file.write_text(
+        "users:\n"
+        "  release-multiclient:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    scopes: [world:play]\n",
+        encoding="utf-8",
+    )
+    users_file.chmod(0o600)
+
+    SERVER_TOKEN_VOLUME = f"bunnyland-release-token-{os.getpid()}"
+    subprocess.run(
+        [*runtime, "volume", "create", SERVER_TOKEN_VOLUME],
+        stdout=subprocess.DEVNULL,
+        check=True,
+    )
+    token = subprocess.run(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "-v",
+            f"{SERVER_TOKEN_VOLUME}:/data",
+            SERVER_IMAGE,
+            "auth",
+            "provision-token",
+            "--db",
+            "/data/auth-tokens.sqlite3",
+            "--subject",
+            "release-multiclient",
+            "--scope",
+            "world:play",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    os.environ["BUNNYLAND_PLAY_TOKEN"] = token
+    return users_file, SERVER_TOKEN_VOLUME
+
+
+def cleanup_container_auth() -> None:
+    global SERVER_AUTH_DIR, SERVER_TOKEN_VOLUME
+    if SERVER_TOKEN_VOLUME:
+        subprocess.run(
+            [*container_cli(), "volume", "rm", SERVER_TOKEN_VOLUME],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        SERVER_TOKEN_VOLUME = None
+    if SERVER_AUTH_DIR:
+        shutil.rmtree(SERVER_AUTH_DIR, ignore_errors=True)
+        SERVER_AUTH_DIR = None
 
 
 def launch_browser(playwright):
@@ -273,8 +352,10 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
     log = SERVER_LOG.open("w", encoding="utf-8")
     container_trace_file = f"/otel-artifacts/{OTEL_TRACE_FILE.name}"
     SERVER_CONTAINER_NAME = f"bunnyland-release-{port}"
+    runtime = container_cli()
+    users_file, token_volume = prepare_container_auth(runtime)
     cmd = [
-        *container_cli(),
+        *runtime,
         "run",
         "--rm",
         "--name",
@@ -283,6 +364,10 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
         f"127.0.0.1:{port}:8765",
         "-v",
         f"{OTEL_TRACE_FILE.parent.resolve()}:/otel-artifacts",
+        "-v",
+        f"{users_file}:/run/secrets/bunnyland-users.yml:ro",
+        "-v",
+        f"{token_volume}:/data",
         "-e",
         "BUNNYLAND_OTEL_ENABLED=1",
         "-e",
@@ -292,7 +377,6 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
         "-e",
         "OTEL_SERVICE_NAME=bunnyland-release-multiclient",
         SERVER_IMAGE,
-        "bunnyland",
         "serve",
         "--generator",
         os.environ.get("BUNNYLAND_RELEASE_GENERATOR", "apartment-demo"),
@@ -306,6 +390,10 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
         "0.0.0.0",
         "--api-port",
         "8765",
+        "--auth-users-file",
+        "/run/secrets/bunnyland-users.yml",
+        "--token-db",
+        "/data/auth-tokens.sqlite3",
         "--claim-timeout-seconds",
         "0",
     ]
@@ -318,6 +406,7 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+        cleanup_container_auth()
         raise
     return api_url, proc
 
@@ -394,13 +483,22 @@ def wait_for_room_change(
 
 
 def connect_page(page, page_name: str, api_url: str) -> None:
+    def proxy_api(route) -> None:
+        parsed = urllib.parse.urlsplit(route.request.url)
+        path = parsed.path.removeprefix("/api-release")
+        target = f"{api_url}{path}"
+        if parsed.query:
+            target = f"{target}?{parsed.query}"
+        route.fulfill(response=route.fetch(url=target))
+
+    page.route("**/api-release/**", proxy_api)
     page.goto(f"{BASE_URL}/{page_name}", wait_until="domcontentloaded")
     if page_name == "toon-client.html":
         page.locator("#loading-overlay").wait_for(state="hidden", timeout=5000)
     auth = player_auth_header()
     if auth:
         page.evaluate("(authHeader) => BunnylandApi.setPlayerAuth(authHeader)", auth)
-    page.locator("#api-url").fill(api_url)
+    page.locator("#api-url").fill("/api-release")
     page.locator("#btn-connect").click()
     page.wait_for_function("() => window.app && window.app.characters?.length > 0 || window.app?.characterList?.length > 0", timeout=20000)
 
@@ -604,6 +702,7 @@ def main() -> None:
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
+        cleanup_container_auth()
 
 
 if __name__ == "__main__":
@@ -613,4 +712,5 @@ if __name__ == "__main__":
         if SERVER_LOG.exists():
             print(f"\n--- bunnyland server log: {SERVER_LOG} ---", file=sys.stderr)
             print(SERVER_LOG.read_text(encoding="utf-8", errors="replace")[-8000:], file=sys.stderr)
+        cleanup_container_auth()
         raise exc

@@ -475,7 +475,7 @@
           <article class="info-card">
             <h3>Textual TUI</h3>
             <p>An ASCII-art interface you drive with the mouse: pick actions from menus and click targets in the room, with no command syntax to memorize.</p>
-            <div class="cmd"><code id="cmd-tui">uv run --extra tui bunnyland-tui <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
+            <div class="cmd"><code id="cmd-tui">uv run --extra tui bunnyland tui <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-tui">Copy</button></div>
             <div class="info-actions">
               <a class="button-link" href="https://bunnyland.dev/guides/client-tui.html">Read Player Guide</a>
             </div>
@@ -483,7 +483,7 @@
           <article class="info-card">
             <h3>Textual REPL</h3>
             <p>A traditional typed command line, with modern touches like clickable names and tab completion.</p>
-            <div class="cmd"><code id="cmd-repl">uv run --extra repl bunnyland-repl <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
+            <div class="cmd"><code id="cmd-repl">uv run --extra repl bunnyland repl <br>--server …</code><button type="button" class="cmd-copy" data-copy="cmd-repl">Copy</button></div>
             <div class="info-actions">
               <a class="button-link" href="https://bunnyland.dev/guides/client-repl.html">Read Player Guide</a>
             </div>
@@ -641,8 +641,8 @@
       el.textContent = '';
       el.append(`${program} `, document.createElement('br'), `--server ${base}`);
     };
-    fill('cmd-tui', 'uv run --extra tui bunnyland-tui');
-    fill('cmd-repl', 'uv run --extra repl bunnyland-repl');
+    fill('cmd-tui', 'uv run --extra tui bunnyland tui');
+    fill('cmd-repl', 'uv run --extra repl bunnyland repl');
 
     const clientServer = serverUrl.replace(/\/+$/, '') || '/api';
     const sheetHref = `character-sheet.html?server=${encodeURIComponent(clientServer)}`;
