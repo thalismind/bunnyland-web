@@ -2,5 +2,16 @@ snapshot.json
 __pycache__/
 *.py[cod]
 node_modules/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage/
+coverage.xml
+htmlcov/
+artifacts/
 artifacts/test-results/
 artifacts/playwright-coverage/
