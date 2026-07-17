@@ -135,6 +135,32 @@
       color: var(--bl-text-soft);
     }
     .meter-grid input { width: 100%; }
+    .compound-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .compound-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .compound-row.object-row {
+      grid-template-columns: minmax(120px, 180px) minmax(180px, 1fr);
+    }
+    .compound-row input, .compound-row textarea { width: 100%; }
+    .compound-row textarea { min-height: 54px; }
+    .semantic-input {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .semantic-input input { flex: 1; }
+    .field-description, .epoch-preview {
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+    }
     .problem-link {
       padding: 0 4px;
       margin-right: 4px;
@@ -710,21 +736,30 @@ class WorldEditor {
     if (!schema?.$ref) return schema || {};
     const prefix = '#/$defs/';
     if (!schema.$ref.startsWith(prefix)) return schema;
-    return root?.$defs?.[schema.$ref.slice(prefix.length)] || schema;
+    const target = root?.$defs?.[schema.$ref.slice(prefix.length)];
+    if (!target) return schema;
+    const { $ref: _ref, ...siblings } = schema;
+    return { ...target, ...siblings };
   }
 
   _fieldSchema(schema, root) {
     const resolved = this._resolveSchemaRef(schema, root);
     const variants = this._schemaVariants(resolved);
-    const concrete = variants
-      ? variants.find(item => item.type !== 'null') || variants[0]
+    const concreteVariants = variants
+      ? variants.filter(item => this._resolveSchemaRef(item, root).type !== 'null')
+      : [];
+    const concrete = variants && concreteVariants.length === 1
+      ? concreteVariants[0]
       : resolved;
     const field = { ...this._resolveSchemaRef(concrete, root) };
     if (Object.prototype.hasOwnProperty.call(schema || {}, 'default')) field.default = schema.default;
     if (Object.prototype.hasOwnProperty.call(resolved, 'default')) field.default = resolved.default;
     if (Object.prototype.hasOwnProperty.call(schema || {}, 'title')) field.title = schema.title;
     if (Object.prototype.hasOwnProperty.call(schema || {}, 'description')) field.description = schema.description;
-    if (variants) field.nullable = variants.some(item => item.type === 'null');
+    if (variants) {
+      field.nullable = variants.some(item => this._resolveSchemaRef(item, root).type === 'null');
+      field.unsupportedUnion = concreteVariants.length !== 1;
+    }
     return field;
   }
 
@@ -750,9 +785,14 @@ class WorldEditor {
     return options;
   }
 
+  _enumToken(value) {
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+
   _defaultForSchema(schema, root) {
     const field = this._fieldSchema(schema, root);
     if (Object.prototype.hasOwnProperty.call(field, 'default')) return clone(field.default);
+    if (field.unsupportedUnion) return null;
     const enumOptions = this._enumOptions(field, root);
     if (enumOptions.length) return enumOptions[0];
     if (field.type === 'boolean') return false;
@@ -760,6 +800,42 @@ class WorldEditor {
     if (field.type === 'array') return [];
     if (field.type === 'object') return {};
     return '';
+  }
+
+  _schemaAttributes(schema) {
+    const attributes = [];
+    const mappings = [
+      ['minimum', 'min'], ['maximum', 'max'], ['minLength', 'minlength'],
+      ['maxLength', 'maxlength'], ['pattern', 'pattern']
+    ];
+    for (const [schemaKey, attribute] of mappings) {
+      if (Object.prototype.hasOwnProperty.call(schema, schemaKey)) {
+        attributes.push(`${attribute}="${esc(schema[schemaKey])}"`);
+      }
+    }
+    if (schema.readOnly || Object.prototype.hasOwnProperty.call(schema, 'const')) {
+      attributes.push('disabled');
+    }
+    return attributes.join(' ');
+  }
+
+  _isStringListField(schema, root) {
+    if (schema.type !== 'array') return false;
+    const itemSchema = Array.isArray(schema.items) ? schema.items[0] : schema.items;
+    return this._fieldSchema(itemSchema || {}, root).type === 'string';
+  }
+
+  _mapValueSchema(schema, root) {
+    if (schema.type !== 'object') return null;
+    if (!schema.additionalProperties || schema.additionalProperties === true) return null;
+    return this._fieldSchema(schema.additionalProperties, root);
+  }
+
+  _tupleItemSchemas(schema, root) {
+    if (schema.type !== 'array') return [];
+    const itemSchema = this._fieldSchema(schema.items || {}, root);
+    if (itemSchema.type !== 'array' || !Array.isArray(itemSchema.prefixItems)) return [];
+    return itemSchema.prefixItems.map(item => this._fieldSchema(item, root));
   }
 
   _renderInfo() {
@@ -1017,6 +1093,65 @@ class WorldEditor {
     `;
   }
 
+  _inlineInput(schema, value, attributes = '') {
+    const data = `data-inline-kind="${esc(schema.type || 'string')}"`;
+    if (schema.type === 'boolean') {
+      return `<input ${data} ${attributes} type="checkbox" ${value ? 'checked' : ''}>`;
+    }
+    if (schema.type === 'integer' || schema.type === 'number') {
+      const step = Object.prototype.hasOwnProperty.call(schema, 'multipleOf')
+        ? schema.multipleOf
+        : (schema.type === 'integer' ? '1' : 'any');
+      return `<input ${data} ${attributes} type="number" step="${esc(step)}" value="${esc(value ?? '')}">`;
+    }
+    if (schema.type === 'array' || schema.type === 'object') {
+      return `<textarea ${data} ${attributes} spellcheck="false">${esc(JSON.stringify(value ?? (schema.type === 'array' ? [] : {})))}</textarea>`;
+    }
+    const list = schema.format === 'bunnyland-entity-id' ? ' list="entity-options"' : '';
+    return `<input ${data} ${attributes} type="text"${list} value="${esc(value ?? '')}" spellcheck="false">`;
+  }
+
+  _renderMapRows(valueSchema, value) {
+    const entries = Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+    return entries.map(([key, item]) => `
+      <div class="compound-row" data-map-row>
+        <input data-map-key type="text" value="${esc(key)}" placeholder="key" spellcheck="false">
+        ${this._inlineInput(valueSchema, item, `data-map-value ${this._schemaAttributes(valueSchema)}`)}
+        <button type="button" data-remove-compound-row aria-label="Remove map entry">x</button>
+      </div>
+    `).join('') || '<span class="tiny compound-empty">No entries.</span>';
+  }
+
+  _renderObjectRows(schema, value, root) {
+    const object = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.entries(schema.properties || {}).map(([key, rawField]) => {
+      const field = this._fieldSchema(rawField, root);
+      const fieldValue = Object.prototype.hasOwnProperty.call(object, key)
+        ? object[key]
+        : this._defaultForSchema(field, root);
+      return `
+        <label class="compound-row object-row">
+          <span>${esc(field.title || key)}</span>
+          ${this._inlineInput(field, fieldValue, `data-object-key="${esc(key)}" ${this._schemaAttributes(field)}`)}
+        </label>
+      `;
+    }).join('');
+  }
+
+  _renderTupleRows(itemSchemas, value) {
+    const rows = Array.isArray(value) ? value : [];
+    return rows.map((row, index) => `
+      <div class="compound-row" data-tuple-row>
+        ${itemSchemas.map((schema, itemIndex) => this._inlineInput(
+          schema,
+          Array.isArray(row) ? row[itemIndex] : null,
+          `data-tuple-index="${itemIndex}" aria-label="Tuple item ${itemIndex + 1}" ${this._schemaAttributes(schema)}`
+        )).join('')}
+        <button type="button" data-remove-compound-row data-row-index="${index}" aria-label="Remove tuple row">x</button>
+      </div>
+    `).join('') || '<span class="tiny compound-empty">No entries.</span>';
+  }
+
   _renderComponentField(name, schema, value, root) {
     const label = esc(schema.title || name);
     const labelRow = this._fieldLabel(name, label, schema, value);
@@ -1024,42 +1159,53 @@ class WorldEditor {
     const disabled = schema.nullable && value == null ? ' disabled' : '';
     const data = `data-field="${esc(name)}" data-kind="${esc(schema.type || 'string')}"${nullable}${disabled}`;
     const enumOptions = this._enumOptions(schema, root);
+    const attributes = this._schemaAttributes(schema);
     const hasMaxLength = Object.prototype.hasOwnProperty.call(schema, 'maxLength');
     const multilineTextNames = new Set([
       'appearance', 'biography', 'description', 'long', 'prompt', 'short', 'summary', 'text'
     ]);
-    if (this._isTagListField(name, schema)) {
+    if (schema.unsupportedUnion) {
+      return `
+        <label class="field full">${labelRow}
+          <textarea class="component-field component-field-json" data-field="${esc(name)}" data-kind="json" spellcheck="false">${esc(JSON.stringify(value, null, 2))}</textarea>
+        </label>
+      `;
+    }
+    const itemEnumOptions = schema.type === 'array'
+      ? this._enumOptions(Array.isArray(schema.items) ? schema.items[0] : schema.items, root)
+      : [];
+    if (this._isStringListField(schema, root) && !itemEnumOptions.length) {
       const tags = Array.isArray(value) ? value.map(tag => String(tag)) : [];
       return `
         <div class="field full">${labelRow}
           ${BunnylandUI.tagEditorHtml(tags, {
             hiddenClass: 'component-field component-tags-value',
             hiddenAttributes: data,
+            addLabel: 'Add Item',
+            placeholder: 'add item...',
           })}
         </div>
       `;
     }
-    const itemEnumOptions = schema.type === 'array'
-      ? this._enumOptions(Array.isArray(schema.items) ? schema.items[0] : schema.items, root)
-      : [];
     if (schema.type === 'array' && itemEnumOptions.length) {
-      const selected = Array.isArray(value) ? value.map(option => String(option)) : [];
-      const available = itemEnumOptions.map(option => String(option)).filter(option => !selected.includes(option));
+      const selected = Array.isArray(value) ? value : [];
+      const selectedTokens = new Set(selected.map(option => this._enumToken(option)));
+      const available = itemEnumOptions.filter(option => !selectedTokens.has(this._enumToken(option)));
       return `
         <div class="field full">${labelRow}
-          <div class="tag-editor enum-list-editor" data-enum-list-field="${esc(name)}" data-enum-options="${esc(JSON.stringify(itemEnumOptions.map(option => String(option))))}">
+          <div class="tag-editor enum-list-editor" data-enum-list-field="${esc(name)}" data-enum-options="${esc(JSON.stringify(itemEnumOptions))}">
             <input class="component-field component-enum-list-value" ${data} type="hidden" value="${esc(JSON.stringify(selected))}">
             <div class="tag-list enum-list">
               ${selected.map(option => `
                 <span class="tag-pill">
                   <span>${esc(option)}</span>
-                  <button type="button" data-remove-enum-option="${esc(option)}" aria-label="Remove ${esc(option)}">x</button>
+                  <button type="button" data-remove-enum-option="${esc(this._enumToken(option))}" aria-label="Remove ${esc(option)}">x</button>
                 </span>
               `).join('') || '<span class="tiny">No options selected.</span>'}
             </div>
             <div class="tag-entry">
               <select class="enum-list-select" ${available.length ? '' : 'disabled'}>
-                ${available.map(option => `<option value="${esc(option)}">${esc(option)}</option>`).join('')}
+                ${available.map(option => `<option value="${esc(this._enumToken(option))}">${esc(option)}</option>`).join('')}
               </select>
               <button type="button" data-add-enum-option ${available.length ? '' : 'disabled'}>Add Option</button>
             </div>
@@ -1078,10 +1224,45 @@ class WorldEditor {
         </div>
       `;
     }
+    const mapValueSchema = this._mapValueSchema(schema, root);
+    if (mapValueSchema) {
+      return `
+        <div class="field full">${labelRow}
+          <div class="compound-editor" data-compound-kind="map" data-value-schema="${esc(JSON.stringify(mapValueSchema))}">
+            <input class="component-field compound-value" ${data} type="hidden" value="${esc(JSON.stringify(value || {}))}">
+            <div class="compound-rows">${this._renderMapRows(mapValueSchema, value)}</div>
+            <button type="button" data-add-compound-row>Add Entry</button>
+          </div>
+        </div>
+      `;
+    }
+    const tupleItemSchemas = this._tupleItemSchemas(schema, root);
+    if (tupleItemSchemas.length) {
+      return `
+        <div class="field full">${labelRow}
+          <div class="compound-editor" data-compound-kind="tuple" data-item-schemas="${esc(JSON.stringify(tupleItemSchemas))}">
+            <input class="component-field compound-value" ${data} type="hidden" value="${esc(JSON.stringify(value || []))}">
+            <div class="compound-rows">${this._renderTupleRows(tupleItemSchemas, value)}</div>
+            <button type="button" data-add-compound-row>Add Row</button>
+          </div>
+        </div>
+      `;
+    }
+    if (schema.type === 'object' && schema.properties) {
+      return `
+        <div class="field full">${labelRow}
+          <div class="compound-editor" data-compound-kind="object">
+            <input class="component-field compound-value" ${data} type="hidden" value="${esc(JSON.stringify(value || {}))}">
+            <div class="compound-rows">${this._renderObjectRows(schema, value, root)}</div>
+          </div>
+        </div>
+      `;
+    }
     if (enumOptions.length) {
+      const enumData = `${data} data-enum-values="${esc(JSON.stringify(enumOptions))}"`;
       return `
         <label class="field wide">${labelRow}
-          <select class="component-field" ${data}>
+          <select class="component-field" ${enumData} ${attributes}>
             ${schema.nullable ? `<option value="" ${value == null ? 'selected' : ''}></option>` : ''}
             ${enumOptions.map(option => {
               const optionValue = String(option);
@@ -1094,15 +1275,28 @@ class WorldEditor {
     if (schema.type === 'boolean') {
       return `
         <label class="field">${labelRow}
-          <input class="component-field" ${data} type="checkbox" ${value ? 'checked' : ''}>
+          <input class="component-field" ${data} ${attributes} type="checkbox" ${value ? 'checked' : ''}>
         </label>
       `;
     }
     if (schema.type === 'integer' || schema.type === 'number') {
-      const step = schema.type === 'integer' ? '1' : 'any';
+      const step = Object.prototype.hasOwnProperty.call(schema, 'multipleOf')
+        ? schema.multipleOf
+        : (schema.type === 'integer' ? '1' : 'any');
+      if (schema.format === 'bunnyland-epoch') {
+        return `
+          <div class="field">${labelRow}
+            <div class="semantic-input">
+              <input class="component-field epoch-input" ${data} ${attributes} type="number" step="${esc(step)}" value="${esc(value ?? '')}">
+              <button type="button" data-set-current-epoch>Now</button>
+            </div>
+            <span class="epoch-preview"></span>
+          </div>
+        `;
+      }
       return `
         <label class="field">${labelRow}
-          <input class="component-field" ${data} type="number" step="${step}" value="${esc(value ?? '')}">
+          <input class="component-field" ${data} ${attributes} type="number" step="${esc(step)}" value="${esc(value ?? '')}">
         </label>
       `;
     }
@@ -1121,39 +1315,35 @@ class WorldEditor {
     ) {
       return `
         <label class="field full">${labelRow}
-          <textarea class="component-field" ${data} spellcheck="false">${esc(value ?? '')}</textarea>
+          <textarea class="component-field" ${data} ${attributes} spellcheck="false">${esc(value ?? '')}</textarea>
         </label>
       `;
     }
+    const inputType = ['uri', 'uri-reference', 'url', 'bunnyland-image-url'].includes(schema.format)
+      ? 'url'
+      : 'text';
+    const list = schema.format === 'bunnyland-entity-id' ? ' list="entity-options"' : '';
     return `
       <label class="field wide">${labelRow}
-        <input class="component-field" ${data} type="text" value="${esc(value ?? '')}" spellcheck="false">
+        <input class="component-field" ${data} ${attributes} type="${inputType}"${list} value="${esc(value ?? '')}" spellcheck="false">
       </label>
     `;
   }
 
   _fieldLabel(name, label, schema, value) {
-    if (!schema.nullable) return label;
+    const description = schema.description
+      ? `<span class="field-description" title="${esc(schema.description)}">${esc(schema.description)}</span>`
+      : '';
+    if (!schema.nullable) return `${label}${description}`;
     return `
       <span class="field-label">
-        <span>${label}</span>
+        <span>${label}${description}</span>
         <span class="nullable-choice">
           <input class="nullable-toggle" type="checkbox" data-field="${esc(name)}" ${value == null ? 'checked' : ''}>
           null
         </span>
       </span>
     `;
-  }
-
-  _isTagListField(name, schema) {
-    const itemSchema = Array.isArray(schema.items) ? schema.items[0] : schema.items;
-    const fieldName = String(name).toLowerCase();
-    const title = String(schema.title || '').toLowerCase();
-    return (
-      schema.type === 'array' &&
-      itemSchema?.type === 'string' &&
-      (fieldName === 'tags' || fieldName === 'labels' || title === 'tags' || title === 'labels')
-    );
   }
 
   _isMeterField(schema) {
@@ -1386,6 +1576,12 @@ class WorldEditor {
       for (const editor of card.querySelectorAll('.meter-editor')) {
         this._bindMeterEditor(editor, card, entity, type);
       }
+      for (const editor of card.querySelectorAll('.compound-editor')) {
+        this._bindCompoundEditor(editor, card, entity, type);
+      }
+      for (const input of card.querySelectorAll('.epoch-input')) {
+        this._bindEpochInput(input, card, entity, type);
+      }
     }
     for (const card of root.querySelectorAll('.edge-card')) {
       const type = card.dataset.type;
@@ -1443,6 +1639,12 @@ class WorldEditor {
       for (const editor of card.querySelectorAll('.meter-editor')) {
         this._bindMeterEditor(editor, card, entity, type);
       }
+      for (const editor of card.querySelectorAll('.compound-editor')) {
+        this._bindCompoundEditor(editor, card, entity, type);
+      }
+      for (const input of card.querySelectorAll('.epoch-input')) {
+        this._bindEpochInput(input, card, entity, type);
+      }
       for (const toggle of card.querySelectorAll('.nullable-toggle')) {
         this._syncNullableControl(toggle);
         toggle.addEventListener('change', () => {
@@ -1477,7 +1679,7 @@ class WorldEditor {
     const readSelected = () => {
       try {
         const parsed = JSON.parse(hidden.value || '[]');
-        return Array.isArray(parsed) ? parsed.map(option => String(option)) : [];
+        return Array.isArray(parsed) ? parsed : [];
       } catch (_err) {
         return [];
       }
@@ -1492,16 +1694,19 @@ class WorldEditor {
       }
     };
     add?.addEventListener('click', () => {
-      const value = select.value;
-      if (!value) return;
+      const token = select.value;
+      const value = options.find(option => this._enumToken(option) === token);
+      if (value === undefined) return;
       const selected = readSelected();
-      if (!selected.includes(value)) selected.push(value);
+      if (!selected.some(option => this._enumToken(option) === token)) selected.push(value);
       writeSelected(selected);
     });
     editor.addEventListener('click', (event) => {
       const button = event.target.closest('[data-remove-enum-option]');
       if (!button) return;
-      writeSelected(readSelected().filter(option => option !== button.dataset.removeEnumOption));
+      writeSelected(readSelected().filter(
+        option => this._enumToken(option) !== button.dataset.removeEnumOption
+      ));
     });
   }
 
@@ -1509,19 +1714,20 @@ class WorldEditor {
     const list = editor.querySelector('.enum-list');
     const select = editor.querySelector('.enum-list-select');
     const add = editor.querySelector('[data-add-enum-option]');
-    const available = options.filter(option => !selected.includes(option));
+    const selectedTokens = new Set(selected.map(option => this._enumToken(option)));
+    const available = options.filter(option => !selectedTokens.has(this._enumToken(option)));
     if (list) {
       list.innerHTML = selected.length
         ? selected.map(option => `
-          <span class="tag-pill">
-            <span>${esc(option)}</span>
-            <button type="button" data-remove-enum-option="${esc(option)}" aria-label="Remove ${esc(option)}">x</button>
+            <span class="tag-pill">
+              <span>${esc(option)}</span>
+              <button type="button" data-remove-enum-option="${esc(this._enumToken(option))}" aria-label="Remove ${esc(option)}">x</button>
           </span>
         `).join('')
         : '<span class="tiny">No options selected.</span>';
     }
     if (select) {
-      select.innerHTML = available.map(option => `<option value="${esc(option)}">${esc(option)}</option>`).join('');
+      select.innerHTML = available.map(option => `<option value="${esc(this._enumToken(option))}">${esc(option)}</option>`).join('');
       select.disabled = available.length === 0;
     }
     if (add) add.disabled = available.length === 0;
@@ -1582,6 +1788,102 @@ class WorldEditor {
     }
   }
 
+  _readInlineInput(input) {
+    const kind = input.dataset.inlineKind || 'string';
+    if (kind === 'boolean') return input.checked;
+    if (kind === 'integer') return input.value === '' ? 0 : parseInt(input.value, 10);
+    if (kind === 'number') return input.value === '' ? 0 : Number(input.value);
+    if (kind === 'array' || kind === 'object') return JSON.parse(input.value || (kind === 'array' ? '[]' : '{}'));
+    return input.value;
+  }
+
+  _notifyCompoundChange(card, entity, type) {
+    if (card.classList.contains('edge-card')) {
+      card.querySelector('.edge-target')?.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      this._updateTypedComponent(card, entity, type);
+    }
+  }
+
+  _bindCompoundEditor(editor, card, entity, type) {
+    const hidden = editor.querySelector('.compound-value');
+    const rows = editor.querySelector('.compound-rows');
+    const kind = editor.dataset.compoundKind;
+    const valueSchema = kind === 'map' ? JSON.parse(editor.dataset.valueSchema || '{}') : null;
+    const itemSchemas = kind === 'tuple' ? JSON.parse(editor.dataset.itemSchemas || '[]') : [];
+    const readValue = () => {
+      if (kind === 'map') {
+        const value = {};
+        for (const row of editor.querySelectorAll('[data-map-row]')) {
+          const key = row.querySelector('[data-map-key]').value.trim();
+          if (key) value[key] = this._readInlineInput(row.querySelector('[data-map-value]'));
+        }
+        return value;
+      }
+      if (kind === 'object') {
+        const value = {};
+        for (const input of editor.querySelectorAll('[data-object-key]')) {
+          value[input.dataset.objectKey] = this._readInlineInput(input);
+        }
+        return value;
+      }
+      return [...editor.querySelectorAll('[data-tuple-row]')].map(row =>
+        [...row.querySelectorAll('[data-tuple-index]')].map(input => this._readInlineInput(input))
+      );
+    };
+    const writeValue = (value) => {
+      hidden.value = JSON.stringify(value);
+      this._notifyCompoundChange(card, entity, type);
+    };
+    editor.addEventListener('input', event => {
+      if (!event.target.closest('[data-map-key], [data-map-value], [data-object-key], [data-tuple-index]')) return;
+      try {
+        writeValue(readValue());
+      } catch (_err) {
+        event.target.classList.add('bad-json');
+      }
+    });
+    editor.addEventListener('click', event => {
+      const remove = event.target.closest('[data-remove-compound-row]');
+      if (remove) {
+        remove.closest('[data-map-row], [data-tuple-row]').remove();
+        writeValue(readValue());
+        if (!rows.children.length) rows.innerHTML = '<span class="tiny compound-empty">No entries.</span>';
+        return;
+      }
+      if (!event.target.closest('[data-add-compound-row]')) return;
+      rows.querySelector('.compound-empty')?.remove();
+      if (kind === 'map') {
+        rows.insertAdjacentHTML('beforeend', this._renderMapRows(valueSchema, { '': this._defaultForSchema(valueSchema, valueSchema) }));
+      } else if (kind === 'tuple') {
+        const emptyRow = itemSchemas.map(schema => this._defaultForSchema(schema, schema));
+        rows.insertAdjacentHTML('beforeend', this._renderTupleRows(itemSchemas, [emptyRow]));
+      }
+      rows.querySelector('input:last-of-type')?.focus();
+    });
+  }
+
+  _bindEpochInput(input, card, entity, type) {
+    const field = input.closest('.field');
+    const preview = field?.querySelector('.epoch-preview');
+    const renderPreview = () => {
+      if (!preview) return;
+      const value = Number(input.value || 0);
+      const current = Number(this.world.metadata?.epoch || 0);
+      const delta = value - current;
+      preview.textContent = Number.isFinite(delta)
+        ? `${delta >= 0 ? '+' : ''}${delta} seconds from world epoch ${current}`
+        : '';
+    };
+    renderPreview();
+    input.addEventListener('input', renderPreview);
+    field?.querySelector('[data-set-current-epoch]')?.addEventListener('click', () => {
+      input.value = String(Number(this.world.metadata?.epoch || 0));
+      renderPreview();
+      this._notifyCompoundChange(card, entity, type);
+    });
+  }
+
   _syncNullableControl(toggle) {
     const field = toggle.closest('.field');
     if (!field) return;
@@ -1592,7 +1894,7 @@ class WorldEditor {
 
   _updateTypedComponent(card, entity, type) {
     try {
-      const fields = {};
+      const fields = { ...(entity.components[type] || {}) };
       for (const input of card.querySelectorAll('.component-field')) {
         input.classList.remove('bad-json');
         fields[input.dataset.field] = this._readComponentField(input);
@@ -1618,7 +1920,8 @@ class WorldEditor {
   }
 
   _readEdgeFields(card) {
-    const fields = {};
+    const raw = card.querySelector('.edge-json')?.value || '{}';
+    const fields = parseObject(raw);
     const typed = card.querySelectorAll('.edge-field');
     if (!typed.length) return parseObject(card.querySelector('.edge-json')?.value || '{}');
     for (const input of typed) {
@@ -1633,13 +1936,23 @@ class WorldEditor {
     const nullable = input.dataset.nullable === 'true';
     const nullToggle = input.closest('.field')?.querySelector('.nullable-toggle');
     if (nullable && nullToggle?.checked) return null;
-    if (nullable && input.value === '') return null;
+    if (input.dataset.enumValues) {
+      const options = JSON.parse(input.dataset.enumValues);
+      const selected = options.find(option => String(option) === input.value);
+      return selected === undefined ? input.value : selected;
+    }
     if (kind === 'boolean') return input.checked;
     if (kind === 'integer') return input.value === '' ? 0 : parseInt(input.value, 10);
     if (kind === 'number') return input.value === '' ? 0 : Number(input.value);
-    if (kind === 'array' || kind === 'object') {
+    if (kind === 'array' || kind === 'object' || kind === 'json') {
       try {
-        return JSON.parse(input.value || (kind === 'array' ? '[]' : '{}'));
+        const fallback = kind === 'array' ? '[]' : (kind === 'object' ? '{}' : 'null');
+        const parsed = JSON.parse(input.value || fallback);
+        if (kind === 'array' && !Array.isArray(parsed)) throw new Error('expected an array');
+        if (kind === 'object' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+          throw new Error('expected an object');
+        }
+        return parsed;
       } catch (err) {
         err.input = input;
         throw err;

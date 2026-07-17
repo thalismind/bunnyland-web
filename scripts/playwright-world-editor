@@ -297,6 +297,14 @@ def main() -> None:
                   type: 'string',
                   enum: ['flirting', 'romance', 'pvp'],
                   title: 'BoundaryTag'
+                },
+                AffectVector: {
+                  type: 'object',
+                  properties: {
+                    stress: { type: 'number', default: 0 },
+                    focus: { type: 'number', default: 0 }
+                  },
+                  title: 'AffectVector'
                 }
               };
               window.app.worldSchema = {
@@ -327,6 +335,45 @@ def main() -> None:
                           items: { $ref: '#/$defs/BoundaryTag' },
                           default: []
                         }
+                      },
+                      $defs: enumDefs
+                    }
+                  },
+                  TypedFieldsComponent: {
+                    json_schema: {
+                      type: 'object',
+                      properties: {
+                        traits: {
+                          type: 'array',
+                          items: { type: 'string' },
+                          default: [],
+                          description: 'Free-form character traits.'
+                        },
+                        priorities: {
+                          type: 'object',
+                          additionalProperties: { type: 'integer' },
+                          default: {}
+                        },
+                        affect: { $ref: '#/$defs/AffectVector' },
+                        route: {
+                          type: 'array',
+                          items: {
+                            type: 'array',
+                            prefixItems: [{ type: 'string' }, { type: 'integer' }],
+                            minItems: 2,
+                            maxItems: 2
+                          },
+                          default: []
+                        },
+                        target: { type: 'string', format: 'bunnyland-entity-id' },
+                        expires_at_epoch: {
+                          type: 'integer',
+                          format: 'bunnyland-epoch',
+                          minimum: 0
+                        },
+                        image_url: { type: 'string', format: 'uri' },
+                        enabled: { type: 'boolean', enum: [true, false], default: true },
+                        flexible: { anyOf: [{ type: 'string' }, { type: 'integer' }] }
                       },
                       $defs: enumDefs
                     }
@@ -361,7 +408,19 @@ def main() -> None:
                     created_epoch: 0,
                     components: {
                       InventoryComponent: { default_drop_mode: 'inventory', nickname: null },
-                      WorldPolicyComponent: { enabled: ['pvp'] }
+                      WorldPolicyComponent: { enabled: ['pvp'] },
+                      TypedFieldsComponent: {
+                        traits: ['curious'],
+                        priorities: { craft: 2 },
+                        affect: { stress: 0.5, focus: 0.25 },
+                        route: [['target_entity', 2]],
+                        target: 'target_entity',
+                        expires_at_epoch: 9,
+                        image_url: 'https://example.test/image.png',
+                        enabled: true,
+                        flexible: 'either',
+                        future_field: 'preserve me'
+                      }
                     },
                     relationships: {
                       Contains: [{ target: 'target_entity', edge: { mode: 'container', visible: true } }]
@@ -464,6 +523,8 @@ def main() -> None:
         nickname.fill("alias")
         inventory_raw = page.locator(".component-card[data-type='InventoryComponent'] .component-json")
         assert '"nickname": "alias"' in inventory_raw.input_value()
+        nickname.fill("")
+        assert '"nickname": ""' in inventory_raw.input_value()
         assert add_select.input_value() == "flirting"
         add_select.select_option("romance")
         page.locator("[data-add-enum-option]").click()
@@ -472,6 +533,51 @@ def main() -> None:
         assert '"romance"' in raw.input_value()
         page.locator('[data-remove-enum-option="pvp"]').click()
         assert '"pvp"' not in raw.input_value()
+
+        typed = page.locator(".component-card[data-type='TypedFieldsComponent']")
+        typed_raw = typed.locator(".component-json")
+        assert typed.locator(".field-description").text_content() == "Free-form character traits."
+        typed.locator(".tag-input").fill("brave")
+        typed.locator("[data-add-tag]").click()
+        assert '"brave"' in typed_raw.input_value()
+
+        map_row = typed.locator("[data-map-row]").first
+        map_row.locator("[data-map-value]").fill("3")
+        typed.locator("[data-add-compound-row]").first.click()
+        new_map_row = typed.locator("[data-map-row]").last
+        new_map_row.locator("[data-map-key]").fill("haul")
+        new_map_row.locator("[data-map-value]").fill("4")
+        assert '"craft": 3' in typed_raw.input_value()
+        assert '"haul": 4' in typed_raw.input_value()
+
+        typed.locator('[data-object-key="stress"]').fill("0.75")
+        assert '"stress": 0.75' in typed_raw.input_value()
+        tuple_row = typed.locator("[data-tuple-row]").first
+        tuple_row.locator('[data-tuple-index="1"]').fill("5")
+        assert '"target_entity",\n      5' in typed_raw.input_value()
+        typed.locator("[data-add-compound-row]").last.click()
+        new_tuple_row = typed.locator("[data-tuple-row]").last
+        new_tuple_row.locator('[data-tuple-index="0"]').fill("enum_test")
+        new_tuple_row.locator('[data-tuple-index="1"]').fill("1")
+        assert '"enum_test",\n      1' in typed_raw.input_value()
+
+        target = typed.locator('input.component-field[data-field="target"]')
+        assert target.get_attribute("list") == "entity-options"
+        target.fill("enum_test")
+        epoch = typed.locator('input.component-field[data-field="expires_at_epoch"]')
+        assert epoch.get_attribute("min") == "0"
+        typed.locator("[data-set-current-epoch]").click()
+        assert epoch.input_value() == "1"
+        assert "+0 seconds" in typed.locator(".epoch-preview").text_content()
+        assert typed.locator('input.component-field[data-field="image_url"]').get_attribute("type") == "url"
+
+        enabled = typed.locator('select.component-field[data-field="enabled"]')
+        enabled.select_option("false")
+        assert '"enabled": false' in typed_raw.input_value()
+        flexible = typed.locator('textarea.component-field[data-field="flexible"]')
+        flexible.fill("7")
+        assert '"flexible": 7' in typed_raw.input_value()
+        assert '"future_field": "preserve me"' in typed_raw.input_value()
         page.screenshot(path=str(SCREENSHOT), full_page=True)
         coverage.close_browser(browser)
 
