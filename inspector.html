@@ -475,6 +475,7 @@
 </div>
 
 <script type="module" src="/src/inspector/event-feed.tsx"></script>
+<script type="module" src="/src/inspector/search-hits.tsx"></script>
 <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.13/build/litegraph.js"></script>
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
@@ -2520,7 +2521,13 @@ class BunnylandInspector {
   _search(query) {
     const box = document.getElementById('search-results');
     const parsed = parseEntitySearch(query);
-    if ((!parsed.text && !parsed.filters.length) || !this.world) { box.classList.add('hidden'); box.innerHTML = ''; this._searchHits = []; return; }
+    if ((!parsed.text && !parsed.filters.length) || !this.world) {
+      box.classList.add('hidden');
+      this._searchHits = [];
+      if (window.BunnylandInspectorPreact?.renderSearchHits) this._renderSearchHits();
+      else box.innerHTML = '';
+      return;
+    }
 
     const hits = [];
     for (const e of Object.values(this.world.entities)) {
@@ -2533,15 +2540,26 @@ class BunnylandInspector {
     this._searchHits = hits;
     this._searchIndex = 0;
 
-    box.innerHTML = hits.length
-      ? hits.map((h, i) => {
-          const icon = h.icon || (ENTITY_STYLE[h.type] || ENTITY_STYLE.other).icon;
-          return `<div class="search-item" data-i="${i}" onmousedown="window.app._pickSearch('${esc(h.id)}')">`
-            + `<span class="si-icon">${icon}</span> ${esc(h.name)} <span class="si-type">${esc(h.type)}</span></div>`;
-        }).join('')
-      : '<div class="search-empty">no matches</div>';
+    this._renderSearchHits();
     box.classList.remove('hidden');
     this._highlightSearch();
+  }
+
+  _renderSearchHits() {
+    const box = document.getElementById('search-results');
+    const hits = this._searchHits.map(hit => ({
+      ...hit,
+      icon: hit.icon || (ENTITY_STYLE[hit.type] || ENTITY_STYLE.other).icon,
+    }));
+    if (window.BunnylandInspectorPreact?.renderSearchHits) {
+      window.BunnylandInspectorPreact.renderSearchHits(
+        box, hits, this._searchIndex, (id) => this._pickSearch(id));
+      return;
+    }
+    box.innerHTML = hits.length
+      ? hits.map((hit, index) => `<div class="search-item ${index === this._searchIndex ? 'active' : ''}" data-i="${index}" data-select-entity="${esc(hit.id)}">`
+        + `<span class="si-icon">${esc(hit.icon)}</span> ${esc(hit.name)} <span class="si-type">${esc(hit.type)}</span></div>`).join('')
+      : '<div class="search-empty">no matches</div>';
   }
 
   // Move the keyboard-highlighted result (clamped to the list).
@@ -2553,6 +2571,7 @@ class BunnylandInspector {
   }
 
   _highlightSearch() {
+    if (window.BunnylandInspectorPreact?.renderSearchHits) this._renderSearchHits();
     const items = document.querySelectorAll('#search-results .search-item');
     items.forEach((el, i) => {
       const on = i === this._searchIndex;

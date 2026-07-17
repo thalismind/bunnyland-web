@@ -62,12 +62,15 @@ The browser clients are built as a Vite multi-page application. Every existing H
 an independent build entry, so bookmarks and server links continue to use paths such as
 `world-editor.html` and `toon-client.html`; this is not a single-page router.
 
-New UI uses direct `preact` functional components and hooks. The World Editor entity list
-and Toon room stage are the first keyed Preact islands. Their existing page controllers are
-temporary adapters so the rest of each large client can move in independently verified
-slices without changing the API or Playwright contracts. Shared controls and theme behavior
-come from the pinned, self-contained `@bunnyland/ui-web` artifact in `vendor/`; builds and
-tests never import an adjacent source checkout.
+New UI uses direct `preact` functional components and hooks. All fourteen page entries now
+have typed, keyed Preact-owned regions for their highest-update lists and projections. The
+Inspector, Trace Analyzer, Character Chat, Character Sheet, Web TUI, and Web REPL also move
+their secondary live-update regions without replacing focused inputs or unchanged rows.
+Their existing page controllers are temporary adapters so the remaining orchestration can
+move in independently verified slices without changing the API or Playwright contracts.
+Shared controls and theme behavior come from the pinned, self-contained
+`@bunnyland/ui-web` artifact in `vendor/`; builds and tests never import an adjacent source
+checkout.
 
 ```bash
 npm ci

@@ -335,6 +335,8 @@ class WebRepl {
     this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
     this.history = [];
     this.historyIndex = 0;
+    this.logRows = [];
+    this._logRowSequence = 0;
     this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-repl');
     this._lobbyTimer = null;
     this._liveUpdates = null;
@@ -640,7 +642,8 @@ class WebRepl {
       return this._write('Refreshed.', 'ok');
     }
     if (verb === 'clear') {
-      document.getElementById('repl-log').innerHTML = '';
+      this.logRows = [];
+      this._renderTranscript();
       return;
     }
     if (verb === 'play') {
@@ -1024,6 +1027,12 @@ class WebRepl {
   }
 
   _write(text, kind = '') {
+    this._logRowSequence += 1;
+    this.logRows.push({ html: false, id: this._logRowSequence, kind, value: text });
+    if (window.BunnylandToolPreact?.renderTranscript) {
+      this._renderTranscript();
+      return;
+    }
     const row = document.createElement('div');
     row.className = `log-row ${kind}`.trim();
     row.textContent = text;
@@ -1032,11 +1041,27 @@ class WebRepl {
   }
 
   _writeHtml(html, kind = '') {
+    this._logRowSequence += 1;
+    this.logRows.push({ html: true, id: this._logRowSequence, kind, value: html });
+    if (window.BunnylandToolPreact?.renderTranscript) {
+      this._renderTranscript();
+      return;
+    }
     const row = document.createElement('div');
     row.className = `log-row ${kind}`.trim();
     row.innerHTML = html;
     document.getElementById('repl-log').appendChild(row);
     row.scrollIntoView({ block: 'end' });
+  }
+
+  _renderTranscript() {
+    const root = document.getElementById('repl-log');
+    if (window.BunnylandToolPreact?.renderTranscript) {
+      window.BunnylandToolPreact.renderTranscript(root, this.logRows);
+    } else if (!this.logRows.length) {
+      root.innerHTML = '';
+    }
+    root.lastElementChild?.scrollIntoView({ block: 'end' });
   }
 
   _link(label, insert) {
@@ -1065,10 +1090,14 @@ class WebRepl {
   _updateCompletions() {
     const input = document.getElementById('repl-input');
     const list = document.getElementById('repl-completions');
-    list.innerHTML = this._completionOptions(input.value)
-      .slice(0, 12)
-      .map(value => `<option value="${BunnylandUI.escapeHtml(value)}"></option>`)
-      .join('');
+    const options = this._completionOptions(input.value).slice(0, 12);
+    if (window.BunnylandToolPreact?.renderCompletionOptions) {
+      window.BunnylandToolPreact.renderCompletionOptions(list, options);
+    } else {
+      list.innerHTML = options
+        .map(value => `<option value="${BunnylandUI.escapeHtml(value)}"></option>`)
+        .join('');
+    }
   }
 
   _completionOptions(line) {
@@ -1172,5 +1201,6 @@ window.app = new WebRepl();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 <script type="module" src="/src/web-repl/context-lists.tsx"></script>
+<script type="module" src="/src/web-repl/live-output.tsx"></script>
 </body>
 </html>

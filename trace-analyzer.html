@@ -659,10 +659,48 @@ function renderRows(trace, spans) {
 function renderDetail(trace) {
   const span = trace.spans.find(item => item.spanId === app.selectedSpanId) || trace.root;
   if (!span) {
-    els.detail.innerHTML = '<div class="detail-empty">Select a span to inspect attributes, resources, events, and ids.</div>';
+    if (window.BunnylandToolPreact?.renderSpanDetail) {
+      window.BunnylandToolPreact.renderSpanDetail(els.detail, null);
+    } else {
+      els.detail.innerHTML = '<div class="detail-empty">Select a span to inspect attributes, resources, events, and ids.</div>';
+    }
     return;
   }
   app.selectedSpanId = span.spanId;
+  if (window.BunnylandToolPreact?.renderSpanDetail) {
+    const entries = (obj) => Object.entries(obj || {}).map(([key, value]) => ({
+      key,
+      value: formatValue(value),
+    }));
+    const eventEntries = (span.events || []).map((event, index) => ({
+      key: `${index + 1}. ${event.name || 'event'}`,
+      value: `${event.timestamp_unix_nano ? formatDate(Number(event.timestamp_unix_nano)) : ''} ${JSON.stringify(event.attributes || {})}`,
+    }));
+    window.BunnylandToolPreact.renderSpanDetail(els.detail, {
+      childCount: span.children.length,
+      duration: formatDuration(span.durationNs),
+      kind: span.kind || 'unset',
+      name: span.name,
+      rawJson: JSON.stringify(span.raw, null, 2),
+      sections: [
+        { title: 'Span attributes', entries: entries(span.attributes) },
+        { title: 'Resource attributes', entries: entries(span.resource) },
+        { title: 'Events', entries: eventEntries },
+        { title: 'IDs', entries: entries({
+          trace_id: trace.traceId,
+          span_id: span.spanId,
+          parent_span_id: span.parentSpanId || '',
+        }) },
+      ],
+      service: span.service,
+      spanId: span.spanId,
+      startDate: formatDate(span.startNs),
+      startOffset: formatOffset(span, trace),
+      status: statusLabel(span),
+      traceId: trace.traceId,
+    });
+    return;
+  }
   els.detail.innerHTML = `
     <div class="detail-title">${escapeHtml(span.service)}: ${escapeHtml(span.name)}</div>
     <div class="detail-meta">
@@ -946,5 +984,6 @@ const initialServer = serverFromUrl();
 els.tempoUrl.value = initialServer ? `${normalizeBase(initialServer)}/tempo` : TEMPO.defaultBase;
 </script>
 <script type="module" src="/src/trace-analyzer/span-rows.tsx"></script>
+<script type="module" src="/src/trace-analyzer/span-detail.tsx"></script>
 </body>
 </html>

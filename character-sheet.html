@@ -831,16 +831,6 @@ class CharacterSheetApp {
     }
   }
 
-  _row(label, meta = '') {
-    return `<div class="sheet-row"><strong>${BunnylandUI.escapeHtml(label)}</strong><span>${BunnylandUI.escapeHtml(meta)}</span></div>`;
-  }
-
-  _entryRow(entry) {
-    const value = [entry?.value || '', entry?.detail || ''].filter(Boolean).join(' · ');
-    return `<div class="sheet-row entry"><strong>${BunnylandUI.escapeHtml(entry?.label || '')}</strong>` +
-      `<span>${BunnylandUI.escapeHtml(value)}</span></div>`;
-  }
-
   _metricRow(metric) {
     const max = Number(metric?.maximum || 0);
     const value = Number(metric?.value || 0);
@@ -858,8 +848,17 @@ class CharacterSheetApp {
 
   _renderList(id, rows, empty) {
     const target = document.getElementById(id);
+    const renderList = window.BunnylandPreact?.renderSheetList;
+    if (renderList) {
+      renderList(target, { rows, emptyMessage: empty });
+      return;
+    }
     target.className = rows.length ? 'sheet-list' : 'sheet-empty';
-    target.innerHTML = rows.length ? rows.join('') : empty;
+    target.innerHTML = rows.length ? rows.map(row =>
+      `<div class="sheet-row${row.entry ? ' entry' : ''}${row.unavailable ? ' unavailable' : ''}">` +
+      `<strong>${BunnylandUI.escapeHtml(row.label)}</strong>` +
+      `<span>${BunnylandUI.escapeHtml(row.meta)}</span></div>`
+    ).join('') : empty;
   }
 
   _renderMetrics(id, rows, empty) {
@@ -874,17 +873,40 @@ class CharacterSheetApp {
   }
 
   _renderEntries(id, rows, empty) {
-    this._renderList(id, (rows || []).map(row => this._entryRow(row)), empty);
+    const occurrences = new Map();
+    this._renderList(id, (rows || []).map(row => {
+      const label = row?.label || '';
+      const occurrence = occurrences.get(label) || 0;
+      occurrences.set(label, occurrence + 1);
+      return {
+        entry: true,
+        key: `${label}:${occurrence}`,
+        label,
+        meta: [row?.value || '', row?.detail || ''].filter(Boolean).join(' · '),
+      };
+    }), empty);
   }
 
-  _renderPills(id, values) {
+  _renderPills(id, values, empty = '') {
     const target = document.getElementById(id);
+    const renderPills = window.BunnylandPreact?.renderPillList;
+    if (renderPills) {
+      renderPills(target, { values: values || [], emptyMessage: empty });
+      return;
+    }
+    target.className = values.length || !empty ? 'pill-row' : 'sheet-empty';
     target.innerHTML = (values || [])
       .map(value => `<span class="pill">${BunnylandUI.escapeHtml(value)}</span>`)
-      .join('');
+      .join('') || empty;
   }
 
   _renderOverview(sheet) {
+    const target = document.getElementById('sheet-overview');
+    const renderOverview = window.BunnylandPreact?.renderOverview;
+    if (renderOverview) {
+      renderOverview(target, { overview: sheet, emptyMessage: 'No character notes.' });
+      return;
+    }
     const chunks = [];
     if (sheet.description) chunks.push(`<p>${BunnylandUI.escapeHtml(sheet.description)}</p>`);
     if (sheet.appearance) chunks.push(`<p>${BunnylandUI.escapeHtml(sheet.appearance)}</p>`);
@@ -894,7 +916,6 @@ class CharacterSheetApp {
         .map(tag => `<span class="pill">${BunnylandUI.escapeHtml(tag)}</span>`)
         .join('') + '</div>');
     }
-    const target = document.getElementById('sheet-overview');
     target.className = chunks.length ? 'prose' : 'sheet-empty';
     target.innerHTML = chunks.length ? chunks.join('') : 'No character notes.';
   }
@@ -980,20 +1001,22 @@ class CharacterSheetApp {
     this._renderMetrics('affect', sheet.affect || [], 'No mood values recorded.');
     this._renderEntries('profile', sheet.profile || [], 'No profile entries.');
     this._renderEntries('skills', sheet.skills || [], 'No skills recorded.');
-    this._renderList('traits', (sheet.traits || []).map(trait =>
-      `<span class="pill">${BunnylandUI.escapeHtml(trait)}</span>`), 'No traits recorded.');
-    document.getElementById('traits').className = (sheet.traits || []).length ? 'pill-row' : 'sheet-empty';
+    this._renderPills('traits', sheet.traits || [], 'No traits recorded.');
     this._renderEntries('relations', sheet.relations || [], 'No relations recorded.');
     this._renderEntries('injuries', sheet.injuries || [], 'No injuries recorded.');
     this._renderEntries('notes', sheet.notes || [], 'No notes recorded.');
 
     const visible = (room.entities || [])
       .filter(entity => entity.is_character || entity.kind === 'character')
-      .map(entity => this._row(entity.name || entity.id, entity.id === this.selectedId ? 'self' : entity.kind || 'character'));
+      .map(entity => ({
+        key: entity.id,
+        label: entity.name || entity.id,
+        meta: entity.id === this.selectedId ? 'self' : entity.kind || 'character',
+      }));
     this._renderList('visible-characters', visible, 'No visible characters.');
 
     const inventory = (this.projection?.inventory || [])
-      .map(item => this._row(item.label || item.name || item.id, item.kind || 'item'));
+      .map(item => ({ key: item.id, label: item.label || item.name || item.id, meta: item.kind || 'item' }));
     this._renderList('inventory', inventory, 'No inventory items.');
 
     const actionFilter = this.actionFilter.trim().toLowerCase();
@@ -1006,9 +1029,12 @@ class CharacterSheetApp {
         if (cost.focus) parts.push(`${cost.focus} FP`);
         const meta = [actionLane(action), parts.join(' + ') || 'free'].join(' · ');
         const reason = action.unavailable_reason || '';
-        return `<div class="sheet-row${actionAvailable(action) ? '' : ' unavailable'}">` +
-          `<strong>${BunnylandUI.escapeHtml(actionTitle(action))}</strong>` +
-          `<span>${BunnylandUI.escapeHtml(reason || meta)}</span></div>`;
+        return {
+          key: `${action.command_type || ''}:${action.tool_name || ''}`,
+          label: actionTitle(action),
+          meta: reason || meta,
+          unavailable: !actionAvailable(action),
+        };
       });
     this._renderList('actions', actions, actionFilter ? 'No matching actions.' : 'No actions available.');
   }
@@ -1018,5 +1044,6 @@ window.app = new CharacterSheetApp();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 <script type="module" src="/src/character-sheet/metrics.tsx"></script>
+<script type="module" src="/src/character-sheet/sections.tsx"></script>
 </body>
 </html>

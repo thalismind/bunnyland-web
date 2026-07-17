@@ -352,6 +352,7 @@ const {
   actionFields,
   actionLane,
   actionTitle,
+  actionTool,
   actionUnavailableReason,
   allTargets,
   cancelQueuedCommand,
@@ -446,6 +447,8 @@ class WebTui {
     this.actionFilter = '';
     this.showActionIcons = iconPreference(ICON_PREF_KEY, true);
     this.activityLines = [];
+    this._activityKeys = new WeakMap();
+    this._activityKeySequence = 0;
     this.seenEventIds = new Set();
     this.eventsPrimed = false;
     this.clientId = persistentClientId(CLIENT_ID_KEY, 'web-tui');
@@ -1059,15 +1062,37 @@ class WebTui {
       });
     }
 
-    document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
-      .map(line => {
-        const icon = this.showActionIcons && line.icon
-          ? `<span class="action-icon">${esc(line.icon)}</span>`
-          : '';
-        return `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">${icon}${esc(line.text)}</div>`;
-      })
-      .join('') : '<div class="empty">No recent activity.</div>';
+    if (window.BunnylandToolPreact?.renderActivityRows) {
+      window.BunnylandToolPreact.renderActivityRows(
+        document.getElementById('activity'),
+        this.activityLines.map(line => ({
+          icon: this.showActionIcons ? line.icon || '' : '',
+          key: this._activityKey(line),
+          kind: line.kind || '',
+          text: line.text,
+        })),
+      );
+    } else {
+      document.getElementById('activity').innerHTML = this.activityLines.length ? this.activityLines
+        .map(line => {
+          const icon = this.showActionIcons && line.icon
+            ? `<span class="action-icon">${esc(line.icon)}</span>`
+            : '';
+          return `<div class="activity-row ${line.kind ? `kind-${esc(line.kind)}` : ''}">${icon}${esc(line.text)}</div>`;
+        })
+        .join('') : '<div class="empty">No recent activity.</div>';
+    }
     this._syncSelectionControls();
+  }
+
+  _activityKey(line) {
+    let key = this._activityKeys.get(line);
+    if (!key) {
+      this._activityKeySequence += 1;
+      key = `activity-${this._activityKeySequence}`;
+      this._activityKeys.set(line, key);
+    }
+    return key;
   }
 
   _renderActions() {
@@ -1083,27 +1108,63 @@ class WebTui {
     const esc = BunnylandUI.escapeHtml;
     const actions = this._filteredActions();
     document.getElementById('show-action-icons').checked = this.showActionIcons;
-    const html = [['World actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
-      const rows = actions.map((action, index) => ({ action, index }))
-        .filter(item => actionLane(item.action) === lane)
-        .map(item => this._verbRowHtml(item.action, item.index, hasPlayer, pts, esc))
-        .join('');
-      return `<div class="action-section-title">${title}</div><div class="verb-list">${rows || '<div class="empty">No matching actions.</div>'}</div>`;
-    }).join('');
-    document.getElementById('verbs').innerHTML = html;
-    document.querySelectorAll('#verbs .option[data-action-index]').forEach(button => {
-      const action = actions[Number(button.dataset.actionIndex)];
-      button.addEventListener('click', () => this._doAction(action));
-    });
+    if (window.BunnylandToolPreact?.renderActionSections) {
+      window.BunnylandToolPreact.renderActionSections(
+        document.getElementById('verbs'),
+        actions.map((action, index) => {
+          const cost = actionCost(action);
+          const lane = actionLane(action);
+          return {
+            actionCost: Number(cost.action || 0),
+            available: actionAvailable(action),
+            focusCost: Number(cost.focus || 0),
+            icon: this.showActionIcons ? actionIcon(action) : '',
+            index,
+            key: `${lane}:${actionCommandType(action)}:${actionTool(action)}`,
+            lane,
+            ready: hasPlayer,
+            reason: actionUnavailableReason(action),
+            target: actionArguments(action).some(arg => arg.target_group),
+            title: actionTitle(action),
+          };
+        }),
+        index => this._doAction(actions[index]),
+      );
+    } else {
+      const html = [['World actions', 'world'], ['Focus actions', 'focus']].map(([title, lane]) => {
+        const rows = actions.map((action, index) => ({ action, index }))
+          .filter(item => actionLane(item.action) === lane)
+          .map(item => this._verbRowHtml(item.action, item.index, hasPlayer, pts, esc))
+          .join('');
+        return `<div class="action-section-title">${title}</div><div class="verb-list">${rows || '<div class="empty">No matching actions.</div>'}</div>`;
+      }).join('');
+      document.getElementById('verbs').innerHTML = html;
+      document.querySelectorAll('#verbs .option[data-action-index]').forEach(button => {
+        const action = actions[Number(button.dataset.actionIndex)];
+        button.addEventListener('click', () => this._doAction(action));
+      });
+    }
 
     const countdown = queuedCountdownSeconds(this.queueProjection);
-    document.getElementById('queued').innerHTML = `<div id="queued-title" class="action-section-title">Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}</div>` +
-      (this.queuedCommands.length
-        ? this.queuedCommands.map(command => `<button class="option" type="button" data-cancel-command="${esc(command.command_id || '')}" title="Cancel queued action"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span><span class="option-meta">cancel</span></button>`).join('')
-        : '<div class="empty">No queued actions.</div>');
-    document.querySelectorAll('#queued .option[data-cancel-command]').forEach(button => {
-      button.addEventListener('click', () => this._cancelQueuedCommand(button.dataset.cancelCommand));
-    });
+    if (window.BunnylandToolPreact?.renderQueuedRows) {
+      window.BunnylandToolPreact.renderQueuedRows(
+        document.getElementById('queued'),
+        this.queuedCommands.map(command => ({
+          id: command.command_id || '',
+          label: queuedCommandLabel(command, this._availableActions()),
+        })),
+        countdown,
+        id => this._cancelQueuedCommand(id),
+      );
+    } else {
+      document.getElementById('queued').innerHTML = `<div id="queued-title" class="action-section-title">Queued actions${countdown == null ? '' : ` · next tick in ${countdown}s`}</div>` +
+        (this.queuedCommands.length
+          ? this.queuedCommands.map(command => `<button class="option" type="button" data-cancel-command="${esc(command.command_id || '')}" title="Cancel queued action"><span class="option-main">${esc(queuedCommandLabel(command, this._availableActions()))}</span><span class="option-meta">cancel</span></button>`).join('')
+          : '<div class="empty">No queued actions.</div>');
+      document.querySelectorAll('#queued .option[data-cancel-command]').forEach(button => {
+        button.addEventListener('click', () => this._cancelQueuedCommand(button.dataset.cancelCommand));
+      });
+    }
   }
 
   _updateQueuedCountdown() {
@@ -1138,5 +1199,6 @@ window.app = new WebTui();
 window.addEventListener('beforeunload', () => window.app.disconnect());
 </script>
 <script type="module" src="/src/web-tui/world-lists.tsx"></script>
+<script type="module" src="/src/web-tui/live-projections.tsx"></script>
 </body>
 </html>

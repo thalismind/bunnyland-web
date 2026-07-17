@@ -753,15 +753,54 @@
 
   window.renderCharacterChatCharacters = renderCharacters;
 
+  function transcriptItems(messages) {
+    const occurrences = new Map();
+    return messages.map(message => {
+      const action = message.action || {};
+      const baseKey = message.command_id
+        ? `${message.role}:${message.command_id}`
+        : `${message.role}:${message.text || ''}:${action.tool || ''}`;
+      const occurrence = occurrences.get(baseKey) || 0;
+      occurrences.set(baseKey, occurrence + 1);
+      const key = `${baseKey}:${occurrence}`;
+      if (message.role === 'action') {
+        return {
+          commandId: message.command_id || '',
+          icon: actionIcon(action),
+          key,
+          kind: 'action',
+          status: String(action.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase(),
+          text: message.text || actionSummary(action),
+          tool: action.tool || 'action',
+        };
+      }
+      return {
+        html: renderMessageText(message.text),
+        key,
+        kind: 'message',
+        plain: !markdownEnabled,
+        role: message.role === 'user' ? 'user' : 'character',
+      };
+    });
+  }
+
   function renderTranscript() {
     renderChatTools();
-    if (!selectedId) {
-      els.transcript.innerHTML = '<div class="side-empty">Pick a character to start chatting.</div>';
+    const state = selectedId ? loadState(selectedId) : { messages: [] };
+    const emptyMessage = selectedId
+      ? 'No local chat history for this character.'
+      : 'Pick a character to start chatting.';
+    const renderMessages = window.BunnylandPreact?.renderTranscript;
+    if (renderMessages) {
+      renderMessages(els.transcript, {
+        emptyMessage,
+        items: transcriptItems(state.messages),
+      });
+      els.transcript.scrollTop = els.transcript.scrollHeight;
       return;
     }
-    const state = loadState(selectedId);
     if (!state.messages.length) {
-      els.transcript.innerHTML = '<div class="side-empty">No local chat history for this character.</div>';
+      els.transcript.innerHTML = `<div class="side-empty">${emptyMessage}</div>`;
       return;
     }
     els.transcript.innerHTML = state.messages.map(message => {
@@ -776,6 +815,8 @@
     }).join('');
     els.transcript.scrollTop = els.transcript.scrollHeight;
   }
+
+  window.renderCharacterChatTranscript = renderTranscript;
 
   function setStatus(text, ok = true) {
     els.status.textContent = `${ok ? '●' : '○'} ${text}`;
@@ -1017,5 +1058,6 @@
 })();
 </script>
 <script type="module" src="/src/character-chat/character-list.tsx"></script>
+<script type="module" src="/src/character-chat/transcript.tsx"></script>
 </body>
 </html>
