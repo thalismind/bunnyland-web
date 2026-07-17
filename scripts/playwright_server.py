@@ -12,9 +12,12 @@ import urllib.request
 from pathlib import Path
 
 
-def _url_ok(url: str) -> bool:
+def _url_ok(url: str, *, timeout: float) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=0.5) as response:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "Bunnyland-Playwright/1.0"}
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return 200 <= response.status < 400
     except (OSError, urllib.error.URLError):
         return False
@@ -23,15 +26,16 @@ def _url_ok(url: str) -> bool:
 def ensure_web_server(base_url: str) -> None:
     """Ensure the local static web server is reachable for direct script runs."""
     check_url = f"{base_url.rstrip('/')}/index.html"
-    if _url_ok(check_url):
+    parsed = urllib.parse.urlparse(base_url)
+    local_host = parsed.hostname in {"127.0.0.1", "localhost"}
+    if _url_ok(check_url, timeout=0.5 if local_host else 5.0):
         return
     if os.environ.get("BUNNYLAND_WEB_NO_SERVER") == "1":
         raise RuntimeError(
             f"{check_url} is not reachable; start the web server or unset BUNNYLAND_WEB_NO_SERVER"
         )
 
-    parsed = urllib.parse.urlparse(base_url)
-    if parsed.hostname not in {"127.0.0.1", "localhost"}:
+    if not local_host:
         raise RuntimeError(f"{check_url} is not reachable and cannot be started locally")
 
     repo = Path(__file__).resolve().parents[1]
@@ -63,7 +67,7 @@ def ensure_web_server(base_url: str) -> None:
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             break
-        if _url_ok(check_url):
+        if _url_ok(check_url, timeout=0.5):
             return
         time.sleep(0.1)
 

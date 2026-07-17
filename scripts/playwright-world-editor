@@ -172,6 +172,10 @@ def main() -> None:
             ),
         )
         page.route("**/world/library", lambda route: route.fulfill(status=200, json={"fragments": []}))
+        page.route(
+            "**/config.json",
+            lambda route: route.fulfill(status=200, json={"serverUrl": ""}),
+        )
         page.goto(
             f"{BASE_URL}/world-editor.html?server=%2Fapi#map/linked_entity",
             wait_until="networkidle",

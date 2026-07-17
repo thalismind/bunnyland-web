@@ -39,6 +39,7 @@ jobs:
       - name: Run shared script unit tests
         run: |
           mkdir -p artifacts/test-results
+          python -m unittest scripts/test_playwright_server.py
           npm test -- --test-reporter=junit --test-reporter-destination=artifacts/test-results/node-unit.xml
 
       - name: Install Playwright (pip)
