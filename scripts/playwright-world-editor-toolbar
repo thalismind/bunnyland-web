@@ -87,7 +87,38 @@ def main() -> None:
 
         page.locator("#toolbar").screenshot(path=str(SCREENSHOT))
 
+        welcome_dialogs = []
+        welcome_api_requests = []
+        page.on("dialog", lambda dialog: (welcome_dialogs.append(dialog.message), dialog.dismiss()))
+        page.on(
+            "request",
+            lambda request: welcome_api_requests.append(request.url)
+            if "/api/public/features" in request.url or "/api/play/world/status" in request.url
+            else None,
+        )
+        page.route(
+            "**/api/play/world/status",
+            lambda route: route.fulfill(
+                status=401,
+                content_type="application/json",
+                body=json.dumps({"detail": "bearer token required"}),
+            ),
+        )
+        page.route(
+            "**/api/public/features",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"character_chat": False, "character_sheets": False}),
+            ),
+        )
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
+        if welcome_dialogs:
+            raise AssertionError(f"anonymous welcome page prompted for player credentials: {welcome_dialogs!r}")
+        if not any("/api/public/features" in url for url in welcome_api_requests):
+            raise AssertionError(f"welcome page did not request public features: {welcome_api_requests!r}")
+        if any("/api/play/world/status" in url for url in welcome_api_requests):
+            raise AssertionError(f"welcome page requested protected player status: {welcome_api_requests!r}")
         if not page.locator("h1").text_content() or "Hungry Courier" not in page.locator("h1").text_content():
             raise AssertionError("welcome page headline did not render")
         if page.locator('a[href^="toon-client.html?"]').count() < 1:

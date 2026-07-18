@@ -40,9 +40,7 @@ describe('LandingPage deployment state', () => {
       discordUrl: ' https://discord.gg/bunnyland ',
       serverUrl: '/custom-api/',
     })));
-    api.sendJson.mockResolvedValue({
-      features: { character_chat: false, character_sheets: true },
-    });
+    api.sendJson.mockResolvedValue({ character_chat: false, character_sheets: true });
 
     const view = render(<LandingPage />);
     await waitFor(() => expect(view.getByText('Available on this server.')).toBeTruthy());
@@ -52,6 +50,7 @@ describe('LandingPage deployment state', () => {
     expect(discord.style.display).toBe('');
     expect(view.container.querySelector('#cmd-tui')?.textContent).toContain('/custom-api');
     expect(api.sendJson.mock.calls[0]?.[0]).toMatch(/^http.*\/custom-api$/);
+    expect(api.sendJson.mock.calls[0]?.[1]).toBe('/public/features');
     expect(view.container.querySelector('#character-sheet-card')?.classList.contains('feature-disabled')).toBe(false);
     expect(view.container.querySelector('#character-sheet-link')?.getAttribute('href')).toContain('%2Fcustom-api');
     for (const page of ['toon-client.html', 'web-tui.html', 'web-repl.html']) {
@@ -85,7 +84,7 @@ describe('LandingPage deployment state', () => {
     history.replaceState(null, '', '/index.html?server=%2Flinked-api#ignored-focus');
     api.serverFromUrl.mockReturnValue('/linked-api');
     vi.stubGlobal('fetch', vi.fn(async () => configResponse({ serverUrl: '/configured-api/' })));
-    api.sendJson.mockResolvedValue({ features: { character_chat: true, character_sheets: true } });
+    api.sendJson.mockResolvedValue({ character_chat: true, character_sheets: true });
 
     const view = render(<LandingPage />);
     await waitFor(() => expect(view.getAllByText('Available on this server.')).toHaveLength(2));

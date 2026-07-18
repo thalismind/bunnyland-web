@@ -15,7 +15,7 @@ interface FeatureStatus {
 
 interface BunnylandApiClient {
   assertSameOriginBase(base: string): string;
-  sendJson(base: string, path: string): Promise<{ features?: FeatureStatus }>;
+  sendJson(base: string, path: string): Promise<FeatureStatus>;
   serverFromUrl(): string;
 }
 
@@ -65,11 +65,11 @@ function useDeployment() {
 
       try {
         const base = terminalBase(nextServerUrl);
-        const status = await landingGlobals.BunnylandApi.sendJson(base, '/play/world/status');
+        const features = await landingGlobals.BunnylandApi.sendJson(base, '/public/features');
         if (!active) return;
         setAvailability({
-          character_chat: status.features?.character_chat ? 'available' : 'unavailable',
-          character_sheets: status.features?.character_sheets ? 'available' : 'unavailable',
+          character_chat: features.character_chat ? 'available' : 'unavailable',
+          character_sheets: features.character_sheets ? 'available' : 'unavailable',
         });
       } catch {
         if (!active) return;
