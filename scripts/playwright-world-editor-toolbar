@@ -78,7 +78,7 @@ def main() -> None:
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
         if not page.locator("h1").text_content() or "Hungry Courier" not in page.locator("h1").text_content():
             raise AssertionError("welcome page headline did not render")
-        if page.locator('a[href="toon-client.html"]').count() < 1:
+        if page.locator('a[href^="toon-client.html?"]').count() < 1:
             raise AssertionError("welcome page is missing a Toon Client link")
         if page.locator('a[href="https://bunnyland.dev/guides/"]').count() < 1:
             raise AssertionError("welcome page is missing guides link")

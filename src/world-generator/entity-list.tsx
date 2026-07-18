@@ -1,5 +1,4 @@
 import { EmptyState } from '@bunnyland/ui-web/preact';
-import { render } from 'preact';
 
 export interface GeneratedEntityItem {
   generated: boolean;
@@ -31,20 +30,3 @@ export function GeneratedEntityList({ entities }: GeneratedEntityListProps) {
     ))}
   </>;
 }
-
-export function renderGeneratedEntityList(root: HTMLElement, entities: readonly GeneratedEntityItem[]) {
-  render(<GeneratedEntityList entities={entities} />, root);
-}
-
-type WorldGeneratorBridge = {
-  renderGeneratedEntityList?: typeof renderGeneratedEntityList;
-};
-type WorldGeneratorWindow = Window & {
-  BunnylandWorldGeneratorPreact?: WorldGeneratorBridge;
-  app?: { _renderEntities?: () => void };
-};
-
-const bridgeWindow = window as WorldGeneratorWindow;
-bridgeWindow.BunnylandWorldGeneratorPreact ??= {};
-bridgeWindow.BunnylandWorldGeneratorPreact.renderGeneratedEntityList = renderGeneratedEntityList;
-bridgeWindow.app?._renderEntities?.();

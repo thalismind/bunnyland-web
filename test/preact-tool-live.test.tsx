@@ -3,15 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   CompletionOptions,
-  renderCompletionOptions,
-  renderTranscript,
   Transcript,
 } from '../src/web-repl/live-output';
 import {
   ActionSections,
   ActivityRows,
   QueuedRows,
-  renderActionSections,
   type TuiActionRow,
 } from '../src/web-tui/live-projections';
 
@@ -48,12 +45,6 @@ describe('Web TUI live projections', () => {
     fireEvent.click(updatedAction!);
     expect(onAction).toHaveBeenCalledWith(0);
 
-    const legacyRoot = document.createElement('div');
-    legacyRoot.innerHTML = '<div class="action-section-title">Legacy actions</div>';
-    renderActionSections(legacyRoot, [action], onAction);
-    expect(legacyRoot.querySelectorAll('.action-section-title')).toHaveLength(2);
-    expect(legacyRoot.textContent).not.toContain('Legacy actions');
-
     const onCancel = vi.fn();
     const queued = render(<QueuedRows countdown={8} onCancel={onCancel} rows={[{ id: 'command-1', label: 'Look' }]} />);
     const originalQueue = queued.container.querySelector('[data-cancel-command="command-1"]');
@@ -69,37 +60,28 @@ describe('Web TUI live projections', () => {
 
 describe('Web REPL live output', () => {
   it('keeps transcript rows stable when output is appended, including delegated link markup', () => {
-    const first = { html: false, id: 1, kind: 'command', value: '> look' };
+    const first = { id: 1, kind: 'command', value: '> look' };
     const view = render(<Transcript rows={[first]} />);
     const original = view.container.querySelector('[data-log-id="1"]');
     view.rerender(<Transcript rows={[
       first,
-      { html: true, id: 2, kind: 'ok', value: '<button class="entity-link" data-insert="Juniper">Juniper</button>' },
+      { id: 2, kind: 'ok', parts: [{ insert: 'Juniper', kind: 'entity' as const, label: 'Juniper' }] },
     ]} />);
     expect(view.container.querySelector('[data-log-id="1"]')).toBe(original);
     expect(view.container.querySelector('.entity-link')?.getAttribute('data-insert')).toBe('Juniper');
-
-    const legacyRoot = document.createElement('div');
-    legacyRoot.innerHTML = '<div class="log-row">legacy fallback</div>';
-    renderTranscript(legacyRoot, [first]);
-    expect(legacyRoot.textContent).toBe('> look');
   });
 
   it('updates keyed completions without replacing or blurring the prompt', () => {
     const input = document.createElement('input');
-    const list = document.createElement('datalist');
-    list.innerHTML = '<option value="legacy"></option>';
-    document.body.append(input, list);
+    document.body.append(input);
     input.focus();
 
-    renderCompletionOptions(list, ['look', 'lock']);
-    const original = list.querySelector('option[value="look"]');
-    renderCompletionOptions(list, ['look', 'leave']);
+    const view = render(<datalist><CompletionOptions values={['look', 'lock']} /></datalist>);
+    const original = view.container.querySelector('option[value="look"]');
+    view.rerender(<datalist><CompletionOptions values={['look', 'leave']} /></datalist>);
 
-    expect(list.querySelector('option[value="look"]')).toBe(original);
+    expect(view.container.querySelector('option[value="look"]')).toBe(original);
     expect(document.activeElement).toBe(input);
-    render(<CompletionOptions values={[]} />);
     input.remove();
-    list.remove();
   });
 });

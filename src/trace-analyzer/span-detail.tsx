@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface TraceDetailEntry {
   key: string;
   value: string;
@@ -26,10 +24,12 @@ export interface TraceSpanDetail {
 }
 
 interface SpanDetailProps {
+  copiedValue?: string;
   detail: TraceSpanDetail | null;
+  onCopy?: (value: string) => void;
 }
 
-export function SpanDetail({ detail }: SpanDetailProps) {
+export function SpanDetail({ copiedValue, detail, onCopy }: SpanDetailProps) {
   if (!detail) {
     return <div class="detail-empty">Select a span to inspect attributes, resources, events, and ids.</div>;
   }
@@ -43,9 +43,9 @@ export function SpanDetail({ detail }: SpanDetailProps) {
       Status: <strong>{detail.status}</strong>
     </div>
     <div class="detail-actions">
-      <button type="button" data-copy={detail.traceId}>Trace ID</button>
-      <button type="button" data-copy={detail.spanId}>Span ID</button>
-      <button type="button" data-copy={detail.rawJson}>Span JSON</button>
+      <button type="button" data-copy={detail.traceId} onClick={() => onCopy?.(detail.traceId)}>{copiedValue === detail.traceId ? 'Copied' : 'Trace ID'}</button>
+      <button type="button" data-copy={detail.spanId} onClick={() => onCopy?.(detail.spanId)}>{copiedValue === detail.spanId ? 'Copied' : 'Span ID'}</button>
+      <button type="button" data-copy={detail.rawJson} onClick={() => onCopy?.(detail.rawJson)}>{copiedValue === detail.rawJson ? 'Copied' : 'Span JSON'}</button>
     </div>
     {detail.sections.map((section) => (
       <section class="detail-section" data-section={section.title} key={section.title}>
@@ -63,14 +63,3 @@ export function SpanDetail({ detail }: SpanDetailProps) {
     ))}
   </>;
 }
-
-export function renderSpanDetail(root: HTMLElement, detail: TraceSpanDetail | null) {
-  render(<SpanDetail detail={detail} />, root);
-}
-
-type TraceDetailBridge = { renderSpanDetail?: typeof renderSpanDetail };
-type TraceDetailWindow = Window & { BunnylandToolPreact?: TraceDetailBridge };
-
-const bridgeWindow = window as TraceDetailWindow;
-bridgeWindow.BunnylandToolPreact ??= {};
-bridgeWindow.BunnylandToolPreact.renderSpanDetail = renderSpanDetail;

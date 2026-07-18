@@ -1,4 +1,3 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 import type { ToonDoor, ToonSprite } from '../types';
@@ -52,11 +51,3 @@ export function StageItems({ doors, onDoor, onSprite, sprites }: StageItemsProps
     ))}
   </>;
 }
-
-export function renderStageItems(root: HTMLElement, props: StageItemsProps) {
-  render(<StageItems {...props} />, root);
-}
-
-window.BunnylandPreact ??= {};
-window.BunnylandPreact.renderStageItems = renderStageItems;
-window.app?.render?.();

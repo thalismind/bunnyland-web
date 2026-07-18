@@ -11,17 +11,33 @@ function plain(value) {
 }
 
 function loadBrowserAssets(files) {
+  const documentElements = new Map();
+  const rootClasses = new Set();
+  const classList = (classes = new Set()) => ({
+    add: (value) => classes.add(value),
+    contains: (value) => classes.has(value),
+    remove: (value) => classes.delete(value),
+    [Symbol.iterator]: () => classes[Symbol.iterator](),
+  });
   const context = {
     atob: (value) => Buffer.from(value, 'base64').toString('binary'),
     btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
     console,
     document: {
-      getElementById: () => null,
+      addEventListener: () => {},
+      body: { appendChild: (element) => documentElements.set(element.id, element) },
+      createElement: () => ({
+        addEventListener: () => {}, classList: classList(), className: '', focus: () => {}, id: '', innerHTML: '',
+        querySelector: () => null, setAttribute: () => {},
+      }),
+      documentElement: { classList: classList(rootClasses), dataset: {} },
+      getElementById: (id) => documentElements.get(id) || null,
     },
     fetch: async () => ({ ok: true, json: async () => ({}) }),
     globalThis: null,
     history: { replaceState: () => {} },
     location: {
+      hash: '',
       href: 'http://example.test/index.html',
       origin: 'http://example.test',
       pathname: '/index.html',
@@ -95,6 +111,43 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
   );
 });
 
+test('BunnylandApi keeps server query and entity hash independent', () => {
+  const context = loadBrowserAssets(['assets/bunnyland-api.js']);
+  context.location.href = 'http://example.test/web-repl.html?theme=dark#character%3Aone';
+  context.location.pathname = '/web-repl.html';
+  context.location.search = '?theme=dark';
+  context.location.hash = '#character%3Aone';
+  context.history.replaceState = (_state, _title, value) => {
+    const url = new URL(value, context.location.href);
+    context.location.href = url.href;
+    context.location.pathname = url.pathname;
+    context.location.search = url.search;
+    context.location.hash = url.hash;
+  };
+
+  context.BunnylandApi.setServerInUrl('/api');
+  assert.equal(context.location.search, '?theme=dark&server=%2Fapi');
+  assert.equal(context.location.hash, '#character%3Aone');
+  context.BunnylandApi.setServerInUrl('');
+  assert.equal(context.location.search, '?theme=dark');
+  assert.equal(context.location.hash, '#character%3Aone');
+});
+
+test('client menu carries server and focus between focused player pages only', () => {
+  const context = loadBrowserAssets(['assets/bunnyland-ui.js']);
+  context.location.href = 'http://example.test/web-repl.html?server=%2Fapi#character%3Aone';
+  context.location.pathname = '/web-repl.html';
+  context.location.search = '?server=%2Fapi';
+  context.location.hash = '#character%3Aone';
+
+  context.BunnylandUI.initClientMenu().open();
+  const html = context.document.getElementById('client-menu-dialog').innerHTML;
+  assert.match(html, /character-sheet\.html\?server=%2Fapi#character%3Aone/);
+  assert.match(html, /character-chat\.html\?server=%2Fapi#character%3Aone/);
+  assert.match(html, /event-stream\.html\?server=%2Fapi/);
+  assert.doesNotMatch(html, /event-stream\.html\?server=%2Fapi#character/);
+});
+
 test('BunnylandApi prompts and reuses player auth for player routes', async () => {
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
@@ -156,17 +209,19 @@ test('browser config, transports, media, and generated links reject cross-origin
   );
 });
 
-test('hostile entity and event identifiers use delegated data attributes, not inline handlers', () => {
+test('hostile entity and event identifiers use Preact handlers, not inline HTML', () => {
   const inspector = fs.readFileSync('inspector.html', 'utf8');
   const editor = fs.readFileSync('world-editor.html', 'utf8');
+  const inspectorApp = fs.readFileSync('src/inspector/app.tsx', 'utf8');
+  const editorApp = fs.readFileSync('src/world-editor/app.tsx', 'utf8');
 
   assert.doesNotMatch(inspector, /onclick=/i);
   assert.doesNotMatch(editor, /onclick=/i);
-  assert.match(inspector, /data-select-entity=/);
-  assert.match(inspector, /data-inspector-depth=/);
-  assert.match(editor, /data-editor-entity=/);
-  assert.match(inspector, /closest\('\[data-select-entity\]/);
-  assert.match(editor, /closest\('\[data-editor-entity\]'/);
+  assert.match(inspectorApp, /data-select-entity=/);
+  assert.match(inspectorApp, /data-inspector-depth=/);
+  assert.match(editorApp, /data-editor-entity=/);
+  assert.doesNotMatch(inspectorApp, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(editorApp, /dangerouslySetInnerHTML/);
 });
 
 test('BunnylandApi retries explicit claim headers with prompted player auth', async () => {
@@ -250,13 +305,13 @@ test('BunnylandApi prompts before configured player-auth autoconnect', async () 
 
 test('Character chat page is in the client menu and sends bounded local history', () => {
   const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
-  const page = fs.readFileSync('character-chat.html', 'utf8');
+  const page = fs.readFileSync('src/character-chat/page.tsx', 'utf8');
 
   assert.match(ui, /character-chat\.html/);
-  assert.match(page, /const HISTORY_LIMIT = 24/);
+  assert.match(page, /HISTORY_LIMIT = 24/);
   assert.match(page, /history: historyForPayload\(state\.messages\)/);
   assert.match(page, /chat\/pending\/\$\{encodeURIComponent\(commandId\)\}/);
-  assert.match(page, /localStorage\.setItem\(storageKey\(characterId\)/);
+  assert.match(page, /localStorage\.setItem\(storageKey\(clientId, characterId\)/);
   assert.match(page, /\/world\/character\/\$\{encodeURIComponent\(characterId\)\}\/chat/);
 });
 

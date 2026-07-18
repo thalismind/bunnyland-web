@@ -1,5 +1,4 @@
 import { EmptyState } from '@bunnyland/ui-web/preact';
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 import type { EntityListItem } from '../types';
@@ -21,6 +20,7 @@ export function EntityList({ entities, onSelect, selectedId }: EntityListProps) 
     {entities.map((entity) => (
       <div
         class={`entity-row ${entity.id === selectedId ? 'active' : ''}`}
+        data-editor-entity={entity.id}
         data-id={entity.id}
         key={entity.id}
         onClick={select}
@@ -37,16 +37,3 @@ export function EntityList({ entities, onSelect, selectedId }: EntityListProps) 
     ))}
   </>;
 }
-
-export function renderEntityList(
-  root: HTMLElement,
-  entities: readonly EntityListItem[],
-  selectedId: string | null,
-  onSelect: (id: string) => void,
-) {
-  render(<EntityList entities={entities} selectedId={selectedId} onSelect={onSelect} />, root);
-}
-
-window.BunnylandPreact ??= {};
-window.BunnylandPreact.renderEntityList = renderEntityList;
-window.app?._renderEntities?.();

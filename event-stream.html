@@ -12,17 +12,9 @@
     #poll-interval { width: 72px; }
     #event-search { width: 100%; }
 
-    #main {
-      grid-template-columns: 300px minmax(460px, 1fr);
-    }
-
-    #controls-pane .pane-body {
-      padding: 10px;
-    }
-
-    .control-stack {
-      gap: 9px;
-    }
+    #main { grid-template-columns: 300px minmax(460px, 1fr); }
+    #controls-pane .pane-body { padding: 10px; }
+    .control-stack { gap: 9px; }
 
     .control-row {
       display: flex;
@@ -32,9 +24,7 @@
       font-size: var(--bl-text-sm);
     }
 
-    .control-row input[type="checkbox"] {
-      margin: 0;
-    }
+    .control-row input[type="checkbox"] { margin: 0; }
 
     .metric-grid {
       display: grid;
@@ -65,9 +55,7 @@
       text-transform: uppercase;
     }
 
-    #event-type-filter {
-      width: 100%;
-    }
+    #event-type-filter { width: 100%; }
 
     #event-list {
       height: 100%;
@@ -80,9 +68,7 @@
       background: var(--bl-bg-strong);
     }
 
-    .event-record[open] {
-      background: var(--bl-bg);
-    }
+    .event-record[open] { background: var(--bl-bg); }
 
     .event-record summary {
       display: grid;
@@ -95,13 +81,8 @@
       list-style: none;
     }
 
-    .event-record summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .event-record summary:hover {
-      background: var(--bl-bg-subtle);
-    }
+    .event-record summary::-webkit-details-marker { display: none; }
+    .event-record summary:hover { background: var(--bl-bg-subtle); }
 
     .ev-epoch,
     .ev-type,
@@ -226,17 +207,13 @@
     }
 
     @media (max-width: 1050px) {
-      #main {
-        grid-template-columns: 1fr;
-      }
+      #main { grid-template-columns: 1fr; }
 
       .event-record summary {
         grid-template-columns: 72px 28px minmax(120px, 0.5fr) minmax(0, 1fr);
       }
 
-      .ev-visibility {
-        display: none;
-      }
+      .ev-visibility { display: none; }
 
       .event-detail {
         grid-template-columns: 1fr;
@@ -246,362 +223,11 @@
   </style>
 </head>
 <body>
-
-<div id="toolbar">
-  <div class="toolbar-row">
-    <span class="toolbar-brand"><img src="favicon.png" alt=""> Bunnyland Event Stream</span>
-    <span class="toolbar-sep">|</span>
-    <label for="api-url">Server:</label>
-    <input type="text" id="api-url" value="/api/" spellcheck="false">
-    <button id="btn-connect">Connect</button>
-    <button id="btn-refresh" disabled>Refresh</button>
-    <label class="control-row" for="live-toggle"><input id="live-toggle" type="checkbox" checked> live</label>
-    <label for="poll-interval">Poll</label>
-    <input id="poll-interval" type="number" min="1" max="60" step="1" value="5">
-    <span id="api-status">offline</span>
-    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
-  </div>
-</div>
-
-<div id="main" class="app-grid">
-  <section class="pane" id="controls-pane">
-    <div class="pane-header">
-      <div class="pane-title">Filters</div>
-      <span class="pane-count" id="visible-count">0</span>
-    </div>
-    <div class="pane-body">
-      <div class="control-stack">
-        <input id="event-search" type="search" placeholder="Search event type, actor, entity, text, or JSON" spellcheck="false">
-        <select id="event-type-filter">
-          <option value="">All event types</option>
-        </select>
-        <label class="control-row" for="hide-routine">
-          <input id="hide-routine" type="checkbox" checked>
-          Hide routine perception and clock events
-        </label>
-        <label class="control-row" for="auto-scroll">
-          <input id="auto-scroll" type="checkbox" checked>
-          Follow newest events
-        </label>
-        <button id="btn-load-names" disabled>Reload Entity Names</button>
-        <button id="btn-clear" disabled>Clear Buffer</button>
-      </div>
-      <div class="metric-grid">
-        <div class="metric"><strong id="total-events">0</strong><span>Buffered</span></div>
-        <div class="metric"><strong id="event-types">0</strong><span>Types</span></div>
-        <div class="metric"><strong id="latest-epoch">-</strong><span>Latest Epoch</span></div>
-        <div class="metric"><strong id="name-count">0</strong><span>Names</span></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="pane" id="events-pane">
-    <div class="pane-header">
-      <div class="pane-title">Events</div>
-      <span class="pane-count" id="stream-state">Disconnected</span>
-    </div>
-    <div id="event-list">
-      <div class="empty">Connect to a live server to load recent events.</div>
-    </div>
-  </section>
-</div>
-
+<div id="app"></div>
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
 <script src="assets/bunnyland-events.js"></script>
 <script src="assets/bunnyland-world.js"></script>
-<script>
-'use strict';
-
-BunnylandUI.initClientMenu();
-
-const esc = BunnylandUI.escapeHtml;
-const parseApiSnapshot = BunnylandWorld.parseApiSnapshot;
-const entityDisplayName = (entity) => BunnylandWorld.entityDisplayName(entity, { maxFallback: 32 });
-const eventHelpers = window.BunnylandEvents;
-
-class EventStreamApp {
-  constructor() {
-    this.base = '';
-    this.events = [];
-    this.eventIds = new Set();
-    this.entityNames = new Map();
-    this.expanded = new Set();
-    this.pollTimer = null;
-    this.polling = false;
-    this.authHeader = null;
-    this._bind();
-    this._loadConfig();
-    this._readUrl();
-    this._render();
-  }
-
-  _bind() {
-    document.getElementById('btn-connect').addEventListener('click', () => {
-      if (this.base) this.disconnect();
-      else this.connect(document.getElementById('api-url').value.trim());
-    });
-    document.getElementById('btn-refresh').addEventListener('click', () => this.refresh());
-    document.getElementById('btn-load-names').addEventListener('click', () => this.loadEntityNames());
-    document.getElementById('btn-clear').addEventListener('click', () => this.clearEvents());
-    document.getElementById('live-toggle').addEventListener('change', () => this._syncPolling());
-    document.getElementById('poll-interval').addEventListener('change', () => this._syncPolling());
-    document.getElementById('event-search').addEventListener('input', () => this._render());
-    document.getElementById('event-type-filter').addEventListener('change', () => this._render());
-    document.getElementById('hide-routine').addEventListener('change', () => this._render());
-    document.getElementById('event-list').addEventListener('toggle', (event) => {
-      const details = event.target.closest?.('.event-record');
-      if (!details) return;
-      if (details.open) this.expanded.add(details.dataset.eventId);
-      else this.expanded.delete(details.dataset.eventId);
-    }, true);
-  }
-
-  async _loadConfig() {
-    await BunnylandApi.applyConfigToInput({
-      isConnected: () => Boolean(this.base),
-      connect: (server) => this.connect(server),
-    });
-  }
-
-  _readUrl() {
-    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
-  }
-
-  async connect(base) {
-    const normalized = BunnylandApi.normalizeBase(base);
-    if (!normalized) return;
-    this.disconnect({ preserveUrl: true });
-    this.base = normalized;
-    document.getElementById('api-url').value = normalized;
-    document.getElementById('btn-connect').textContent = 'Disconnect';
-    document.getElementById('btn-refresh').disabled = false;
-    document.getElementById('btn-load-names').disabled = false;
-    document.getElementById('btn-clear').disabled = false;
-    this._setStatus('Connecting...');
-    BunnylandApi.setServerInUrl(normalized);
-    await Promise.allSettled([this.loadEntityNames(), this.refresh()]);
-    this._syncPolling();
-  }
-
-  disconnect({ preserveUrl = false } = {}) {
-    this._stopPolling();
-    this.base = '';
-    document.getElementById('btn-connect').textContent = 'Connect';
-    document.getElementById('btn-refresh').disabled = true;
-    document.getElementById('btn-load-names').disabled = true;
-    document.getElementById('btn-clear').disabled = true;
-    this._setStatus('offline');
-    document.getElementById('stream-state').textContent = 'Disconnected';
-    if (!preserveUrl) BunnylandApi.setServerInUrl('');
-  }
-
-  async refresh() {
-    if (!this.base) return;
-    try {
-      const data = await BunnylandApi.sendAdmin(this.base, '/admin/world/events/recent', {
-        getAuth: () => this.authHeader,
-        setAuth: (auth) => { this.authHeader = auth; },
-      });
-      this._appendMessages(data.events || []);
-      this._setStatus(`connected · ${this.events.length} buffered`);
-    } catch (err) {
-      this._setStatus(`error: ${err.message}`);
-    }
-  }
-
-  async loadEntityNames() {
-    if (!this.base) return;
-    try {
-      const snapshot = await BunnylandApi.sendAdmin(this.base, '/admin/world/snapshot', {
-        getAuth: () => this.authHeader,
-        setAuth: (auth) => { this.authHeader = auth; },
-      });
-      const world = parseApiSnapshot(snapshot);
-      this.entityNames = new Map(Object.entries(world.entities || {}).map(([id, entity]) => [
-        id,
-        entityDisplayName(entity),
-      ]));
-      this._render();
-    } catch (err) {
-      this._setStatus(`names unavailable: ${err.message}`);
-    }
-  }
-
-  clearEvents() {
-    this.events = [];
-    this.eventIds = new Set();
-    this.expanded = new Set();
-    this._render();
-  }
-
-  _syncPolling() {
-    this._stopPolling();
-    if (!this.base || !document.getElementById('live-toggle').checked) {
-      document.getElementById('stream-state').textContent = this.base ? 'Connected' : 'Disconnected';
-      return;
-    }
-    const seconds = Math.max(1, Number(document.getElementById('poll-interval').value) || 5);
-    document.getElementById('stream-state').textContent = `Live · ${seconds}s`;
-    this.pollTimer = setInterval(() => this._poll(), seconds * 1000);
-  }
-
-  _stopPolling() {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = null;
-  }
-
-  async _poll() {
-    if (this.polling || !this.base) return;
-    this.polling = true;
-    try {
-      await this.refresh();
-    } finally {
-      this.polling = false;
-    }
-  }
-
-  _appendMessages(messages) {
-    let changed = false;
-    for (const message of messages) {
-      const data = message.data || message;
-      const eventId = data.event?.event_id || JSON.stringify(data);
-      if (this.eventIds.has(eventId)) continue;
-      this.eventIds.add(eventId);
-      this.events.push(data);
-      changed = true;
-    }
-    if (this.events.length > 500) {
-      const removed = this.events.splice(0, this.events.length - 500);
-      for (const item of removed) this.eventIds.delete(item.event?.event_id || JSON.stringify(item));
-    }
-    if (changed) this._render();
-  }
-
-  _nameFor(id) {
-    if (!id) return '';
-    return this.entityNames.get(String(id)) || String(id).slice(0, 18);
-  }
-
-  _eventSearchText(data) {
-    const type = data.event_type || 'Event';
-    const event = data.event || {};
-    return [
-      type,
-      this._nameFor(event.actor_id),
-      eventHelpers.eventSummary(type, event, (id) => this._nameFor(id)),
-      ...eventHelpers.involvedIds(data).map((id) => `${id} ${this._nameFor(id)}`),
-      JSON.stringify(data),
-    ].join(' ').toLowerCase();
-  }
-
-  _filteredEvents() {
-    const typeFilter = document.getElementById('event-type-filter').value;
-    const search = document.getElementById('event-search').value.trim().toLowerCase();
-    const hideRoutine = document.getElementById('hide-routine').checked;
-    return this.events.filter((data) => {
-      const type = data.event_type || 'Event';
-      if (typeFilter && type !== typeFilter) return false;
-      if (hideRoutine && eventHelpers.ROUTINE_EVENT_TYPES.has(type)) return false;
-      if (search && !this._eventSearchText(data).includes(search)) return false;
-      return true;
-    });
-  }
-
-  _render() {
-    const events = this._filteredEvents();
-    this._renderTypeOptions();
-    document.getElementById('visible-count').textContent = String(events.length);
-    document.getElementById('total-events').textContent = String(this.events.length);
-    document.getElementById('event-types').textContent = String(new Set(this.events.map((item) => item.event_type || 'Event')).size);
-    document.getElementById('latest-epoch').textContent = this.events.length
-      ? String(Math.max(...this.events.map((item) => Number(item.event?.world_epoch) || 0)))
-      : '-';
-    document.getElementById('name-count').textContent = String(this.entityNames.size);
-
-    const list = document.getElementById('event-list');
-    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
-    const renderList = window.BunnylandPreact?.renderEventList;
-    if (renderList) {
-      renderList(list, { events: events.map((data) => {
-        const type = data.event_type || 'Event';
-        const event = data.event || {};
-        const eventId = event.event_id || JSON.stringify(data);
-        return {
-          actor: event.actor_id ? this._nameFor(event.actor_id) : 'system',
-          epoch: String(event.world_epoch ?? '-'),
-          eventId,
-          icon: eventHelpers.icon(type),
-          involved: eventHelpers.involvedIds(data).map((id) => ({ id, name: this._nameFor(id) })),
-          json: JSON.stringify(data, null, 2),
-          open: this.expanded.has(eventId),
-          summary: eventHelpers.eventSummary(type, event, (id) => this._nameFor(id)),
-          type,
-          visibility: event.visibility || '',
-        };
-      }) });
-    } else {
-      list.innerHTML = events.length
-        ? events.map((data) => this._eventHtml(data)).join('')
-        : '<div class="empty">No matching events.</div>';
-    }
-    if (document.getElementById('auto-scroll').checked && atBottom) list.scrollTop = list.scrollHeight;
-  }
-
-  _renderTypeOptions() {
-    const select = document.getElementById('event-type-filter');
-    const current = select.value;
-    const types = [...new Set(this.events.map((data) => data.event_type || 'Event'))].sort();
-    select.innerHTML = '<option value="">All event types</option>'
-      + types.map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join('');
-    select.value = types.includes(current) ? current : '';
-  }
-
-  _eventHtml(data) {
-    const type = data.event_type || 'Event';
-    const event = data.event || {};
-    const eventId = event.event_id || JSON.stringify(data);
-    const actor = event.actor_id ? this._nameFor(event.actor_id) : 'system';
-    const summary = eventHelpers.eventSummary(type, event, (id) => this._nameFor(id));
-    const involved = eventHelpers.involvedIds(data);
-    const open = this.expanded.has(eventId) ? ' open' : '';
-    return `
-      <details class="event-record" data-event-id="${esc(eventId)}"${open}>
-        <summary>
-          <span class="ev-epoch">${esc(event.world_epoch ?? '-')}</span>
-          <span class="ev-icon">${esc(eventHelpers.icon(type))}</span>
-          <span class="ev-type">${esc(type)}</span>
-          <span class="ev-summary"><span class="ev-actor">${esc(actor)}</span> ${esc(summary)}</span>
-          <span class="ev-visibility">${esc(event.visibility || '')}</span>
-        </summary>
-        <div class="event-detail">
-          <div class="detail-box">
-            <div class="detail-title">Involved</div>
-            <div class="entity-chip-list">
-              ${involved.length ? involved.map((id) => `
-                <div class="entity-chip">
-                  <strong>${esc(this._nameFor(id))}</strong>
-                  <code>${esc(id)}</code>
-                </div>
-              `).join('') : '<div class="empty">No entity ids on this event.</div>'}
-            </div>
-          </div>
-          <div class="detail-box">
-            <div class="detail-title">Full Event JSON</div>
-            <pre class="json-view">${esc(JSON.stringify(data, null, 2))}</pre>
-          </div>
-        </div>
-      </details>
-    `;
-  }
-
-  _setStatus(text) {
-    document.getElementById('api-status').textContent = text;
-  }
-}
-
-window.app = new EventStreamApp();
-</script>
-<script type="module" src="/src/event-stream/event-list.tsx"></script>
+<script type="module" src="/src/event-stream/page.tsx"></script>
 </body>
 </html>

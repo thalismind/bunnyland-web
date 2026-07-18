@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface ReplActionRow {
   available: boolean;
   icon: string;
@@ -43,21 +41,3 @@ export function TargetRows({ targets }: Pick<ReplContextListsProps, 'targets'>) 
     </div>
   ))}</>;
 }
-
-export function renderContextLists(
-  roots: { actions: HTMLElement; targets: HTMLElement },
-  props: ReplContextListsProps,
-) {
-  render(<ActionRows actions={props.actions} />, roots.actions);
-  render(<TargetRows targets={props.targets} />, roots.targets);
-}
-
-type ReplPageWindow = Window & {
-  BunnylandToolPreact?: { renderContextLists?: typeof renderContextLists };
-  app?: { render?: () => void };
-};
-
-const pageWindow = window as ReplPageWindow;
-pageWindow.BunnylandToolPreact ??= {};
-pageWindow.BunnylandToolPreact.renderContextLists = renderContextLists;
-pageWindow.app?.render?.();

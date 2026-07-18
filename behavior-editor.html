@@ -16,18 +16,21 @@
     }
 
     .lib-section { padding: 10px; border-bottom: 1px solid var(--bl-border); }
+
     .lib-title {
       color: var(--bl-accent-strong);
       font-size: var(--bl-text-sm);
       font-weight: bold;
       margin-bottom: 6px;
     }
+
     .lib-hint {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-xs);
       line-height: 1.5;
       margin-bottom: 8px;
     }
+
     .behavior-name-row {
       padding: 4px 6px;
       border-bottom: 1px solid var(--bl-bg-row);
@@ -43,6 +46,7 @@
       background: var(--bl-bg);
       margin-bottom: 8px;
     }
+
     .bt-node.kind-sequence { border-left: 3px solid var(--bl-info); }
     .bt-node.kind-selector { border-left: 3px solid var(--bl-warn); }
     .bt-node.kind-condition { border-left: 3px solid var(--bl-accent); }
@@ -56,6 +60,7 @@
       padding: 6px 8px;
       border-bottom: 1px solid var(--bl-border);
     }
+
     .bt-kind-badge {
       color: var(--bl-bg-deep);
       background: var(--bl-text-soft);
@@ -65,17 +70,18 @@
       text-transform: uppercase;
       letter-spacing: 0.4px;
     }
+
     .kind-sequence .bt-kind-badge { background: var(--bl-info); }
     .kind-selector .bt-kind-badge { background: var(--bl-warn); }
     .kind-condition .bt-kind-badge { background: var(--bl-accent); }
     .kind-action .bt-kind-badge { background: var(--bl-ok); }
-
     .bt-head .node-kind { width: 110px; }
     .bt-head .bt-spacer { flex: 1; }
     .bt-head button { padding: 1px 7px; }
     .bt-add-btn { color: var(--bl-accent); }
 
     .bt-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+
     .bt-body label {
       display: flex;
       flex-direction: column;
@@ -83,14 +89,16 @@
       font-size: var(--bl-text-xs);
       color: var(--bl-text-soft);
     }
+
     .bt-body .node-params { min-height: 56px; }
     .param-hint { color: var(--bl-text-muted); font-size: var(--bl-text-xs); }
 
     .bt-children {
-      margin: 0 8px 8px 8px;
+      margin: 0 8px 8px;
       padding-left: 10px;
       border-left: 1px dashed var(--bl-border-strong);
     }
+
     .bt-children .empty { padding: 10px; font-size: var(--bl-text-sm); }
 
     @media (max-width: 1050px) {
@@ -100,613 +108,9 @@
   </style>
 </head>
 <body>
-
-<div id="toolbar">
-  <div class="toolbar-row" id="toolbar-row1">
-    <span class="toolbar-brand"><img src="favicon.png" alt=""> Bunnyland Behavior Editor</span>
-    <span class="toolbar-sep">|</span>
-    <label for="behavior-input">Behavior:</label>
-    <input type="file" id="behavior-input" accept=".json,application/json">
-    <button id="btn-new">New</button>
-    <button id="btn-download">Download JSON</button>
-    <button id="btn-copy">Copy JSON</button>
-    <span id="save-status">Ready</span>
-    <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
-  </div>
-  <div class="toolbar-row" id="toolbar-row2">
-    <label for="behavior-name">Name:</label>
-    <input type="text" id="behavior-name" spellcheck="false">
-    <label for="behavior-desc">Description:</label>
-    <input type="text" id="behavior-desc" spellcheck="false">
-    <span class="toolbar-sep">|</span>
-    <label for="api-url">Server:</label>
-    <input type="text" id="api-url" value="/api/" spellcheck="false">
-    <button id="btn-connect">Connect</button>
-    <span id="api-status">offline</span>
-  </div>
-</div>
-
-<div id="main" class="app-grid">
-  <section class="pane" id="library-pane">
-    <div class="pane-header">
-      <div class="pane-title">Leaf Library</div>
-      <span class="pane-count" id="library-source">built-in</span>
-    </div>
-    <div class="pane-body">
-      <div class="lib-section">
-        <div class="lib-title">Conditions</div>
-        <div class="lib-hint">Reference these from a <b>condition</b> leaf via its <code>ref</code>.</div>
-        <div class="pill-row" id="condition-list"></div>
-      </div>
-      <div class="lib-section">
-        <div class="lib-title">Actions</div>
-        <div class="lib-hint">Reference these from an <b>action</b> leaf. <code>say</code> takes
-          <code>text</code> (required), <code>intent</code>, <code>approach</code>.</div>
-        <div class="pill-row" id="action-list"></div>
-      </div>
-      <div class="lib-section">
-        <div class="lib-title">Registered behaviors</div>
-        <div class="lib-hint">Names already in the connected server's registry. Pick a fresh
-          name to add a new tree rather than shadowing a built-in.</div>
-        <div id="behavior-list"><div class="empty">Connect to list.</div></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="pane" id="editor-pane">
-    <div class="pane-header">
-      <div class="pane-title">Behavior Tree</div>
-      <span class="pane-count" id="node-count">0 nodes</span>
-    </div>
-    <div class="editor-scroll" id="tree-scroll">
-      <div id="tree-root"></div>
-    </div>
-  </section>
-
-  <section class="pane" id="preview-pane">
-    <div class="pane-header">
-      <div class="pane-title">JSON</div>
-      <span class="pane-count" id="json-size">0 bytes</span>
-      <button id="btn-register" class="push" disabled>Register on Server</button>
-    </div>
-    <textarea id="json-output" spellcheck="false" readonly></textarea>
-    <div id="problems" class="ok">Valid behavior JSON.</div>
-  </section>
-</div>
-
+<div id="app"></div>
 <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
 <script src="assets/bunnyland-api.js"></script>
-<script type="module" src="/src/behavior-editor/library-list.tsx"></script>
-<script>
-'use strict';
-
-BunnylandUI.initClientMenu();
-
-const esc = BunnylandUI.escapeHtml;
-const clone = BunnylandUI.cloneJson;
-
-// Mirrors the built-in condition/action library in
-// bunnyland-server/src/bunnyland/llm_agents/behavior_tree.py. A live server overrides these
-// with whatever it actually has registered (GET /admin/controllers/definitions).
-const BUILTIN_CONDITIONS = ['has_open_exit', 'has_visible_characters', 'has_visible_objects'];
-const BUILTIN_ACTIONS = [
-  'greet_first_character', 'move_first_exit', 'say', 'take_first_item', 'warn_first_character'
-];
-
-const PARAM_TEMPLATES = {
-  say: { text: '', intent: 'praise', approach: 'friendly' },
-};
-const PARAM_HINTS = {
-  say: 'text (required), intent (default praise), approach (default friendly)',
-};
-
-const COMPOSITE_KINDS = new Set(['sequence', 'selector']);
-
-const DEFAULT_BEHAVIOR = {
-  name: 'local-behavior',
-  description: '',
-  root: {
-    kind: 'selector',
-    children: [
-      {
-        kind: 'sequence',
-        children: [
-          { kind: 'condition', ref: 'has_visible_objects', params: {} },
-          { kind: 'action', ref: 'take_first_item', params: {} },
-        ],
-      },
-      { kind: 'action', ref: 'move_first_exit', params: {} },
-    ],
-  },
-};
-
-function defaultNode(kind) {
-  if (COMPOSITE_KINDS.has(kind)) return { kind, children: [] };
-  return { kind, ref: '', params: {} };
-}
-
-class BehaviorEditor {
-  constructor() {
-    this.behavior = clone(DEFAULT_BEHAVIOR);
-    this.conditions = [...BUILTIN_CONDITIONS];
-    this.actions = [...BUILTIN_ACTIONS];
-    this.serverBehaviors = [];
-    this.badParams = new Set();
-    this.base = '';
-    this.authHeader = null;
-    this.connected = false;
-    this._bind();
-    this._loadConfig();
-    this._readUrl();
-    this._renderAll();
-  }
-
-  // --- DOM wiring -----------------------------------------------------------
-
-  _bind() {
-    document.getElementById('behavior-input').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (file) this._loadFile(file);
-    });
-    document.getElementById('btn-new').addEventListener('click', () => {
-      this.behavior = clone(DEFAULT_BEHAVIOR);
-      this._renderAll();
-      this._status('New behavior', 'ok');
-    });
-    document.getElementById('btn-download').addEventListener('click', () => this._download());
-    document.getElementById('btn-copy').addEventListener('click', () => this._copyJson());
-    document.getElementById('btn-register').addEventListener('click', () => this.register());
-    document.getElementById('btn-connect').addEventListener('click', () => {
-      if (this.base) this.disconnect();
-      else this.connect(document.getElementById('api-url').value.trim());
-    });
-    document.getElementById('behavior-name').addEventListener('input', (e) => {
-      this.behavior.name = e.target.value;
-      this._renderJson();
-    });
-    document.getElementById('behavior-desc').addEventListener('input', (e) => {
-      this.behavior.description = e.target.value;
-      this._renderJson();
-    });
-
-    const tree = document.getElementById('tree-root');
-    tree.addEventListener('change', (e) => {
-      const path = e.target.closest('[data-path]')?.dataset.path;
-      if (path == null) return;
-      if (e.target.classList.contains('node-kind')) this._setKind(path, e.target.value);
-      else if (e.target.classList.contains('node-ref')) this._setRef(path, e.target.value);
-    });
-    tree.addEventListener('input', (e) => {
-      const path = e.target.closest('[data-path]')?.dataset.path;
-      if (path != null && e.target.classList.contains('node-params')) {
-        this._onParams(path, e.target);
-      }
-    });
-    tree.addEventListener('click', (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const path = btn.closest('[data-path]')?.dataset.path;
-      if (path == null) return;
-      if (btn.classList.contains('node-delete')) this._deleteNode(path);
-      else if (btn.dataset.add) this._addChild(path, btn.dataset.add);
-    });
-  }
-
-  // --- tree model -----------------------------------------------------------
-
-  _node(path) {
-    if (!path) return this.behavior.root;
-    let node = this.behavior.root;
-    for (const part of path.split('.')) node = node.children[Number(part)];
-    return node;
-  }
-
-  _parentOf(path) {
-    const parts = path.split('.');
-    const index = Number(parts.pop());
-    const parent = parts.length ? this._node(parts.join('.')) : this.behavior.root;
-    return { parent, index };
-  }
-
-  _addChild(path, kind) {
-    const node = this._node(path);
-    node.children = node.children || [];
-    node.children.push(defaultNode(kind));
-    this._renderTree();
-    this._renderJson();
-  }
-
-  _deleteNode(path) {
-    if (!path) {
-      this.behavior.root = defaultNode('selector');
-    } else {
-      const { parent, index } = this._parentOf(path);
-      parent.children.splice(index, 1);
-    }
-    this._renderTree();
-    this._renderJson();
-  }
-
-  _setKind(path, kind) {
-    const node = this._node(path);
-    if (node.kind === kind) return;
-    node.kind = kind;
-    if (COMPOSITE_KINDS.has(kind)) {
-      delete node.ref;
-      delete node.params;
-      node.children = node.children || [];
-    } else {
-      delete node.children;
-      if (node.ref === undefined) node.ref = '';
-      if (!node.params) node.params = {};
-    }
-    this._renderTree();
-    this._renderJson();
-  }
-
-  _setRef(path, ref) {
-    const node = this._node(path);
-    node.ref = ref;
-    // Seed a starter param object for refs that need one, but never clobber edits.
-    if (PARAM_TEMPLATES[ref] && !Object.keys(node.params || {}).length) {
-      node.params = clone(PARAM_TEMPLATES[ref]);
-    }
-    this._renderTree();
-    this._renderJson();
-  }
-
-  _onParams(path, el) {
-    el.classList.remove('bad-json');
-    this.badParams.delete(path);
-    const text = el.value.trim();
-    if (!text) {
-      this._node(path).params = {};
-      this._renderJson();
-      return;
-    }
-    try {
-      const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('expected a JSON object');
-      }
-      this._node(path).params = parsed;
-    } catch (_err) {
-      el.classList.add('bad-json');
-      this.badParams.add(path);
-    }
-    this._renderJson();
-  }
-
-  // --- rendering ------------------------------------------------------------
-
-  _renderAll() {
-    document.getElementById('behavior-name').value = this.behavior.name || '';
-    document.getElementById('behavior-desc').value = this.behavior.description || '';
-    this._renderLibrary();
-    this._renderTree();
-    this._renderJson();
-  }
-
-  _renderLibrary() {
-    document.getElementById('library-source').textContent =
-      this.connected ? 'from server' : 'built-in';
-    if (window.BunnylandBehaviorPreact?.renderNamedList) {
-      window.BunnylandBehaviorPreact.renderNamedList(
-        document.getElementById('condition-list'), this.conditions, 'pill', 'none');
-      window.BunnylandBehaviorPreact.renderNamedList(
-        document.getElementById('action-list'), this.actions, 'pill', 'none');
-      window.BunnylandBehaviorPreact.renderNamedList(
-        document.getElementById('behavior-list'), this.serverBehaviors, 'behavior-name-row', 'Connect to list.');
-      return;
-    }
-    const pills = (names) => names.length
-      ? names.map((name) => `<span class="pill">${esc(name)}</span>`).join('')
-      : '<span class="tiny">none</span>';
-    document.getElementById('condition-list').innerHTML = pills(this.conditions);
-    document.getElementById('action-list').innerHTML = pills(this.actions);
-    const list = document.getElementById('behavior-list');
-    list.innerHTML = this.serverBehaviors.length
-      ? this.serverBehaviors.map((name) => `<div class="behavior-name-row">${esc(name)}</div>`).join('')
-      : '<div class="empty">Connect to list.</div>';
-  }
-
-  _renderTree() {
-    // Structural re-render rebuilds every params textarea from the (valid) model.
-    this.badParams.clear();
-    document.getElementById('tree-root').innerHTML = this._renderNode(this.behavior.root, '');
-    document.getElementById('node-count').textContent = `${this._countNodes(this.behavior.root)} nodes`;
-  }
-
-  _countNodes(node) {
-    let total = 1;
-    for (const child of node.children || []) total += this._countNodes(child);
-    return total;
-  }
-
-  _renderNode(node, path) {
-    const isComposite = COMPOSITE_KINDS.has(node.kind);
-    const isRoot = path === '';
-    const head = `
-      <div class="bt-head">
-        <span class="bt-kind-badge">${esc(node.kind)}</span>
-        <select class="node-kind">
-          ${['sequence', 'selector', 'condition', 'action'].map((k) =>
-            `<option value="${k}" ${k === node.kind ? 'selected' : ''}>${k}</option>`).join('')}
-        </select>
-        <span class="bt-spacer"></span>
-        ${isComposite ? `
-          <button class="bt-add-btn" data-add="condition">+ condition</button>
-          <button class="bt-add-btn" data-add="action">+ action</button>
-          <button class="bt-add-btn" data-add="sequence">+ sequence</button>
-          <button class="bt-add-btn" data-add="selector">+ selector</button>
-        ` : ''}
-        <button class="node-delete danger" ${isRoot ? 'title="Reset the root node"' : ''}>${isRoot ? 'Reset' : 'Delete'}</button>
-      </div>`;
-
-    if (isComposite) {
-      const children = node.children || [];
-      const body = children.length
-        ? children.map((child, i) => this._renderNode(child, path ? `${path}.${i}` : String(i))).join('')
-        : '<div class="empty">No children. Add a condition, action, sequence, or selector.</div>';
-      return `<div class="bt-node kind-${esc(node.kind)}" data-path="${esc(path)}">
-        ${head}
-        <div class="bt-children">${body}</div>
-      </div>`;
-    }
-
-    const options = this._refOptions(node.kind, node.ref);
-    const hint = PARAM_HINTS[node.ref];
-    return `<div class="bt-node kind-${esc(node.kind)}" data-path="${esc(path)}">
-      ${head}
-      <div class="bt-body">
-        <label>Library ref
-          <select class="node-ref">
-            <option value="" ${node.ref ? '' : 'selected'}>— choose a ${node.kind} —</option>
-            ${options.map((ref) =>
-              `<option value="${esc(ref)}" ${ref === node.ref ? 'selected' : ''}>${esc(ref)}</option>`).join('')}
-          </select>
-        </label>
-        <label>Params (JSON)
-          <textarea class="node-params" spellcheck="false">${esc(JSON.stringify(node.params || {}, null, 2))}</textarea>
-        </label>
-        ${hint ? `<div class="param-hint">${esc(hint)}</div>` : ''}
-      </div>
-    </div>`;
-  }
-
-  _refOptions(kind, current) {
-    const lib = kind === 'condition' ? this.conditions : this.actions;
-    const options = [...lib];
-    if (current && !options.includes(current)) options.unshift(current);
-    return options;
-  }
-
-  // --- export + validation --------------------------------------------------
-
-  _exportNode(node) {
-    if (COMPOSITE_KINDS.has(node.kind)) {
-      return { kind: node.kind, children: (node.children || []).map((c) => this._exportNode(c)) };
-    }
-    return { kind: node.kind, ref: node.ref || '', params: node.params || {} };
-  }
-
-  _spec() {
-    return {
-      name: (this.behavior.name || '').trim(),
-      description: this.behavior.description || '',
-      root: this._exportNode(this.behavior.root),
-    };
-  }
-
-  _validate(spec) {
-    const problems = [];
-    if (!spec.name) problems.push('name is required');
-    if (this.badParams.size) problems.push('a node has invalid params JSON');
-
-    const walk = (node, label) => {
-      if (COMPOSITE_KINDS.has(node.kind)) {
-        if (!node.children.length) problems.push(`${label}: ${node.kind} has no children`);
-        node.children.forEach((child, i) => walk(child, `${label} › ${child.kind}[${i}]`));
-        return;
-      }
-      if (!node.ref) {
-        problems.push(`${label}: ${node.kind} leaf requires a library ref`);
-      } else if (this.connected) {
-        const lib = node.kind === 'condition' ? this.conditions : this.actions;
-        if (!lib.includes(node.ref)) problems.push(`${label}: unknown ${node.kind} '${node.ref}'`);
-      }
-      if (node.ref === 'say' && !String(node.params?.text || '').trim()) {
-        problems.push(`${label}: say requires a non-empty text param`);
-      }
-    };
-    walk(spec.root, 'root');
-    return problems;
-  }
-
-  _renderJson() {
-    const spec = this._spec();
-    const text = JSON.stringify(spec, null, 2);
-    const out = document.getElementById('json-output');
-    out.value = text;
-    document.getElementById('json-size').textContent = `${new Blob([text]).size} bytes`;
-    const problems = this._validate(spec);
-    const el = document.getElementById('problems');
-    if (problems.length) {
-      el.className = '';
-      el.innerHTML = problems.map(esc).join('<br>');
-    } else {
-      el.className = 'ok';
-      el.textContent = 'Valid behavior JSON.';
-    }
-    document.getElementById('btn-register').disabled = !this.connected || problems.length > 0;
-    return problems;
-  }
-
-  // --- file load / save -----------------------------------------------------
-
-  async _loadFile(file) {
-    try {
-      const data = JSON.parse(await file.text());
-      this.behavior = this._normalize(data);
-      this._renderAll();
-      this._status('Behavior loaded', 'ok');
-    } catch (err) {
-      this._status(`Load error: ${err.message}`, 'err');
-    }
-  }
-
-  _normalize(data) {
-    const normalizeNode = (raw) => {
-      const kind = COMPOSITE_KINDS.has(raw?.kind) || ['condition', 'action'].includes(raw?.kind)
-        ? raw.kind : 'selector';
-      if (COMPOSITE_KINDS.has(kind)) {
-        const children = Array.isArray(raw.children) ? raw.children.map(normalizeNode) : [];
-        return { kind, children };
-      }
-      return {
-        kind,
-        ref: typeof raw.ref === 'string' ? raw.ref : '',
-        params: raw.params && typeof raw.params === 'object' && !Array.isArray(raw.params) ? raw.params : {},
-      };
-    };
-    return {
-      name: data.name || 'local-behavior',
-      description: data.description || '',
-      root: data.root ? normalizeNode(data.root) : defaultNode('selector'),
-    };
-  }
-
-  _download() {
-    const text = document.getElementById('json-output').value;
-    const blob = new Blob([text], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(this.behavior.name || 'behavior').replace(/[^a-zA-Z0-9_.-]+/g, '_')}.json`;
-    document.body.appendChild(a);
-    a.click();
-    URL.revokeObjectURL(a.href);
-    a.remove();
-    this._status('JSON downloaded', 'ok');
-  }
-
-  async _copyJson() {
-    try {
-      await navigator.clipboard.writeText(document.getElementById('json-output').value);
-      this._status('JSON copied', 'ok');
-    } catch (_err) {
-      this._status('Clipboard unavailable', 'err');
-    }
-  }
-
-  // --- server connectivity --------------------------------------------------
-
-  async _loadConfig() {
-    await BunnylandApi.applyConfigToInput({
-      isConnected: () => Boolean(this.base),
-      connect: (server) => this.connect(server),
-    });
-  }
-
-  _readUrl() {
-    BunnylandApi.applyServerParam({ connect: (server) => this.connect(server) });
-  }
-
-  _syncUrl() {
-    BunnylandApi.setServerInUrl(this.base);
-  }
-
-  async _send(path, { method = 'GET', body = null, prompt = true } = {}) {
-    return BunnylandApi.sendAdmin(this.base, path, {
-      method,
-      body,
-      prompt,
-      getAuth: () => this.authHeader,
-      setAuth: (auth) => { this.authHeader = auth; },
-    });
-  }
-
-  async connect(url) {
-    this.base = BunnylandApi.normalizeBase(url);
-    if (!this.base) return;
-    this._setApiStatus('connecting');
-    try {
-      await this.refresh();
-      this.connected = true;
-      document.getElementById('btn-connect').textContent = 'Disconnect';
-      this._setApiStatus('live', 'ok');
-      this._syncUrl();
-      this._status('Connected; library loaded from server', 'ok');
-    } catch (err) {
-      this.connected = false;
-      this.base = '';
-      this._setApiStatus(`error: ${err.message}`, 'err');
-      this._status(`Connection error: ${err.message}`, 'err');
-    }
-    this._renderLibrary();
-    this._renderJson();
-  }
-
-  disconnect() {
-    this.base = '';
-    this.connected = false;
-    this.conditions = [...BUILTIN_CONDITIONS];
-    this.actions = [...BUILTIN_ACTIONS];
-    this.serverBehaviors = [];
-    document.getElementById('btn-connect').textContent = 'Connect';
-    this._setApiStatus('offline');
-    this._syncUrl();
-    this._renderLibrary();
-    this._renderJson();
-  }
-
-  async refresh() {
-    const data = await this._send('/admin/controllers/definitions');
-    this.conditions = (data.condition_library || []).length
-      ? [...data.condition_library].sort() : [...BUILTIN_CONDITIONS];
-    this.actions = (data.action_library || []).length
-      ? [...data.action_library].sort() : [...BUILTIN_ACTIONS];
-    this.serverBehaviors = [...(data.behaviors || [])].sort();
-  }
-
-  async register() {
-    const spec = this._spec();
-    if (this._validate(spec).length) {
-      this._status('Fix validation problems before registering', 'err');
-      return;
-    }
-    if (!this.connected) {
-      this._status('Connect to a server first', 'err');
-      return;
-    }
-    try {
-      const data = await this._send('/admin/controllers/behaviors', {
-        method: 'POST',
-        body: JSON.stringify(spec),
-      });
-      this.serverBehaviors = [...(data.behaviors || [])].sort();
-      this._renderLibrary();
-      this._status(`Registered behavior '${spec.name}'`, 'ok');
-    } catch (err) {
-      this._status(`Register failed: ${err.message}`, 'err');
-    }
-  }
-
-  // --- status helpers -------------------------------------------------------
-
-  _status(text, kind) {
-    const el = document.getElementById('save-status');
-    el.textContent = text;
-    el.className = kind || '';
-  }
-
-  _setApiStatus(text, kind = '') {
-    const el = document.getElementById('api-status');
-    el.textContent = text;
-    el.className = kind;
-  }
-}
-
-window.app = new BehaviorEditor();
-</script>
+<script type="module" src="/src/behavior-editor/page.tsx"></script>
 </body>
 </html>

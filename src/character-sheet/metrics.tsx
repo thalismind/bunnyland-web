@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface SheetMetric {
   band?: string;
   label: string;
@@ -8,7 +6,7 @@ export interface SheetMetric {
   value?: number | null;
 }
 
-interface MetricListProps {
+export interface MetricListProps {
   emptyMessage: string;
   metrics: readonly SheetMetric[];
 }
@@ -33,20 +31,3 @@ export function MetricList({ emptyMessage, metrics }: MetricListProps) {
     </div>;
   })}</>;
 }
-
-export function renderMetricList(root: HTMLElement, props: MetricListProps) {
-  root.className = props.metrics.length ? 'metric-list' : 'sheet-empty';
-  render(<MetricList {...props} />, root);
-}
-
-interface CharacterSheetBridgeWindow {
-  BunnylandPreact?: {
-    renderMetricList?: typeof renderMetricList;
-  };
-  app?: { render?: () => void };
-}
-
-const bridgeWindow = window as unknown as CharacterSheetBridgeWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderMetricList = renderMetricList;
-bridgeWindow.app?.render?.();

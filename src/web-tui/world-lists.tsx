@@ -1,4 +1,3 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 export interface TuiMember {
@@ -87,31 +86,3 @@ export function InventoryList({ empty, items, onSelect }: SelectableListProps<Tu
     </button>
   ))}</>;
 }
-
-export interface WorldListsProps {
-  exits: readonly TuiExit[];
-  inventory: readonly TuiInventoryItem[];
-  inventoryEmpty: string;
-  members: readonly TuiMember[];
-  onExit: (index: number) => void;
-  onSelect: (id: string) => void;
-}
-
-export function renderWorldLists(
-  roots: { doors: HTMLElement; inventory: HTMLElement; members: HTMLElement },
-  props: WorldListsProps,
-) {
-  render(<MemberList empty="Select a character above to play as and see their room." items={props.members} onSelect={props.onSelect} />, roots.members);
-  render(<ExitList empty="No visible exits." items={props.exits} onSelect={(value) => props.onExit(Number(value))} />, roots.doors);
-  render(<InventoryList empty={props.inventoryEmpty} items={props.inventory} onSelect={props.onSelect} />, roots.inventory);
-}
-
-type TuiPageWindow = Window & {
-  BunnylandToolPreact?: { renderWorldLists?: typeof renderWorldLists };
-  app?: { _renderWorld?: () => void };
-};
-
-const pageWindow = window as TuiPageWindow;
-pageWindow.BunnylandToolPreact ??= {};
-pageWindow.BunnylandToolPreact.renderWorldLists = renderWorldLists;
-pageWindow.app?._renderWorld?.();

@@ -1,0 +1,215 @@
+import type {
+  ActionView,
+  CharacterProjection,
+  ControlClaim,
+  QueuedProjection,
+  TargetOption,
+} from '@bunnyland/ui-web/play';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { WebReplPage, splitArgs, type WebReplServices } from '../src/web-repl/app';
+
+const CONTROL: ControlClaim = {
+  active: true,
+  characterId: 'character:one',
+  claimId: 'claim:one',
+  claimSecret: 'secret',
+  controllerId: 'web:repl',
+  generation: 3,
+};
+
+const SAY: ActionView = {
+  arguments: [{ key: 'text', kind: 'string', required: true, title: 'text' }],
+  available: true,
+  command_type: 'say',
+  cost: { action: 1, focus: 1 },
+  lane: 'world',
+  title: 'Say',
+  tool_name: 'say',
+};
+
+const PROJECTION: CharacterProjection = {
+  actions: [SAY],
+  characterId: 'character:one',
+  characterName: 'Hazel',
+  controller: { controller_id: 'web:repl', generation: 3 },
+  inventory: [{ id: 'item:key', kind: 'item', label: 'brass key' }],
+  points: { action: 5, action_max: 5, focus: 3, focus_max: 3 },
+  portrait: {},
+  room: {
+    biome: 'inside', entities: [], exits: [], id: 'room:one', title: 'Parlor',
+  },
+  sheet: {},
+  targetGroups: {},
+  worldEpoch: 12,
+};
+
+const QUEUE: QueuedProjection = {
+  characterId: 'character:one', commands: [], nextTickAtUnix: null, worldEpoch: 12,
+};
+
+interface ReplFacade {
+  readonly characters: readonly { id: string }[];
+  readonly control: ControlClaim | null;
+  readonly projection: CharacterProjection | null;
+  refresh: () => Promise<void>;
+}
+
+function facade(): ReplFacade | undefined {
+  return (window as unknown as { app?: ReplFacade }).app;
+}
+
+function services(projection: () => CharacterProjection = () => PROJECTION) {
+  const closeLive = vi.fn();
+  const closeMenu = vi.fn();
+  const service: WebReplServices = {
+    actionArguments: (action) => action.arguments || [],
+    actionAvailable: (action) => action.available !== false,
+    actionCost: (action) => ({ action: Number(action.cost?.action || 0), focus: Number(action.cost?.focus || 0) }),
+    actionIcon: () => '💬',
+    actionLane: (action) => action.lane || 'world',
+    actionTitle: (action) => action.title || action.command_type || 'Action',
+    actionTool: (action) => action.tool_name || action.command_type || 'action',
+    actionUnavailableReason: (action) => action.available === false ? action.unavailable_reason || 'Unavailable' : '',
+    allTargets: (current) => current?.inventory.map((item): TargetOption => ({
+      icon: '', kind: item.kind || 'item', label: item.label || item.id, value: item.id,
+    })) || [],
+    applyConfig: vi.fn(async () => ({})),
+    cancelQueuedCommand: vi.fn(async () => ({ cancelled: true })),
+    characterSheetHref: (_base, id) => `character-sheet.html?server=%2Fapi#${id}`,
+    claimSettings: () => ({ fallback_controller: 'suspend', timeout_seconds: 1800 }),
+    claimWebController: vi.fn(async () => ({
+      character_id: CONTROL.characterId,
+      claim_id: CONTROL.claimId,
+      claim_secret: CONTROL.claimSecret,
+      controller_generation: CONTROL.generation,
+      controller_id: CONTROL.controllerId,
+    })),
+    clearClaimControl: vi.fn(),
+    controlFromResponse: (_data, _id, options) => ({ ...CONTROL, active: options.active }),
+    createPlayerLiveUpdates: vi.fn((options) => {
+      options.onState('live');
+      return { close: closeLive };
+    }),
+    drainNarratedEvents: (_messages, options) => ({ lines: [], seenIds: options.seenIds }),
+    fetchCharacterList: vi.fn(async () => ({
+      characters: [{ id: 'character:one', kind: 'character', name: 'Hazel', suspended: false }],
+      epoch: 12,
+    })),
+    fetchCharacterProjection: vi.fn(async () => projection()),
+    fetchCharacterRecentEvents: vi.fn(async () => ({ events: [] })),
+    fetchQueuedCommands: vi.fn(async () => QUEUE),
+    formatPoints: (value) => String(Number(value || 0)),
+    iconPreference: () => true,
+    imageAffordance: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
+    imageRequestMessage: () => '👀 image requested',
+    initClientMenu: () => ({ close: closeMenu }),
+    isReferenceArg: (argument) => argument.kind === 'entity',
+    latestImageCompletion: () => null,
+    latestImageFailure: () => null,
+    normalizeBase: (url) => url.replace(/\/$/, ''),
+    orderActionsByAvailability: (actions) => actions,
+    persistentClientId: () => 'client:repl',
+    playerControl: (current) => current,
+    queuedCountdownSeconds: () => null,
+    releaseWebClaim: vi.fn(async () => ({})),
+    releaseWebController: vi.fn(async () => ({})),
+    requestSceneImage: vi.fn(async () => ({ ok: true })),
+    resolveTargetName: (value, candidates) => candidates.find((item) => item.label === value || item.value === value) || null,
+    serverFromUrl: () => '/api',
+    setIconPreference: vi.fn(),
+    setServerInUrl: vi.fn(),
+    storeClaimControl: vi.fn(),
+    storedClaimControl: () => null,
+    submitCommand: vi.fn(async () => ({ ok: true })),
+    suggestTargetNames: () => [],
+    syncClaimControl: (current) => current,
+    targetCandidates: (current) => service.allTargets(current),
+    targetPrefix: (rest) => ({ raw: rest.split(' ')[0] || '', remaining: rest.split(' ').slice(1).join(' ') }),
+    updateWebControllerFallback: vi.fn(async () => ({})),
+  };
+  return { closeLive, closeMenu, service };
+}
+
+async function selectPlayer(view: ReturnType<typeof render>): Promise<void> {
+  await waitFor(() => expect(view.container.querySelector('#player-select option[value="character:one"]')).toBeTruthy());
+  fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: 'character:one' } });
+  await waitFor(() => expect(view.container.querySelector('[data-action-key="world:say"]')).toBeTruthy());
+}
+
+afterEach(() => {
+  cleanup();
+  history.replaceState(null, '', '/web-repl.html');
+});
+
+describe('full Web REPL page', () => {
+  it('projects keyed actions and delegates read-only facade refreshes', async () => {
+    let current = PROJECTION;
+    const runtime = services(() => current);
+    const view = render(<WebReplPage services={runtime.service} />);
+    await selectPlayer(view);
+    const original = view.container.querySelector('[data-action-key="world:say"]');
+    expect(facade()?.characters).toHaveLength(1);
+    expect(facade()?.control?.claimId).toBe('claim:one');
+    expect(facade()?.projection?.characterId).toBe('character:one');
+    current = { ...PROJECTION, points: { ...PROJECTION.points, action: 4 } };
+    await facade()?.refresh();
+    await waitFor(() => expect(view.container.querySelector('#side-status')?.textContent).toContain('AP 4/5'));
+    expect(view.container.querySelector('[data-action-key="world:say"]')).toBe(original);
+    expect(location.hash).toBe('#character%3Aone');
+  });
+
+  it('restores focused characters from the hash without dropping the server query', async () => {
+    history.replaceState(null, '', '/web-repl.html?server=%2Fapi#character%3Aone');
+    const runtime = services();
+    const view = render(<WebReplPage services={runtime.service} />);
+    await waitFor(() => expect(facade()?.projection?.characterId).toBe('character:one'));
+    expect(view.container.querySelector<HTMLSelectElement>('#player-select')?.value).toBe('character:one');
+    expect(location.search).toBe('?server=%2Fapi');
+
+    history.replaceState(null, '', '/web-repl.html?server=%2Fapi');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await waitFor(() => expect(view.container.querySelector<HTMLSelectElement>('#player-select')?.value).toBe(''));
+    expect(location.search).toBe('?server=%2Fapi');
+  });
+
+  it('submits commands and preserves input focus and history', async () => {
+    const runtime = services();
+    const view = render(<WebReplPage services={runtime.service} />);
+    await selectPlayer(view);
+    const input = view.container.querySelector('#repl-input') as HTMLInputElement;
+    input.focus();
+    fireEvent.input(input, { target: { value: 'say hello hooks' } });
+    fireEvent.submit(view.container.querySelector('#prompt-row')!);
+    await waitFor(() => expect(runtime.service.submitCommand).toHaveBeenCalled());
+    expect(runtime.service.submitCommand).toHaveBeenCalledWith(
+      '/api',
+      expect.objectContaining({ command_type: 'say', payload: { text: 'hello hooks' } }),
+      expect.objectContaining({ claimId: 'claim:one' }),
+    );
+    expect(view.container.querySelector('#repl-input')).toBe(input);
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input.value).toBe('say hello hooks');
+  });
+
+  it('cleans live/menu/timer effects and removes its compatibility facade', async () => {
+    const runtime = services();
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
+    const view = render(<WebReplPage services={runtime.service} />);
+    await selectPlayer(view);
+    view.unmount();
+    expect(runtime.closeLive).toHaveBeenCalledOnce();
+    expect(runtime.closeMenu).toHaveBeenCalledOnce();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    expect(facade()).toBeUndefined();
+    clearIntervalSpy.mockRestore();
+  });
+
+  it('parses named arguments without losing continuation words', () => {
+    expect(splitArgs('target=Marlow text=hello from the burrow')).toEqual({
+      target: 'Marlow', text: 'hello from the burrow',
+    });
+  });
+});

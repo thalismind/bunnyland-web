@@ -1,4 +1,3 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 export interface ChatCharacter {
@@ -39,19 +38,3 @@ export function CharacterList({ characters, emptyMessage, onSelect }: CharacterL
     </button>
   ))}</>;
 }
-
-export function renderCharacterList(root: HTMLElement, props: CharacterListProps) {
-  render(<CharacterList {...props} />, root);
-}
-
-interface CharacterChatBridgeWindow {
-  BunnylandPreact?: {
-    renderCharacterList?: typeof renderCharacterList;
-  };
-  renderCharacterChatCharacters?: () => void;
-}
-
-const bridgeWindow = window as unknown as CharacterChatBridgeWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderCharacterList = renderCharacterList;
-bridgeWindow.renderCharacterChatCharacters?.();

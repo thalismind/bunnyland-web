@@ -27,7 +27,7 @@
       title: 'Welcome',
       label: 'Start here',
       description: 'Project overview, docs, admin notes, and client chooser.',
-      supportsServer: false,
+      supportsServer: true,
     },
     {
       href: 'https://bunnyland.dev/',
@@ -41,6 +41,7 @@
       title: 'Toon Client',
       label: 'Player room view',
       description: 'Claim a character and play from the room-focused visual client.',
+      supportsFocus: true,
       supportsServer: true,
     },
     {
@@ -48,6 +49,7 @@
       title: 'Web TUI',
       label: 'Player action menu',
       description: 'Claim a character and play from the terminal TUI-style browser client.',
+      supportsFocus: true,
       supportsServer: true,
     },
     {
@@ -55,6 +57,7 @@
       title: 'Web REPL',
       label: 'Text-based play',
       description: 'Claim a character and play with typed commands in the browser.',
+      supportsFocus: true,
       supportsServer: true,
     },
     {
@@ -62,6 +65,7 @@
       title: 'Character Chat',
       label: 'In-character chat',
       description: 'Chat with server-enabled LLM characters through their limited action tools.',
+      supportsFocus: true,
       supportsServer: true,
     },
     {
@@ -69,6 +73,7 @@
       title: 'Character Sheet',
       label: 'Profile view',
       description: 'Open a read-only character profile, portrait, room, inventory, and actions.',
+      supportsFocus: true,
       supportsServer: true,
     },
     {
@@ -136,6 +141,9 @@
       admin: true,
     },
   ];
+  const FOCUS_PAGE_NAMES = new Set([
+    'toon-client.html', 'web-tui.html', 'web-repl.html', 'character-chat.html', 'character-sheet.html',
+  ]);
 
   let deployConfigPromise = null;
 
@@ -388,7 +396,7 @@
 
   function clientHref(item) {
     const url = new URL(item.href, location.href);
-    url.hash = '';
+    url.hash = item.supportsFocus && FOCUS_PAGE_NAMES.has(currentPageName()) ? location.hash : '';
     if (item.supportsServer) {
       const server = currentServerValue();
       if (server) url.searchParams.set('server', server);

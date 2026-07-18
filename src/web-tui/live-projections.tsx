@@ -1,13 +1,4 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
-
-const ownedRoots = new WeakSet<HTMLElement>();
-
-function own(root: HTMLElement) {
-  if (ownedRoots.has(root)) return;
-  root.replaceChildren();
-  ownedRoots.add(root);
-}
 
 export interface TuiActivityRow {
   icon: string;
@@ -123,54 +114,3 @@ export interface TuiLiveProjectionProps {
   onCancel: (id: string) => void;
   queued: readonly TuiQueuedRow[];
 }
-
-export function renderActivityRows(root: HTMLElement, rows: readonly TuiActivityRow[]) {
-  own(root);
-  render(<ActivityRows rows={rows} />, root);
-}
-
-export function renderActionSections(
-  root: HTMLElement,
-  actions: readonly TuiActionRow[],
-  onAction: (index: number) => void,
-) {
-  own(root);
-  render(<ActionSections actions={actions} onAction={onAction} />, root);
-}
-
-export function renderQueuedRows(
-  root: HTMLElement,
-  rows: readonly TuiQueuedRow[],
-  countdown: number | null,
-  onCancel: (id: string) => void,
-) {
-  own(root);
-  render(<QueuedRows countdown={countdown} onCancel={onCancel} rows={rows} />, root);
-}
-
-export function renderTuiLiveProjections(
-  roots: { actions: HTMLElement; activity: HTMLElement; queued: HTMLElement },
-  props: TuiLiveProjectionProps,
-) {
-  renderActivityRows(roots.activity, props.activity);
-  renderActionSections(roots.actions, props.actions, props.onAction);
-  renderQueuedRows(roots.queued, props.queued, props.countdown, props.onCancel);
-}
-
-type TuiPageWindow = Window & {
-  BunnylandToolPreact?: {
-    renderActionSections?: typeof renderActionSections;
-    renderActivityRows?: typeof renderActivityRows;
-    renderQueuedRows?: typeof renderQueuedRows;
-    renderTuiLiveProjections?: typeof renderTuiLiveProjections;
-  };
-  app?: { render?: () => void };
-};
-
-const pageWindow = window as TuiPageWindow;
-pageWindow.BunnylandToolPreact ??= {};
-pageWindow.BunnylandToolPreact.renderActionSections = renderActionSections;
-pageWindow.BunnylandToolPreact.renderActivityRows = renderActivityRows;
-pageWindow.BunnylandToolPreact.renderQueuedRows = renderQueuedRows;
-pageWindow.BunnylandToolPreact.renderTuiLiveProjections = renderTuiLiveProjections;
-pageWindow.app?.render?.();

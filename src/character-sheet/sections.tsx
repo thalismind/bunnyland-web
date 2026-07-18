@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface OverviewContent {
   appearance?: string;
   biography?: string;
@@ -15,17 +13,17 @@ export interface SheetRow {
   unavailable?: boolean;
 }
 
-interface OverviewProps {
+export interface OverviewProps {
   emptyMessage: string;
   overview: OverviewContent;
 }
 
-interface PillListProps {
+export interface PillListProps {
   emptyMessage: string;
   values: readonly string[];
 }
 
-interface SheetListProps {
+export interface SheetListProps {
   emptyMessage: string;
   rows: readonly SheetRow[];
 }
@@ -69,38 +67,3 @@ export function SheetList({ emptyMessage, rows }: SheetListProps) {
     <strong>{row.label}</strong><span>{row.meta}</span>
   </div>)}</>;
 }
-
-export function renderOverview(root: HTMLElement, props: OverviewProps) {
-  const tags = props.overview.tags || [];
-  const hasContent = Boolean(
-    props.overview.description || props.overview.appearance || props.overview.biography || tags.length,
-  );
-  root.className = hasContent ? 'prose' : 'sheet-empty';
-  render(<Overview {...props} />, root);
-}
-
-export function renderPillList(root: HTMLElement, props: PillListProps) {
-  root.className = props.values.length || !props.emptyMessage ? 'pill-row' : 'sheet-empty';
-  render(<PillList {...props} />, root);
-}
-
-export function renderSheetList(root: HTMLElement, props: SheetListProps) {
-  root.className = props.rows.length ? 'sheet-list' : 'sheet-empty';
-  render(<SheetList {...props} />, root);
-}
-
-interface CharacterSheetSectionsWindow {
-  BunnylandPreact?: {
-    renderOverview?: typeof renderOverview;
-    renderPillList?: typeof renderPillList;
-    renderSheetList?: typeof renderSheetList;
-  };
-  app?: { render?: () => void };
-}
-
-const bridgeWindow = window as unknown as CharacterSheetSectionsWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderOverview = renderOverview;
-bridgeWindow.BunnylandPreact.renderPillList = renderPillList;
-bridgeWindow.BunnylandPreact.renderSheetList = renderSheetList;
-bridgeWindow.app?.render?.();

@@ -1,4 +1,3 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 export interface InspectorSearchHit {
@@ -8,7 +7,7 @@ export interface InspectorSearchHit {
   type: string;
 }
 
-interface SearchHitsProps {
+export interface SearchHitsProps {
   activeIndex: number;
   hits: readonly InspectorSearchHit[];
   onPick: (id: string) => void;
@@ -36,23 +35,3 @@ export function SearchHits({ activeIndex, hits, onPick }: SearchHitsProps) {
     ))}
   </>;
 }
-
-export function renderSearchHits(
-  root: HTMLElement,
-  hits: readonly InspectorSearchHit[],
-  activeIndex: number,
-  onPick: (id: string) => void,
-) {
-  render(<SearchHits hits={hits} activeIndex={activeIndex} onPick={onPick} />, root);
-}
-
-type InspectorSearchBridge = { renderSearchHits?: typeof renderSearchHits };
-type InspectorSearchWindow = Window & {
-  BunnylandInspectorPreact?: InspectorSearchBridge;
-  app?: { _renderSearchHits?: () => void };
-};
-
-const bridgeWindow = window as InspectorSearchWindow;
-bridgeWindow.BunnylandInspectorPreact ??= {};
-bridgeWindow.BunnylandInspectorPreact.renderSearchHits = renderSearchHits;
-bridgeWindow.app?._renderSearchHits?.();

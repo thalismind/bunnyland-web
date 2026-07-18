@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface EventEntity {
   id: string;
   name: string;
@@ -20,12 +18,19 @@ export interface EventRecord {
 
 interface EventListProps {
   events: readonly EventRecord[];
+  onToggle?: (eventId: string, open: boolean) => void;
 }
 
-export function EventList({ events }: EventListProps) {
+export function EventList({ events, onToggle }: EventListProps) {
   if (events.length === 0) return <div class="empty">No matching events.</div>;
   return <>{events.map((event) => (
-    <details class="event-record" data-event-id={event.eventId} key={event.eventId} open={event.open}>
+    <details
+      class="event-record"
+      data-event-id={event.eventId}
+      key={event.eventId}
+      open={event.open}
+      onToggle={(toggleEvent): void => onToggle?.(event.eventId, toggleEvent.currentTarget.open)}
+    >
       <summary>
         <span class="ev-epoch">{event.epoch}</span>
         <span class="ev-icon">{event.icon}</span>
@@ -53,19 +58,3 @@ export function EventList({ events }: EventListProps) {
     </details>
   ))}</>;
 }
-
-export function renderEventList(root: HTMLElement, props: EventListProps) {
-  render(<EventList {...props} />, root);
-}
-
-interface EventStreamBridgeWindow {
-  BunnylandPreact?: {
-    renderEventList?: typeof renderEventList;
-  };
-  app?: { _render?: () => void };
-}
-
-const bridgeWindow = window as unknown as EventStreamBridgeWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderEventList = renderEventList;
-bridgeWindow.app?._render?.();

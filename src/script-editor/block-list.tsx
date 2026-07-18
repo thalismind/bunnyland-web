@@ -1,5 +1,4 @@
 import { EmptyState } from '@bunnyland/ui-web/preact';
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 export interface ScriptBlockItem {
@@ -35,23 +34,3 @@ export function BlockList({ blocks, onSelect, selectedIndex }: BlockListProps) {
     ))}
   </>;
 }
-
-export function renderBlockList(
-  root: HTMLElement,
-  blocks: readonly ScriptBlockItem[],
-  selectedIndex: number,
-  onSelect: (index: number) => void,
-) {
-  render(<BlockList blocks={blocks} selectedIndex={selectedIndex} onSelect={onSelect} />, root);
-}
-
-type ScriptEditorBridge = { renderBlockList?: typeof renderBlockList };
-type ScriptEditorWindow = Window & {
-  BunnylandScriptPreact?: ScriptEditorBridge;
-  app?: { _renderBlocks?: () => void };
-};
-
-const bridgeWindow = window as ScriptEditorWindow;
-bridgeWindow.BunnylandScriptPreact ??= {};
-bridgeWindow.BunnylandScriptPreact.renderBlockList = renderBlockList;
-bridgeWindow.app?._renderBlocks?.();

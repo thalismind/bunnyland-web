@@ -1,5 +1,4 @@
 import { EmptyState } from '@bunnyland/ui-web/preact';
-import { render } from 'preact';
 
 export interface InspectorEventItem {
   actorId?: string;
@@ -11,7 +10,7 @@ export interface InspectorEventItem {
   type: string;
 }
 
-interface EventFeedProps {
+export interface EventFeedProps {
   events: readonly InspectorEventItem[];
 }
 
@@ -32,18 +31,3 @@ export function EventFeed({ events }: EventFeedProps) {
     ))}
   </>;
 }
-
-export function renderEventFeed(root: HTMLElement, events: readonly InspectorEventItem[]) {
-  render(<EventFeed events={events} />, root);
-}
-
-type InspectorBridge = { renderEventFeed?: typeof renderEventFeed };
-type InspectorWindow = Window & {
-  BunnylandInspectorPreact?: InspectorBridge;
-  app?: { _renderEventFeed?: () => void };
-};
-
-const bridgeWindow = window as InspectorWindow;
-bridgeWindow.BunnylandInspectorPreact ??= {};
-bridgeWindow.BunnylandInspectorPreact.renderEventFeed = renderEventFeed;
-bridgeWindow.app?._renderEventFeed?.();

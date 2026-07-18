@@ -1,5 +1,3 @@
-import { render } from 'preact';
-
 export interface TranscriptAction {
   commandId: string;
   icon: string;
@@ -45,19 +43,3 @@ export function Transcript({ emptyMessage, items }: TranscriptProps) {
     />,
   )}</>;
 }
-
-export function renderTranscript(root: HTMLElement, props: TranscriptProps) {
-  render(<Transcript {...props} />, root);
-}
-
-interface CharacterChatTranscriptWindow {
-  BunnylandPreact?: {
-    renderTranscript?: typeof renderTranscript;
-  };
-  renderCharacterChatTranscript?: () => void;
-}
-
-const bridgeWindow = window as unknown as CharacterChatTranscriptWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderTranscript = renderTranscript;
-bridgeWindow.renderCharacterChatTranscript?.();

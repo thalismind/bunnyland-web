@@ -1,4 +1,3 @@
-import { render } from 'preact';
 import { useCallback } from 'preact/hooks';
 
 export interface MemoryCollection {
@@ -12,7 +11,7 @@ export interface MemoryCharacter {
   name: string;
 }
 
-interface MemoryCharacterListProps {
+export interface MemoryCharacterListProps {
   activeCollection: string;
   characters: readonly MemoryCharacter[];
   emptyMessage: string;
@@ -49,19 +48,3 @@ export function MemoryCharacterList({
     </div>
   ))}</>;
 }
-
-export function renderMemoryCharacterList(root: HTMLElement, props: MemoryCharacterListProps) {
-  render(<MemoryCharacterList {...props} />, root);
-}
-
-interface MemoryBridgeWindow {
-  BunnylandPreact?: {
-    renderMemoryCharacterList?: typeof renderMemoryCharacterList;
-  };
-  app?: { _renderCharacters?: () => void };
-}
-
-const bridgeWindow = window as unknown as MemoryBridgeWindow;
-bridgeWindow.BunnylandPreact ??= {};
-bridgeWindow.BunnylandPreact.renderMemoryCharacterList = renderMemoryCharacterList;
-bridgeWindow.app?._renderCharacters?.();
