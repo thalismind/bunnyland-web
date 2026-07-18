@@ -66,7 +66,7 @@ function harness() {
     cancelQueuedCommand: async () => ({ cancelled: true }),
     queuedCommandName: () => '', queuedCommandCost: () => '', queuedCommandDetail: () => '',
     imageRequestMessage: () => 'Image requested',
-    characterSheetHref: (_base, id) => `character-sheet.html#${String(id)}`,
+    characterHref: (_base, id) => `character.html#${String(id)}`,
   };
   const runtime: ToonRuntime = {
     api: {

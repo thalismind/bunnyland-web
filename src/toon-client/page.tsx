@@ -301,7 +301,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const openSheet = (): void => {
     if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before opening a sheet.'); return; }
     const target = selectedId && characterList.some(character => character.id === selectedId) ? selectedId : playerId;
-    const href = playCall<string>(runtime, 'characterSheetHref', baseRef.current, target);
+    const href = playCall<string>(runtime, 'characterHref', baseRef.current, target);
     const opened = window.open(href, '_blank', 'noopener');
     setStatus(opened ? '● Opened character sheet.' : `⚠ Sheet URL: ${href}`);
   };

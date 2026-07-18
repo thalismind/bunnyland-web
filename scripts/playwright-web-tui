@@ -297,7 +297,7 @@ def use_image_and_sheet_buttons(page) -> None:
     page.evaluate("() => { window.openedSheetUrl = ''; window.open = (url) => { window.openedSheetUrl = url; return {}; }; }")
     page.locator("#btn-open-sheet").click()
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi%2Fv1#character:1" not in opened:
+    if "character.html?server=%2Fapi%2Fv1#character:1" not in opened:
         raise AssertionError(f"sheet button opened wrong URL: {opened!r}")
 
     page.locator('#inventory .option[data-entity="item:1"]').click()
@@ -311,7 +311,7 @@ def use_image_and_sheet_buttons(page) -> None:
     expect(page.locator('#inventory .option.selected[data-entity="item:1"]')).to_have_count(0)
     page.locator("#btn-open-sheet").click()
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi%2Fv1#character:1" not in opened:
+    if "character.html?server=%2Fapi%2Fv1#character:1" not in opened:
         raise AssertionError(f"sheet button did not fall back after clearing selection: {opened!r}")
 
 

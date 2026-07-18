@@ -77,7 +77,7 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
     })) || [],
     applyConfig: vi.fn(async () => ({})),
     cancelQueuedCommand: vi.fn(async () => ({ cancelled: true })),
-    characterSheetHref: (_base, id) => `character-sheet.html?server=%2Fapi#${id}`,
+    characterHref: (_base, id) => `character.html?server=%2Fapi#${id}`,
     claimSettings: () => ({ fallback_controller: 'suspend', timeout_seconds: 1800 }),
     claimWebController: vi.fn(async () => ({
       character_id: CONTROL.characterId,

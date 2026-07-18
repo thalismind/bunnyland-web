@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Playwright regression test for the Bunnyland character sheet page."""
+"""Playwright regression test for the combined Bunnyland character page."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -140,15 +141,35 @@ def install_routes(page, state: dict) -> None:
         body = projection(portrait_url="/media/portraits/bun.png" if state["ready"] else "")
         route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
-    def scene_image(route):
-        state["requested"] += 1
-        state["ready"] = True
+    def player_job(route):
+        payload = json.loads(route.request.post_data or "{}")
+        if payload.get("kind") == "chat":
+            state["chat_payloads"].append(payload)
+            body = {
+                "id": "job:chat-1",
+                "kind": "chat",
+                "status": "succeeded",
+                "world_epoch": 9,
+                "result": {"reply": f"reply to {payload['message']}"},
+            }
+        else:
+            state["requested"] += 1
+            state["ready"] = True
+            body = {"id": "job:image-1", "kind": "scene_image", "status": "queued"}
         route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps({"ok": True, "status": "queued"}),
+            body=json.dumps(body),
         )
 
+    page.route(
+        "**/public/features",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"character_chat": True, "character_sheets": True}),
+        ),
+    )
     page.route(
         "**/play/characters",
         lambda route: route.fulfill(
@@ -157,7 +178,7 @@ def install_routes(page, state: dict) -> None:
             body=json.dumps(CHARACTER_LIST),
         ),
     )
-    page.route("**/play/claims/*/jobs", scene_image)
+    page.route("**/play/claims/*/jobs", player_job)
     page.route("**/play/claims/*/projection", character_projection)
 
 
@@ -165,7 +186,7 @@ def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
-        coverage = PlaywrightCoverage("character-sheet")
+        coverage = PlaywrightCoverage("character")
         browser = launch_browser(playwright)
         page = coverage.new_page(browser, viewport={"width": 1280, "height": 800})
         page.add_init_script(
@@ -174,15 +195,16 @@ def main() -> None:
               controllerId: 'web:sheet', claimId: 'sheet-claim', claimSecret: 'sheet-secret',
               clientId: 'sheet-client', generation: 2, active: true,
             }}));
+            localStorage.setItem('bunnyland.characterChat.clientId', 'character-chat-client');
             """
         )
-        state = {"requested": 0, "ready": False}
+        state = {"requested": 0, "ready": False, "chat_payloads": []}
         install_routes(page, state)
 
-        page.goto(f"{BASE_URL}/character-sheet.html?server=/api/v1#{CHARACTER}", wait_until="domcontentloaded")
+        page.goto(f"{BASE_URL}/character.html?server=/api/v1#{CHARACTER}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
 
-        expect(page).to_have_title("Bunnyland Character Sheet: Bun")
+        expect(page).to_have_title("Bunnyland Character: Bun")
         expect(page.locator("#character-name")).to_have_text("Bun")
         expect(page.locator("#character-select")).to_have_value(CHARACTER)
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
@@ -193,7 +215,7 @@ def main() -> None:
                 window.app.render();
             }"""
         )
-        expect(page).to_have_title("Bunnyland Character Sheet: Dr. Bun")
+        expect(page).to_have_title("Bunnyland Character: Dr. Bun")
         expect(page.locator("#character-name")).to_have_text("Dr. Bun")
         expect(page.locator("#portrait-frame [data-testid='portrait-placeholder']")).to_have_text("B")
         page.evaluate(
@@ -202,7 +224,7 @@ def main() -> None:
                 window.app.render();
             }"""
         )
-        expect(page).to_have_title("Bunnyland Character Sheet: Bun")
+        expect(page).to_have_title("Bunnyland Character: Bun")
         expect(page.locator("#character-name")).to_have_text("Bun")
         stat_labels = page.locator(".identity-grid .stat-label").evaluate_all(
             "(nodes) => nodes.map((node) => node.textContent.trim())"
@@ -271,22 +293,45 @@ def main() -> None:
         page.wait_for_function("() => document.querySelector('#portrait-frame img')")
         expect(page.locator("#portrait-status")).to_have_text("Portrait ready.")
 
+        page.locator("#tab-chat").click()
+        expect(page).to_have_url(re.compile(r"character\.html\?server=%2Fapi%2Fv1&view=chat#character(?::|%3A)1"))
+        expect(page.locator("#chat-pane")).to_be_visible()
+        page.locator("#chat-input").fill("hello")
+        with page.expect_response("**/play/claims/*/jobs"):
+            page.locator("#btn-send").click()
+        expect(page.locator("#transcript")).to_contain_text("reply to hello")
+        if state["chat_payloads"][-1]["history"] != []:
+            raise AssertionError(f"unexpected chat history payload: {state['chat_payloads']!r}")
+        page.locator("#tab-sheet").click()
+        expect(page.locator("#inventory")).to_contain_text("a brass key")
+
         page.locator("#character-select").select_option(OTHER)
         page.wait_for_function("() => location.hash === '#character%3A2' || location.hash === '#character:2'")
 
         page.locator("#btn-client-menu").click()
-        expect(page.locator("#client-menu-dialog")).to_contain_text("Character Sheet")
-        expect(page.locator("#client-menu-dialog .client-menu-item.active")).to_contain_text("Character Sheet")
+        expect(page.locator("#client-menu-dialog")).to_contain_text("Character Profile")
+        expect(page.locator("#client-menu-dialog .client-menu-item.active")).to_contain_text("Character Profile")
         href = page.locator("#client-menu-dialog a").filter(has_text="Web TUI").get_attribute("href")
         if "server=%2Fapi" not in (href or ""):
             raise AssertionError(f"client menu did not preserve server parameter: {href!r}")
 
-        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-sheet.png"))
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character.png"))
         page.evaluate("() => window.app.selectCharacter('', { updateHash: true })")
-        expect(page).to_have_title("Bunnyland Character Sheet")
+        expect(page).to_have_title("Bunnyland Character")
+
+        page.goto(
+            f"{BASE_URL}/character-chat.html?server=/api/v1&theme=dark#{CHARACTER}",
+            wait_until="domcontentloaded",
+        )
+        page.wait_for_url(re.compile(r"character\.html\?server=%2Fapi%2Fv1&theme=dark&view=chat#character(?::|%3A)1"))
+        page.goto(
+            f"{BASE_URL}/character-sheet.html?server=/api/v1&view=chat#{CHARACTER}",
+            wait_until="domcontentloaded",
+        )
+        page.wait_for_url(re.compile(r"character\.html\?server=%2Fapi%2Fv1#character(?::|%3A)1"))
         coverage.close_browser(browser)
 
-    print("character_sheet=ok")
+    print("character=ok")
 
 
 if __name__ == "__main__":

@@ -1,32 +1,9 @@
 import { fireEvent, render } from '@testing-library/preact';
 import { describe, expect, it, vi } from 'vitest';
 
-import { CharacterList } from '../src/character-chat/character-list';
 import { MemoryCharacterList } from '../src/character-memory/character-list';
-import { MetricList } from '../src/character-sheet/metrics';
+import { MetricList } from '../src/character/metrics';
 import { EventList, type EventRecord } from '../src/event-stream/event-list';
-
-describe('CharacterList', () => {
-  it('keeps keyed characters while selection changes and forwards selection', () => {
-    const onSelect = vi.fn();
-    const character = {
-      characterId: 'character:juniper', hasHistory: true, kind: 'character',
-      name: 'Juniper', selected: false, suspended: false,
-    };
-    const view = render(<CharacterList characters={[character]} emptyMessage="Empty" onSelect={onSelect} />);
-    const original = view.container.querySelector('[data-id="character:juniper"]');
-    view.rerender(<CharacterList
-      characters={[{ ...character, selected: true }]}
-      emptyMessage="Empty"
-      onSelect={onSelect}
-    />);
-    const updated = view.container.querySelector('[data-id="character:juniper"]');
-    expect(updated).toBe(original);
-    expect(updated?.classList.contains('active')).toBe(true);
-    fireEvent.click(updated!);
-    expect(onSelect).toHaveBeenCalledWith('character:juniper');
-  });
-});
 
 describe('MemoryCharacterList', () => {
   it('keeps keyed collection controls and loads the selected collection', () => {

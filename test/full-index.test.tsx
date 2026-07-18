@@ -51,8 +51,8 @@ describe('LandingPage deployment state', () => {
     expect(view.container.querySelector('#cmd-tui')?.textContent).toContain('/custom-api');
     expect(api.sendJson.mock.calls[0]?.[0]).toMatch(/^http.*\/custom-api$/);
     expect(api.sendJson.mock.calls[0]?.[1]).toBe('/public/features');
-    expect(view.container.querySelector('#character-sheet-card')?.classList.contains('feature-disabled')).toBe(false);
-    expect(view.container.querySelector('#character-sheet-link')?.getAttribute('href')).toContain('%2Fcustom-api');
+    expect(view.container.querySelector('#character-card')?.classList.contains('feature-disabled')).toBe(false);
+    expect(view.container.querySelector('#character-link')?.getAttribute('href')).toContain('%2Fcustom-api');
     for (const page of ['toon-client.html', 'web-tui.html', 'web-repl.html']) {
       const links = [...view.container.querySelectorAll<HTMLAnchorElement>(`a[href^="${page}"]`)];
       expect(links.length).toBeGreaterThan(0);
@@ -63,7 +63,7 @@ describe('LandingPage deployment state', () => {
       expect(new URL(link.href).searchParams.get('server')).toBe('/custom-api');
     }
     expect(view.container.querySelector<HTMLAnchorElement>('a[href^="script-editor.html"]')?.search).toBe('');
-    expect(view.container.querySelector('#character-chat-link')?.getAttribute('aria-disabled')).toBe('true');
+    expect(view.container.querySelector('#character-link')?.getAttribute('aria-disabled')).toBe('false');
     expect(initClientMenu).toHaveBeenCalledOnce();
   });
 
@@ -72,12 +72,12 @@ describe('LandingPage deployment state', () => {
     api.sendJson.mockRejectedValue(new Error('offline'));
 
     const view = render(<LandingPage />);
-    await waitFor(() => expect(view.getAllByText('Disabled on this server.')).toHaveLength(2));
+    await waitFor(() => expect(view.getByText('Disabled on this server.')).toBeTruthy());
 
     expect(view.container.querySelector('#cmd-repl')?.textContent).toContain('/api');
     expect(view.container.querySelector<HTMLAnchorElement>('#discord-link')?.style.display).toBe('none');
-    expect(view.container.querySelector('#character-chat-card')?.classList.contains('feature-disabled')).toBe(true);
-    expect(view.container.querySelector('#character-sheet-link')?.getAttribute('tabindex')).toBe('-1');
+    expect(view.container.querySelector('#character-card')?.classList.contains('feature-disabled')).toBe(true);
+    expect(view.container.querySelector('#character-link')?.getAttribute('tabindex')).toBe('-1');
   });
 
   it('prefers the linked server over deployment config when generating cross-page links', async () => {
@@ -87,7 +87,7 @@ describe('LandingPage deployment state', () => {
     api.sendJson.mockResolvedValue({ character_chat: true, character_sheets: true });
 
     const view = render(<LandingPage />);
-    await waitFor(() => expect(view.getAllByText('Available on this server.')).toHaveLength(2));
+    await waitFor(() => expect(view.getByText('Available on this server.')).toBeTruthy());
     const toon = view.container.querySelector<HTMLAnchorElement>('a[href^="toon-client.html"]')!;
     expect(new URL(toon.href).searchParams.get('server')).toBe('/linked-api');
     expect(location.hash).toBe('#ignored-focus');

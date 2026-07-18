@@ -319,7 +319,7 @@ def exercise_meta_commands(page) -> None:
         expect(page.locator("#repl-log")).to_contain_text(expected)
 
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi%2Fv1#character:2" not in opened:
+    if "character.html?server=%2Fapi%2Fv1#character:2" not in opened:
         raise AssertionError(f"profile command opened wrong URL: {opened!r}")
 
     page.locator("#repl-input").fill("clear")

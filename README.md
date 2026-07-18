@@ -58,13 +58,13 @@ merged summary to `artifacts/playwright-coverage/coverage-summary.json`.
 
 ## Vite, TypeScript, and Preact
 
-The browser clients are built as a Vite multi-page application. Every existing HTML URL is
-an independent build entry, so bookmarks and server links continue to use paths such as
-`world-editor.html` and `toon-client.html`; this is not a single-page router.
+The browser clients are built as a Vite multi-page application. Canonical HTML URLs remain
+independent build entries, while retired character sheet and chat URLs redirect to the
+combined `character.html` profile without dropping their query or character hash.
 
 New UI uses direct `preact` functional components and hooks. All fourteen page entries now
 have typed, keyed Preact-owned regions for their highest-update lists and projections. The
-Inspector, Trace Analyzer, Character Chat, Character Sheet, Web TUI, and Web REPL also move
+Inspector, Trace Analyzer, Character Profile, Web TUI, and Web REPL also move
 their secondary live-update regions without replacing focused inputs or unchanged rows.
 Their existing page controllers are temporary adapters so the remaining orchestration can
 move in independently verified slices without changing the API or Playwright contracts.

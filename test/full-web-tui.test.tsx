@@ -41,7 +41,7 @@ const play = {
   actionUnavailableReason: vi.fn(() => ''),
   allTargets: vi.fn(() => [{ label: 'Hazel', value: 'character:2' }]),
   cancelQueuedCommand: vi.fn(async () => undefined),
-  characterSheetHref: vi.fn(() => 'character-sheet.html?id=character%3A1'),
+  characterHref: vi.fn(() => 'character.html?id=character%3A1'),
   claimSettings: vi.fn(() => ({})),
   claimWebController: vi.fn(async () => ({})),
   clearClaimControl: vi.fn(),

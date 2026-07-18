@@ -84,7 +84,7 @@ export interface WebReplServices {
   cancelQueuedCommand: (
     base: string, characterId: string, commandId: string, control: ControlClaim,
   ) => Promise<unknown>;
-  characterSheetHref: (base: string, characterId: string) => string;
+  characterHref: (base: string, characterId: string) => string;
   claimSettings: () => Record<string, unknown>;
   claimWebController: (
     base: string, payload: Record<string, unknown>, control: ControlClaim | null,
@@ -786,7 +786,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       write(`No character sheet target: ${name}. Try who.`, 'error');
       return;
     }
-    const href = services.characterSheetHref(apiBaseRef.current, characterId);
+    const href = services.characterHref(apiBaseRef.current, characterId);
     const opened = window.open(href, '_blank', 'noopener');
     write(opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`, 'ok');
   };

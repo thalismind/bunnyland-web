@@ -118,22 +118,20 @@ export function CopyCommand({ id, program, server }: { id: string; program: stri
 
 function FeatureCard({
   description,
-  feature,
   href,
   label,
   state,
   title,
 }: {
   description: string;
-  feature: 'character_chat' | 'character_sheets';
   href: string;
   label: string;
   state: Availability;
   title: string;
 }) {
   const enabled = state === 'available';
-  const idBase = feature === 'character_chat' ? 'character-chat' : 'character-sheet';
-  return <article id={`${idBase}-card`} class={`info-card ${enabled ? '' : 'feature-disabled'}`} data-feature={feature}>
+  const idBase = 'character';
+  return <article id={`${idBase}-card`} class={`info-card ${enabled ? '' : 'feature-disabled'}`} data-feature="character">
     <h3>{title}</h3>
     <p>{description}</p>
     <div class={`feature-state ${enabled ? 'available' : 'unavailable'}`} id={`${idBase}-state`}>
@@ -152,8 +150,10 @@ export function LandingPage() {
   const base = useMemo(() => terminalBase(serverUrl), [serverUrl]);
   const queryServer = clientServer(serverUrl);
   const playerHref = (page: string): string => `${page}?server=${encodeURIComponent(queryServer)}`;
-  const chatHref = `character-chat.html?server=${encodeURIComponent(queryServer)}`;
-  const sheetHref = `character-sheet.html?server=${encodeURIComponent(queryServer)}`;
+  const characterHref = `character.html?server=${encodeURIComponent(queryServer)}`;
+  const characterState: Availability = Object.values(availability).includes('available')
+    ? 'available'
+    : Object.values(availability).includes('checking') ? 'checking' : 'unavailable';
 
   return <div class="welcome-shell">
     <header class="welcome-header">
@@ -234,12 +234,9 @@ export function LandingPage() {
           <p>These clients use the live server API. Unavailable features stay visible but disabled.</p>
         </div>
         <div class="info-grid">
-          <FeatureCard feature="character_chat" title="Character Chat"
-            description="Start an in-character conversation with LLM-controlled characters using the limited chat action toolbox."
-            label="Open Character Chat" href={chatHref} state={availability.character_chat} />
-          <FeatureCard feature="character_sheets" title="Character Sheet"
-            description="A read-only profile with portrait, room context, vitals, needs, relationships, visible characters, inventory, and available actions."
-            label="Open Character Sheet" href={sheetHref} state={availability.character_sheets} />
+          <FeatureCard title="Character Profile"
+            description="Inspect a live character sheet and start an in-character conversation from one shared profile."
+            label="Open Character Profile" href={characterHref} state={characterState} />
         </div>
       </section>
 

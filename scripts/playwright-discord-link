@@ -83,7 +83,7 @@ def check_present(page) -> None:
     page.locator('[data-copy="cmd-tui"]').click()
     page.wait_for_timeout(100)
     writes = page.evaluate("window.__clipboardWrites")
-    expected_copy = f"uv run --extra tui bunnyland tui --server {BASE_URL}/api"
+    expected_copy = f"uv run --extra tui bunnyland tui --server {BASE_URL}/api/v1"
     if writes != [expected_copy]:
         raise AssertionError(
             f"welcome copy button wrote unexpected text: {writes!r}; page errors: {page_errors!r}"

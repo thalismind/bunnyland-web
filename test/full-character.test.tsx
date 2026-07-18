@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  CharacterSheetPage,
+  CharacterPage,
   characterInitials,
-  type CharacterSheetServices,
+  type CharacterServices,
   type SheetProjection,
-} from '../src/character-sheet/app';
+} from '../src/character/page';
 
 const PROJECTION: SheetProjection = {
   actions: [{
@@ -51,16 +51,18 @@ function appFacade(): SheetFacade | undefined {
   return (window as unknown as { app?: SheetFacade }).app;
 }
 
-function makeServices(projection: () => SheetProjection = () => PROJECTION) {
+function makeServices(projection: () => SheetProjection = () => structuredClone(PROJECTION)) {
   const closeLive = vi.fn();
   const closeMenu = vi.fn();
-  let liveOptions: Parameters<CharacterSheetServices['createPlayerLiveUpdates']>[0] | undefined;
-  const services: CharacterSheetServices = {
+  let liveOptions: Parameters<CharacterServices['createPlayerLiveUpdates']>[0] | undefined;
+  const services: CharacterServices = {
     actionAvailable: (action) => action.available !== false,
     actionCost: (action) => ({ action: Number(action.cost?.action || 0), focus: Number(action.cost?.focus || 0) }),
+    actionIcon: () => '💬',
     actionLane: (action) => action.lane || 'world',
     actionTitle: (action) => action.title || action.tool_name || action.command_type || 'Action',
     applyConfig: vi.fn(async () => ({})),
+    claimHeaders: vi.fn(() => ({ 'X-Bunnyland-Claim-Secret': 'secret' })),
     createPlayerLiveUpdates: vi.fn((options) => {
       liveOptions = options;
       options.onState('live');
@@ -73,11 +75,23 @@ function makeServices(projection: () => SheetProjection = () => PROJECTION) {
     fetchCharacterProjection: vi.fn(async () => projection()),
     formatPoints: (value) => String(Number(value || 0)),
     initClientMenu: () => ({ close: closeMenu }),
+    initTheme: vi.fn(),
     mediaUrl: (base, url) => `${base}${url}`,
     normalizeBase: (url) => url.replace(/\/$/, ''),
     orderActionsByAvailability: (actions) => actions,
+    persistentClientId: () => 'chat-test-client',
     portraitStatusMessage: (current) => current?.portrait?.url ? 'Portrait ready.' : 'Portrait pending.',
     requestSceneImage: vi.fn(async () => ({ ok: true })),
+    sendJson: vi.fn(async (_base, path, options) => {
+      if (path.endsWith('/public/features')) return { character_chat: true, character_sheets: true };
+      if (path.endsWith('/jobs')) return {
+        id: 'job:chat', status: 'succeeded', result: { reply: 'Hello back.' },
+      };
+      if (path.endsWith('/jobs/job%3Achat')) return {
+        id: 'job:chat', status: 'succeeded', result: { reply: 'Hello back.' },
+      };
+      return JSON.parse(options?.body || '{}') as Record<string, unknown>;
+    }),
     serverFromUrl: () => '/api',
     setServerInUrl: vi.fn(),
     storedClaimControl: vi.fn((_key, characterId) => ({ claimId: `claim:${characterId}`, claimSecret: 'secret' })),
@@ -87,19 +101,20 @@ function makeServices(projection: () => SheetProjection = () => PROJECTION) {
 }
 
 beforeEach(() => {
-  history.replaceState(null, '', '/character-sheet.html#character%3Aone');
+  history.replaceState(null, '', '/character.html#character%3Aone');
 });
 
 afterEach(() => {
   cleanup();
-  history.replaceState(null, '', '/character-sheet.html');
+  localStorage.clear();
+  history.replaceState(null, '', '/character.html');
 });
 
-describe('full Character Sheet page', () => {
+describe('full Character page', () => {
   it('projects keyed character details in place across live refreshes', async () => {
     let current = PROJECTION;
     const runtime = makeServices(() => current);
-    const view = render(<CharacterSheetPage services={runtime.services} />);
+    const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(view.container.querySelector('[data-row-key="item:key"]')).toBeTruthy());
     const originalInventory = view.container.querySelector('[data-row-key="item:key"]');
     expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel');
@@ -121,7 +136,7 @@ describe('full Character Sheet page', () => {
 
   it('preserves action-filter focus while projections update', async () => {
     const runtime = makeServices();
-    const view = render(<CharacterSheetPage services={runtime.services} />);
+    const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(view.container.querySelector('[data-row-key="say:say"]')).toBeTruthy());
     const filter = view.container.querySelector('#action-filter') as HTMLInputElement;
     filter.focus();
@@ -135,9 +150,9 @@ describe('full Character Sheet page', () => {
   });
 
   it('delegates through the compatibility facade and closes live effects on unmount', async () => {
-    history.replaceState(null, '', '/character-sheet.html?server=%2Fapi#character%3Aone');
+    history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
     const runtime = makeServices();
-    const view = render(<CharacterSheetPage services={runtime.services} />);
+    const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(appFacade()?.projection?.characterId).toBe('character:one'));
     expect(runtime.getLiveOptions()?.characterId).toBe('character:one');
     expect(characterInitials('Dr. Hazel Rowan')).toBe('HR');
@@ -154,5 +169,30 @@ describe('full Character Sheet page', () => {
     view.unmount();
     expect(runtime.closeMenu).toHaveBeenCalledOnce();
     expect(appFacade()).toBeUndefined();
+  });
+
+  it('switches to chat without opening another live connection and preserves the server query', async () => {
+    history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
+    const runtime = makeServices();
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
+
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    expect(location.search).toBe('?server=%2Fapi&view=chat');
+    expect(view.container.querySelector('#chat-pane')).toBeTruthy();
+    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Hello' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+    await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain('Hello back.'));
+    expect(runtime.services.sendJson).toHaveBeenCalledWith(
+      '/api', '/play/claims/claim%3Acharacter%3Aone/jobs', expect.objectContaining({ method: 'POST' }),
+    );
+
+    fireEvent.click(view.container.querySelector('#tab-sheet')!);
+    expect(location.search).toBe('?server=%2Fapi');
+    expect(view.container.querySelector('#inventory')).toBeTruthy();
+    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
   });
 });

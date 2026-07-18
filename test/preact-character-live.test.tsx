@@ -1,8 +1,8 @@
 import { render } from '@testing-library/preact';
 import { describe, expect, it } from 'vitest';
 
-import { Transcript, type TranscriptItem } from '../src/character-chat/transcript';
-import { Overview, PillList, SheetList } from '../src/character-sheet/sections';
+import { Overview, PillList, SheetList } from '../src/character/sections';
+import { Transcript, type TranscriptItem } from '../src/character/transcript';
 
 describe('Transcript', () => {
   it('keeps keyed messages while safe markdown output and action state update', () => {

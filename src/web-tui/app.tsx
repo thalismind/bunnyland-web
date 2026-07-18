@@ -411,7 +411,7 @@ export function WebTuiPage() {
       }
       id = current.selectedId;
     }
-    const href = play.characterSheetHref(baseRef.current, id);
+    const href = play.characterHref(baseRef.current, id);
     const opened = window.open(href, '_blank', 'noopener'); activity(opened ? `Opened sheet: ${href}` : `Sheet URL: ${href}`);
   };
 

@@ -145,8 +145,8 @@ test('client menu carries server and focus between focused player pages only', (
 
   context.BunnylandUI.initClientMenu().open();
   const html = context.document.getElementById('client-menu-dialog').innerHTML;
-  assert.match(html, /character-sheet\.html\?server=%2Fapi#character%3Aone/);
-  assert.match(html, /character-chat\.html\?server=%2Fapi#character%3Aone/);
+  assert.match(html, /character\.html\?server=%2Fapi#character%3Aone/);
+  assert.doesNotMatch(html, /character-(?:sheet|chat)\.html/);
   assert.match(html, /event-stream\.html\?server=%2Fapi/);
   assert.doesNotMatch(html, /event-stream\.html\?server=%2Fapi#character/);
 });
@@ -207,7 +207,7 @@ test('browser config, transports, media, and generated links reject cross-origin
     /page origin/,
   );
   assert.throws(
-    () => BunnylandPlay.characterSheetHref('https://evil.test/api', `x'\"><script>`),
+    () => BunnylandPlay.characterHref('https://evil.test/api', `x'\"><script>`),
     /page origin/,
   );
 });
@@ -306,15 +306,16 @@ test('BunnylandApi prompts before configured player-auth autoconnect', async () 
   assert.equal(BunnylandApi.getPlayerAuth(), null);
 });
 
-test('Character chat page is in the client menu and sends bounded local history', () => {
+test('Character page is in the client menu and sends bounded local history', () => {
   const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
-  const page = fs.readFileSync('src/character-chat/page.tsx', 'utf8');
+  const page = fs.readFileSync('src/character/page.tsx', 'utf8');
+  const state = fs.readFileSync('src/character/chat-state.ts', 'utf8');
 
-  assert.match(ui, /character-chat\.html/);
-  assert.match(page, /HISTORY_LIMIT = 24/);
+  assert.match(ui, /character\.html/);
+  assert.match(state, /HISTORY_LIMIT = 24/);
   assert.match(page, /history: historyForPayload\(state\.messages\)/);
   assert.match(page, /jobs\/\$\{encodeURIComponent\(commandId\)\}/);
-  assert.match(page, /localStorage\.setItem\(storageKey\(clientId, characterId\)/);
+  assert.match(state, /localStorage\.setItem\(chatStorageKey\(clientId, characterId\)/);
   assert.match(page, /\/play\/claims\/\$\{encodeURIComponent\(control\.claimId\)\}\/jobs/);
 });
 
@@ -490,8 +491,7 @@ test('player pages use the current shared play helper cache key', () => {
     'toon-client.html',
     'web-tui.html',
     'web-repl.html',
-    'character-chat.html',
-    'character-sheet.html',
+    'character.html',
   ];
   for (const page of pages) {
     const html = fs.readFileSync(page, 'utf8');
@@ -503,15 +503,15 @@ test('player pages use the current shared play helper cache key', () => {
   }
 });
 
-test('BunnylandPlay builds character-sheet links and portrait state messages', () => {
+test('BunnylandPlay builds character links and portrait state messages', () => {
   const { BunnylandPlay } = loadBrowserAssets([
     'assets/bunnyland-api.js',
     'assets/bunnyland-play.js',
   ]);
 
   assert.equal(
-    BunnylandPlay.characterSheetHref('http://example.test/api/', 'character:1'),
-    'character-sheet.html?server=http%3A%2F%2Fexample.test%2Fapi#character:1',
+    BunnylandPlay.characterHref('http://example.test/api/', 'character:1'),
+    'character.html?server=http%3A%2F%2Fexample.test%2Fapi#character:1',
   );
   assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: { url: '/public/media/p.png' } }), 'Portrait ready.');
   assert.equal(BunnylandPlay.portraitStatusMessage({ portrait: {} }), 'Portrait pending.');

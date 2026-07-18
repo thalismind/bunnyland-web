@@ -1,0 +1,167 @@
+export type JsonObject = Record<string, unknown>;
+
+export interface ChatAction extends JsonObject {
+  command_id?: string;
+  reason?: string;
+  status?: string;
+  tool?: string;
+}
+
+export interface StoredMessage {
+  action?: ChatAction;
+  command_id?: string;
+  role: 'action' | 'character' | 'user';
+  text: string;
+}
+
+export interface ChatState {
+  messages: StoredMessage[];
+  summary: string;
+}
+
+const HISTORY_PREFIX = 'bunnyland.characterChat.history.';
+export const HISTORY_LIMIT = 24;
+
+function escapeHtml(value: unknown): string {
+  return String(value || '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character] || character);
+}
+
+function safeMarkdownUrl(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw, location.href);
+    return ['http:', 'https:', 'mailto:'].includes(parsed.protocol) ? parsed.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function renderInlineMarkdown(value: unknown): string {
+  const code: string[] = [];
+  let html = escapeHtml(value).replace(/`([^`\n]+)`/g, (_match, text: string) => {
+    const token = `\u0000CODE${code.length}\u0000`;
+    code.push(`<code>${text}</code>`);
+    return token;
+  });
+  html = html.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_match, label: string, url: string) => {
+    const href = safeMarkdownUrl(url);
+    return href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+  });
+  html = html
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/\b_([^_\n]+)_\b/g, '<em>$1</em>');
+  return code.reduce((next, item, index) => next.replace(`\u0000CODE${index}\u0000`, item), html);
+}
+
+function isListLine(line: string): boolean {
+  return /^\s*(?:[-*+]\s+|\d+\.\s+)/.test(line);
+}
+
+function isBlockStart(line: string): boolean {
+  return /^```/.test(line) || /^(?:#{1,3}\s+|>\s?)/.test(line) || isListLine(line);
+}
+
+export function renderMarkdown(value: unknown): string {
+  const lines = String(value || '').replace(/\r\n?/g, '\n').split('\n');
+  const blocks: string[] = [];
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index] || '';
+    if (!line.trim()) { index += 1; continue; }
+    if (/^```/.test(line)) {
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index] || '')) {
+        code.push(lines[index] || '');
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = (heading[1]?.length || 1) + 2;
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2]?.trim())}</h${level}>`);
+      index += 1;
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index] || '')) {
+        quote.push((lines[index] || '').replace(/^>\s?/, ''));
+        index += 1;
+      }
+      blocks.push(`<blockquote>${renderInlineMarkdown(quote.join('\n'))}</blockquote>`);
+      continue;
+    }
+    if (isListLine(line)) {
+      const ordered = /^\s*\d+\.\s+/.test(line);
+      const tag = ordered ? 'ol' : 'ul';
+      const items: string[] = [];
+      while (index < lines.length && isListLine(lines[index] || '') && /^\s*\d+\.\s+/.test(lines[index] || '') === ordered) {
+        items.push(`<li>${renderInlineMarkdown((lines[index] || '').replace(/^\s*(?:[-*+]\s+|\d+\.\s+)/, ''))}</li>`);
+        index += 1;
+      }
+      blocks.push(`<${tag}>${items.join('')}</${tag}>`);
+      continue;
+    }
+    const paragraph = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index]?.trim() && !isBlockStart(lines[index] || '')) {
+      paragraph.push((lines[index] || '').trim());
+      index += 1;
+    }
+    blocks.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
+  }
+  return blocks.join('');
+}
+
+export function chatStorageKey(clientId: string, characterId: string): string {
+  return `${HISTORY_PREFIX}${clientId}.${characterId}`;
+}
+
+export function loadChatState(clientId: string, characterId: string): ChatState {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(chatStorageKey(clientId, characterId)) || '{}') as Partial<ChatState>;
+    return {
+      summary: String(parsed.summary || ''),
+      messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-HISTORY_LIMIT) : [],
+    };
+  } catch {
+    return { summary: '', messages: [] };
+  }
+}
+
+export function saveChatState(clientId: string, characterId: string, state: ChatState): void {
+  try {
+    localStorage.setItem(chatStorageKey(clientId, characterId), JSON.stringify({
+      summary: String(state.summary || ''),
+      messages: state.messages.slice(-HISTORY_LIMIT),
+    }));
+  } catch {
+    // Local persistence is optional.
+  }
+}
+
+export function historyForPayload(messages: readonly StoredMessage[]): Array<{ role: string; text: string }> {
+  return messages
+    .filter(message => (message.role === 'user' || message.role === 'character') && message.text)
+    .map(message => ({ role: message.role, text: message.text }))
+    .slice(-HISTORY_LIMIT);
+}
+
+export function actionSummary(action: ChatAction): string {
+  const tool = action.tool || 'action';
+  if (action.status === 'queued') return `${tool} queued as a game action. Results will appear here when it finishes.`;
+  if (action.status === 'executed') return `${tool} finished.`;
+  if (action.status === 'rejected') return `${tool} failed${action.reason ? `: ${action.reason}` : '.'}`;
+  return `${tool}: ${action.status || 'pending'}`;
+}
+
+export function plainMessageHtml(value: unknown): string {
+  return escapeHtml(value);
+}

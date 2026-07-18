@@ -6,13 +6,31 @@ import {
   ToolbarRow,
 } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
+import {
+  actionSummary,
+  type ChatAction,
+  chatStorageKey,
+  HISTORY_LIMIT,
+  historyForPayload,
+  type JsonObject,
+  loadChatState,
+  plainMessageHtml,
+  renderMarkdown,
+  saveChatState,
+  type StoredMessage,
+} from './chat-state';
 import { MetricList, type SheetMetric } from './metrics';
 import { Overview, PillList, SheetList, type OverviewContent, type SheetRow } from './sections';
+import { Transcript, type TranscriptItem } from './transcript';
+import './page.css';
 
-const DOCUMENT_TITLE_BASE = 'Bunnyland Character Sheet';
+const DOCUMENT_TITLE_BASE = 'Bunnyland Character';
+const CHAT_CLIENT_ID_KEY = 'bunnyland.characterChat.clientId';
+const MARKDOWN_KEY = 'bunnyland.characterChat.markdown';
 const LOBBY_POLL_INTERVAL_MS = 2000;
+const PENDING_POLL_MS = 2000;
 const CLAIM_CLIENT_KEYS = [
   'bunnyland.webTui.clientId',
   'bunnyland.webRepl.clientId',
@@ -24,6 +42,7 @@ export interface SheetCharacter {
   id: string;
   kind: string;
   name: string;
+  suspended?: boolean;
 }
 
 export interface SheetEntry {
@@ -86,6 +105,13 @@ interface ClaimControl {
   claimSecret?: string;
 }
 
+interface FeatureStatus {
+  character_chat?: boolean;
+  character_sheets?: boolean;
+}
+
+export type CharacterView = 'chat' | 'sheet';
+
 interface LiveUpdates {
   close: () => void;
 }
@@ -103,7 +129,8 @@ interface UploadOptions {
   setAuth: (auth: string | null) => void;
 }
 
-export interface CharacterSheetServices {
+export interface CharacterServices {
+  actionIcon: (action: { command_type: string; tool_name: string }) => string;
   actionAvailable: (action: SheetAction) => boolean;
   actionCost: (action: SheetAction) => { action: number; focus: number };
   actionLane: (action: SheetAction) => string;
@@ -112,21 +139,29 @@ export interface CharacterSheetServices {
     connect: (server: string) => void;
     isConnected: () => boolean;
   }) => Promise<unknown>;
+  claimHeaders: (control: ClaimControl | null) => Record<string, string>;
   createPlayerLiveUpdates: (options: LiveOptions) => LiveUpdates;
   fetchCharacterList: (base: string) => Promise<{ characters?: SheetCharacter[]; epoch?: number }>;
   fetchCharacterProjection: (
     base: string, characterId: string, control: ClaimControl | null,
-  ) => Promise<SheetProjection>;
+  ) => Promise<SheetProjection | null>;
   formatPoints: (value: unknown) => string;
   initClientMenu: () => { close?: () => void } | void;
+  initTheme: () => unknown;
   mediaUrl: (base: string, url: string) => string;
   normalizeBase: (url: string) => string;
   orderActionsByAvailability: (actions: SheetAction[]) => SheetAction[];
+  persistentClientId: (key: string, prefix: string) => string;
   portraitStatusMessage: (projection: SheetProjection | null, state: string) => string;
   requestSceneImage: (
     base: string, characterId: string, control: ClaimControl | null,
   ) => Promise<{ ok?: boolean }>;
   serverFromUrl: () => string;
+  sendJson: (base: string, path: string, options?: {
+    body?: string;
+    headers?: Record<string, string>;
+    method?: string;
+  }) => Promise<JsonObject>;
   setServerInUrl: (base: string) => void;
   storedClaimControl: (key: string, characterId: string) => ClaimControl | null;
   uploadCharacterImage: (
@@ -136,30 +171,39 @@ export interface CharacterSheetServices {
 
 interface LegacyWindow extends Window {
   BunnylandApi: {
-    applyConfigToInput: CharacterSheetServices['applyConfig'];
-    mediaUrl: CharacterSheetServices['mediaUrl'];
-    normalizeBase: CharacterSheetServices['normalizeBase'];
-    requestSceneImage: CharacterSheetServices['requestSceneImage'];
-    serverFromUrl: CharacterSheetServices['serverFromUrl'];
-    setServerInUrl: CharacterSheetServices['setServerInUrl'];
-    uploadCharacterImage: CharacterSheetServices['uploadCharacterImage'];
+    applyConfigToInput: CharacterServices['applyConfig'];
+    claimHeaders: CharacterServices['claimHeaders'];
+    mediaUrl: CharacterServices['mediaUrl'];
+    normalizeBase: CharacterServices['normalizeBase'];
+    requestSceneImage: CharacterServices['requestSceneImage'];
+    sendJson: CharacterServices['sendJson'];
+    serverFromUrl: CharacterServices['serverFromUrl'];
+    setServerInUrl: CharacterServices['setServerInUrl'];
+    uploadCharacterImage: CharacterServices['uploadCharacterImage'];
   };
-  BunnylandPlay: Pick<CharacterSheetServices,
-    'actionAvailable' | 'actionCost' | 'actionLane' | 'actionTitle' |
+  BunnylandPlay: Pick<CharacterServices,
+    'actionAvailable' | 'actionCost' | 'actionIcon' | 'actionLane' | 'actionTitle' |
     'createPlayerLiveUpdates' | 'fetchCharacterList' | 'fetchCharacterProjection' |
-    'formatPoints' | 'orderActionsByAvailability' | 'portraitStatusMessage' | 'storedClaimControl'>;
-  BunnylandUI: { initClientMenu: CharacterSheetServices['initClientMenu'] };
+    'formatPoints' | 'orderActionsByAvailability' | 'persistentClientId' |
+    'portraitStatusMessage' | 'storedClaimControl'>;
+  BunnylandUI: {
+    initClientMenu: CharacterServices['initClientMenu'];
+    initTheme: CharacterServices['initTheme'];
+  };
 }
 
-function browserServices(): CharacterSheetServices {
+function browserServices(): CharacterServices {
   const legacy = window as unknown as LegacyWindow;
   return {
     ...legacy.BunnylandPlay,
     applyConfig: (options) => legacy.BunnylandApi.applyConfigToInput(options),
+    claimHeaders: (control) => legacy.BunnylandApi.claimHeaders(control),
     initClientMenu: () => legacy.BunnylandUI.initClientMenu(),
+    initTheme: () => legacy.BunnylandUI.initTheme(),
     mediaUrl: (base, url) => legacy.BunnylandApi.mediaUrl(base, url),
     normalizeBase: (url) => legacy.BunnylandApi.normalizeBase(url),
     requestSceneImage: (base, id, control) => legacy.BunnylandApi.requestSceneImage(base, id, control),
+    sendJson: (base, path, options) => legacy.BunnylandApi.sendJson(base, path, options),
     serverFromUrl: () => legacy.BunnylandApi.serverFromUrl(),
     setServerInUrl: (base) => legacy.BunnylandApi.setServerInUrl(base),
     uploadCharacterImage: (base, id, purpose, file, options) => (
@@ -180,6 +224,17 @@ function hashCharacterId(): string {
   } catch {
     return '';
   }
+}
+
+export function viewFromUrl(href = location.href): CharacterView {
+  return new URL(href).searchParams.get('view') === 'chat' ? 'chat' : 'sheet';
+}
+
+export function characterViewUrl(href: string, view: CharacterView): string {
+  const url = new URL(href);
+  if (view === 'chat') url.searchParams.set('view', 'chat');
+  else url.searchParams.delete('view');
+  return url.href;
 }
 
 export function characterInitials(name: string): string {
@@ -236,7 +291,7 @@ function PointsValue({ current, icon, iconClass, maximum, services }: {
   icon: string;
   iconClass: string;
   maximum: unknown;
-  services: CharacterSheetServices;
+  services: CharacterServices;
 }) {
   return <div class="stat-main">
     <span class={`stat-icon bl-point-icon ${iconClass}`} aria-hidden="true">{icon}</span>
@@ -268,21 +323,23 @@ function Section({ children, id, title, populated = false }: {
   </div>;
 }
 
-interface SheetFacade {
+interface CharacterFacade {
   projection: SheetProjection | null;
   refresh: () => Promise<void>;
   render: () => void;
   selectCharacter: (id: string, options?: { updateHash?: boolean }) => void;
 }
 
-export interface CharacterSheetPageProps {
-  services?: CharacterSheetServices;
+export interface CharacterPageProps {
+  services?: CharacterServices;
 }
 
-export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: CharacterSheetPageProps) {
+export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: CharacterPageProps) {
   const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [apiBase, setApiBase] = useState('');
   const [connected, setConnected] = useState(false);
+  const [features, setFeatures] = useState<FeatureStatus | null>(null);
+  const [view, setView] = useState<CharacterView>(viewFromUrl);
   const [characters, setCharacters] = useState<SheetCharacter[]>([]);
   const [selectedId, setSelectedId] = useState(hashCharacterId);
   const [projection, setProjection] = useState<SheetProjection | null>(null);
@@ -293,6 +350,11 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
   const [apiStatus, setApiStatus] = useState('○ Offline');
   const [statusKind, setStatusKind] = useState('');
   const [statusNote, setStatusNote] = useState('');
+  const [chatStatus, setChatStatus] = useState('Select a claimed character to start chatting.');
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatClientId, setChatClientId] = useState('');
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
   const [coordinatorVersion, setCoordinatorVersion] = useState(0);
   const [, forceRender] = useState(0);
   const aliveRef = useRef(true);
@@ -301,19 +363,23 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
   const selectedIdRef = useRef(selectedId);
   const projectionRef = useRef<SheetProjection | null>(null);
   const authHeaderRef = useRef<string | null>(null);
+  const chatClientIdRef = useRef('');
   const requestGeneration = useRef(0);
   const requestedPortraits = useRef(new Set<string>());
   const failedPortraits = useRef(new Set<string>());
   const liveStateRef = useRef('fallback');
+  const pendingPolls = useRef(new Map<string, number>());
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
   const actionFilterRef = useRef<HTMLInputElement>(null);
   const portraitUploadRef = useRef<HTMLInputElement>(null);
   const spriteUploadRef = useRef<HTMLInputElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   apiBaseRef.current = apiBase;
   connectedRef.current = connected;
   selectedIdRef.current = selectedId;
   projectionRef.current = projection;
+  chatClientIdRef.current = chatClientId;
 
   const claimControl = useCallback((characterId: string): ClaimControl | null => {
     for (const key of CLAIM_CLIENT_KEYS) {
@@ -322,6 +388,84 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     }
     return null;
   }, [services]);
+
+  const bumpHistory = useCallback((): void => setHistoryRevision((value) => value + 1), []);
+
+  const updateChatState = useCallback((characterId: string, update: (messages: StoredMessage[]) => StoredMessage[]): void => {
+    const state = loadChatState(chatClientIdRef.current, characterId);
+    state.messages = update(state.messages).slice(-HISTORY_LIMIT);
+    saveChatState(chatClientIdRef.current, characterId, state);
+    bumpHistory();
+  }, [bumpHistory]);
+
+  const upsertAction = useCallback((characterId: string, action: ChatAction): void => {
+    if (!action.tool) return;
+    updateChatState(characterId, (messages) => {
+      const commandId = action.command_id || '';
+      const next: StoredMessage = {
+        action,
+        command_id: commandId,
+        role: 'action',
+        text: actionSummary(action),
+      };
+      const index = commandId
+        ? messages.findIndex((message) => message.role === 'action' && message.command_id === commandId)
+        : -1;
+      if (index < 0) return [...messages, next];
+      return messages.map((message, messageIndex) => messageIndex === index ? next : message);
+    });
+  }, [updateChatState]);
+
+  const clearPendingPolls = useCallback((characterId?: string): void => {
+    for (const [key, timer] of pendingPolls.current) {
+      if (characterId && !key.startsWith(`${characterId}:`)) continue;
+      window.clearTimeout(timer);
+      pendingPolls.current.delete(key);
+    }
+  }, []);
+
+  const startPendingPoll = useCallback((characterId: string, commandId: string, immediate = false): void => {
+    const base = apiBaseRef.current;
+    const control = claimControl(characterId);
+    if (!base || !control?.claimId || !commandId) return;
+    const key = `${characterId}:${commandId}`;
+    if (pendingPolls.current.has(key)) return;
+    const poll = async (): Promise<void> => {
+      try {
+        const response = await services.sendJson(
+          base,
+          `/play/claims/${encodeURIComponent(control.claimId || '')}/jobs/${encodeURIComponent(commandId)}`,
+          { headers: services.claimHeaders(control) },
+        );
+        if (!aliveRef.current) return;
+        const result = response.result && typeof response.result === 'object'
+          ? response.result as JsonObject
+          : response;
+        const action = result.action && typeof result.action === 'object'
+          ? result.action as ChatAction
+          : null;
+        if (action?.tool) upsertAction(characterId, action);
+        if (response.status === 'succeeded' || response.status === 'failed') {
+          pendingPolls.current.delete(key);
+          if (result.reply) updateChatState(characterId, (messages) => (
+            messages.some((message) => message.role === 'character' && message.command_id === commandId)
+              ? messages
+              : [...messages, { role: 'character', text: String(result.reply), command_id: commandId }]
+          ));
+          if (selectedIdRef.current === characterId) {
+            setChatStatus(action?.tool ? `${action.tool}: ${action.status}` : 'Action finished.');
+          }
+          return;
+        }
+        if (selectedIdRef.current === characterId) setChatStatus('Waiting for action result...');
+        pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, PENDING_POLL_MS));
+      } catch (error) {
+        pendingPolls.current.delete(key);
+        if (aliveRef.current && selectedIdRef.current === characterId) setChatStatus(errorMessage(error));
+      }
+    };
+    pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, immediate ? 0 : PENDING_POLL_MS));
+  }, [claimControl, services, updateChatState, upsertAction]);
 
   const refresh = useCallback(async (): Promise<void> => {
     const base = apiBaseRef.current;
@@ -339,7 +483,9 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
         if (!aliveRef.current || generation !== requestGeneration.current || selected !== selectedIdRef.current) return;
         setProjection(nextProjection);
         projectionRef.current = nextProjection;
-        if (nextProjection.portrait?.url) {
+        if (!nextProjection) {
+          setPortraitState('');
+        } else if (nextProjection.portrait?.url) {
           setPortraitState('');
         } else if (failedPortraits.current.has(selected)) {
           setPortraitState('failed');
@@ -358,6 +504,12 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
             setPortraitState('failed');
           });
         }
+        const chatState = loadChatState(chatClientIdRef.current, selected);
+        for (const message of chatState.messages) {
+          if (message.role === 'action' && message.action?.status === 'queued' && message.command_id) {
+            startPendingPoll(selected, message.command_id);
+          }
+        }
       } else {
         setProjection(null);
         projectionRef.current = null;
@@ -373,11 +525,12 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
       setApiStatus(`⚠ ${errorMessage(error)}`);
       setStatusNote(errorMessage(error));
     }
-  }, [claimControl, services]);
+  }, [claimControl, services, startPendingPoll]);
   refreshRef.current = refresh;
 
   const selectCharacter = useCallback((id: string, options: { updateHash?: boolean } = {}): void => {
     requestGeneration.current += 1;
+    clearPendingPolls(selectedIdRef.current);
     const next = id || '';
     selectedIdRef.current = next;
     projectionRef.current = null;
@@ -386,18 +539,22 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     setPortraitState('');
     setUploadState('');
     setUploadingPurpose('');
+    setChatDraft('');
+    setChatStatus(next ? 'Loading character…' : 'Select a claimed character to start chatting.');
     if (options.updateHash) {
       const url = new URL(location.href);
       url.hash = next ? encodeURIComponent(next) : '';
       history.replaceState(null, '', url);
     }
-  }, []);
+  }, [clearPendingPolls]);
 
   const disconnect = useCallback((syncUrl = true): void => {
     requestGeneration.current += 1;
+    clearPendingPolls();
     connectedRef.current = false;
     apiBaseRef.current = '';
     setConnected(false);
+    setFeatures(null);
     setApiBase('');
     setCharacters([]);
     setProjection(null);
@@ -408,8 +565,9 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     setStatusKind('');
     setApiStatus('○ Offline');
     setStatusNote('');
+    setChatStatus('Select a claimed character to start chatting.');
     if (syncUrl) services.setServerInUrl('');
-  }, [services]);
+  }, [clearPendingPolls, services]);
 
   const connect = useCallback((url: string): void => {
     if (!url) return;
@@ -421,6 +579,7 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     setApiUrl(base);
     setApiBase(base);
     setConnected(true);
+    setFeatures(null);
     setCharacters([]);
     setProjection(null);
     projectionRef.current = null;
@@ -431,7 +590,32 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     setApiStatus('● Connected');
     setStatusNote('');
     services.setServerInUrl(base);
+    void services.sendJson(base, '/public/features').then((response) => {
+      if (!aliveRef.current || apiBaseRef.current !== base) return;
+      const nextFeatures = response as FeatureStatus;
+      setFeatures(nextFeatures);
+      setView((current) => {
+        const next = current === 'chat' && !nextFeatures.character_chat && nextFeatures.character_sheets
+          ? 'sheet'
+          : current === 'sheet' && !nextFeatures.character_sheets && nextFeatures.character_chat
+            ? 'chat'
+            : current;
+        if (next !== current) history.replaceState(null, '', characterViewUrl(location.href, next));
+        return next;
+      });
+    }).catch((error) => {
+      if (!aliveRef.current || apiBaseRef.current !== base) return;
+      setStatusKind('err');
+      setApiStatus(`⚠ ${errorMessage(error)}`);
+    });
   }, [services]);
+
+  const selectView = useCallback((next: CharacterView): void => {
+    if (next === 'chat' && features?.character_chat === false) return;
+    if (next === 'sheet' && features?.character_sheets === false) return;
+    setView(next);
+    history.replaceState(null, '', characterViewUrl(location.href, next));
+  }, [features]);
 
   useEffect(() => {
     if (!connected || !apiBase) return;
@@ -462,7 +646,11 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
 
   useEffect(() => {
     aliveRef.current = true;
+    services.initTheme();
     const menu = services.initClientMenu();
+    const nextClientId = services.persistentClientId(CHAT_CLIENT_ID_KEY, 'character-chat');
+    chatClientIdRef.current = nextClientId;
+    setChatClientId(nextClientId);
     const onHashChange = (): void => {
       const id = hashCharacterId();
       if (id !== selectedIdRef.current) selectCharacter(id);
@@ -488,11 +676,12 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
     return () => {
       aliveRef.current = false;
       requestGeneration.current += 1;
+      clearPendingPolls();
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('storage', onStorage);
       menu?.close?.();
     };
-  }, [connect, selectCharacter, services]);
+  }, [clearPendingPolls, connect, selectCharacter, services]);
 
   useEffect(() => {
     const titleName = projection?.characterName
@@ -502,8 +691,8 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
   });
 
   useEffect(() => {
-    const compatWindow = window as unknown as { app?: SheetFacade };
-    const facade: SheetFacade = {
+    const compatWindow = window as unknown as { app?: CharacterFacade };
+    const facade: CharacterFacade = {
       get projection() { return projectionRef.current; },
       refresh: () => refreshRef.current(),
       render: () => forceRender((value) => value + 1),
@@ -604,11 +793,107 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
       };
     });
   const uploadDisabled = !connected || !apiBase || !selectedId || Boolean(uploadingPurpose);
+  const selectedChatState = useMemo(
+    () => selectedId && chatClientId
+      ? loadChatState(chatClientId, selectedId)
+      : { summary: '', messages: [] },
+    [chatClientId, historyRevision, selectedId],
+  );
+  const hasChatHistory = Boolean(selectedChatState.summary || selectedChatState.messages.length);
+  const transcriptItems = useMemo<TranscriptItem[]>(() => {
+    const occurrences = new Map<string, number>();
+    return selectedChatState.messages.map((message) => {
+      const action = message.action || {};
+      const baseKey = message.command_id
+        ? `${message.role}:${message.command_id}`
+        : `${message.role}:${message.text}:${action.tool || ''}`;
+      const occurrence = occurrences.get(baseKey) || 0;
+      occurrences.set(baseKey, occurrence + 1);
+      const key = `${baseKey}:${occurrence}`;
+      if (message.role === 'action') return {
+        commandId: message.command_id || '',
+        icon: services.actionIcon({
+          command_type: String(action.tool || 'action').trim().toLowerCase().replaceAll('_', '-'),
+          tool_name: action.tool || 'action',
+        }),
+        key,
+        kind: 'action',
+        status: String(action.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase(),
+        text: message.text || actionSummary(action),
+        tool: action.tool || 'action',
+      };
+      return {
+        html: markdownEnabled ? renderMarkdown(message.text) : plainMessageHtml(message.text),
+        key,
+        kind: 'message',
+        plain: !markdownEnabled,
+        role: message.role === 'user' ? 'user' : 'character',
+      };
+    });
+  }, [markdownEnabled, selectedChatState.messages, services]);
+
+  useLayoutEffect(() => {
+    if (view === 'chat' && transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [transcriptItems, view]);
+
+  const submitChat = async (): Promise<void> => {
+    const message = chatDraft.trim();
+    const characterId = selectedIdRef.current;
+    const base = apiBaseRef.current;
+    if (!message || !base || !characterId) return;
+    const control = claimControl(characterId);
+    if (!control?.claimId) {
+      setChatStatus('Claim this character in a player client before chatting.');
+      return;
+    }
+    const state = loadChatState(chatClientIdRef.current, characterId);
+    setChatDraft('');
+    updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
+    setChatStatus('Waiting for reply…');
+    try {
+      const job = await services.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
+        body: JSON.stringify({
+          kind: 'chat',
+          message,
+          history_summary: state.summary || '',
+          history: historyForPayload(state.messages),
+        }),
+        headers: services.claimHeaders(control),
+        method: 'POST',
+      });
+      const result = job.result && typeof job.result === 'object' ? job.result as JsonObject : job;
+      if (!aliveRef.current) return;
+      if (result.reply) {
+        updateChatState(characterId, (messages) => [
+          ...messages,
+          { role: 'character', text: String(result.reply), command_id: String(job.id || '') },
+        ]);
+      }
+      const action = result.action && typeof result.action === 'object' ? result.action as ChatAction : null;
+      if (action?.tool) upsertAction(characterId, action);
+      const jobId = String(job.id || action?.command_id || '');
+      if (job.status === 'queued' || job.status === 'running' || action?.status === 'queued') {
+        if (jobId) startPendingPoll(characterId, jobId);
+        setChatStatus('Chat queued. Waiting for reply…');
+      } else {
+        setChatStatus(action?.tool
+          ? `${action.tool}: ${action.status}${action.reason ? ` · ${action.reason}` : ''}`
+          : 'Reply received.');
+      }
+    } catch (error) {
+      if (!aliveRef.current) return;
+      setChatStatus(errorMessage(error));
+      setStatusKind('err');
+      setApiStatus(`⚠ ${errorMessage(error)}`);
+    }
+  };
 
   return <>
     <Toolbar id="toolbar">
       <ToolbarRow id="toolbar-row1">
-        <ToolbarBrand icon={<img src="favicon.png" alt="" />}>Bunnyland Character Sheet</ToolbarBrand>
+        <ToolbarBrand icon={<img src="favicon.png" alt="" />}>Bunnyland Character</ToolbarBrand>
         <span class="toolbar-sep">|</span>
         <label for="api-url">Server:</label>
         <input
@@ -641,6 +926,24 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
             <option key={character.id} value={character.id}>{character.name}</option>
           ))}
         </select>
+        <div class="view-tabs" role="tablist" aria-label="Character view">
+          <Button
+            aria-selected={view === 'sheet'}
+            class={view === 'sheet' ? 'active' : ''}
+            disabled={features?.character_sheets === false}
+            id="tab-sheet"
+            onClick={(): void => selectView('sheet')}
+            role="tab"
+          >Sheet</Button>
+          <Button
+            aria-selected={view === 'chat'}
+            class={view === 'chat' ? 'active' : ''}
+            disabled={features?.character_chat === false}
+            id="tab-chat"
+            onClick={(): void => selectView('chat')}
+            role="tab"
+          >Chat</Button>
+        </div>
       </ToolbarRow>
     </Toolbar>
 
@@ -693,7 +996,8 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
         </div>
       </section>
 
-      <section id="details-pane" aria-label="Character details">
+      <section id="details-pane" aria-label={view === 'sheet' ? 'Character details' : 'Character chat'}>
+        {view === 'sheet' ? <>
         <Section id="sheet-overview" title="Character" populated={Boolean(
           sheet.description || sheet.appearance || sheet.biography || sheet.tags?.length
         )}>
@@ -759,10 +1063,73 @@ export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: Char
           </div>
         </div>
         <div id="status-note">{statusNote}</div>
+        </> : <div id="chat-pane">
+          <div id="chat-tools">
+            <span id="chat-title">{characterName || 'No character selected'}</span>
+            <div id="chat-actions">
+              <label class="chat-toggle" for="markdown-toggle">
+                <input
+                  checked={markdownEnabled}
+                  id="markdown-toggle"
+                  onChange={(event): void => {
+                    const enabled = event.currentTarget.checked;
+                    setMarkdownEnabled(enabled);
+                    localStorage.setItem(MARKDOWN_KEY, enabled ? '1' : '0');
+                  }}
+                  type="checkbox"
+                /> Markdown
+              </label>
+              <Button
+                disabled={!selectedId || !hasChatHistory}
+                id="btn-clear-history"
+                onClick={(): void => {
+                  if (!selectedId) return;
+                  clearPendingPolls(selectedId);
+                  localStorage.removeItem(chatStorageKey(chatClientId, selectedId));
+                  bumpHistory();
+                  setChatStatus(`Cleared local chat history for ${characterName || selectedId}.`);
+                }}
+              >Clear History</Button>
+            </div>
+          </div>
+          <div id="transcript" ref={transcriptRef}>
+            <Transcript
+              emptyMessage={selectedId
+                ? 'No local chat history for this character.'
+                : 'Pick a character to start chatting.'}
+              items={transcriptItems}
+            />
+          </div>
+          <div id="status-line">{chatStatus}</div>
+          <form
+            autocomplete="off"
+            id="composer"
+            onSubmit={(event): void => { event.preventDefault(); void submitChat(); }}
+          >
+            <textarea
+              aria-label="Message"
+              disabled={!connected || !selectedId || features?.character_chat === false}
+              id="chat-input"
+              onInput={(event): void => setChatDraft(event.currentTarget.value)}
+              onKeyDown={(event): void => {
+                if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }}
+              spellcheck
+              value={chatDraft}
+            />
+            <Button
+              disabled={!chatDraft.trim() || !connected || !selectedId || features?.character_chat === false}
+              id="btn-send"
+              type="submit"
+            >Send</Button>
+          </form>
+        </div>}
       </section>
     </main>
   </>;
 }
 
 const root = document.getElementById('app');
-if (root) render(<CharacterSheetPage />, root);
+if (root) render(<CharacterPage />, root);

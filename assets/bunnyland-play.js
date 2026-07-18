@@ -1077,7 +1077,7 @@
     return best;
   }
 
-  function characterSheetHref(apiBase, characterId, page = 'character-sheet.html') {
+  function characterHref(apiBase, characterId, view = 'sheet', page = 'character.html') {
     const url = new URL(page, location.href);
     if (url.origin !== location.origin) {
       throw new Error('Bunnyland browser links must use the page origin');
@@ -1085,6 +1085,8 @@
     const normalized = BunnylandApi.assertSameOriginBase(apiBase);
     if (normalized) url.searchParams.set('server', normalized);
     else url.searchParams.delete('server');
+    if (view === 'chat') url.searchParams.set('view', 'chat');
+    else url.searchParams.delete('view');
     url.hash = characterId || '';
     return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
   }
@@ -1130,7 +1132,7 @@
     fetchRoomProjection,
     filterActions,
     formatPoints,
-    characterSheetHref,
+    characterHref,
     drainNarratedEvents,
     eventIcon,
     humanizeEventType,

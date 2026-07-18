@@ -61,18 +61,10 @@
       supportsServer: true,
     },
     {
-      href: 'character-chat.html',
-      title: 'Character Chat',
-      label: 'In-character chat',
-      description: 'Chat with server-enabled LLM characters through their limited action tools.',
-      supportsFocus: true,
-      supportsServer: true,
-    },
-    {
-      href: 'character-sheet.html',
-      title: 'Character Sheet',
-      label: 'Profile view',
-      description: 'Open a read-only character profile, portrait, room, inventory, and actions.',
+      href: 'character.html',
+      title: 'Character Profile',
+      label: 'Profile and chat',
+      description: 'Open a character profile, inspect live state, and chat in character.',
       supportsFocus: true,
       supportsServer: true,
     },
@@ -142,7 +134,7 @@
     },
   ];
   const FOCUS_PAGE_NAMES = new Set([
-    'toon-client.html', 'web-tui.html', 'web-repl.html', 'character-chat.html', 'character-sheet.html',
+    'toon-client.html', 'web-tui.html', 'web-repl.html', 'character.html',
   ]);
 
   let deployConfigPromise = null;
