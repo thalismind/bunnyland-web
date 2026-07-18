@@ -259,7 +259,7 @@ function setFocusedEntityInHash(characterId: string): void {
 }
 
 export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [base, setBase] = useState('');
   const [clientId, setClientId] = useState('');
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -334,9 +334,16 @@ export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }
     const server = baseRef.current;
     if (!server || !characterId) return;
     if (!force && projectionsRef.current[characterId]) return;
+    const control = claimControl(characterId);
+    if (!control?.claimId) return;
     const request = ++portraitRequest.current;
     try {
-      const result = await runtime.api.sendJson(server, `/play/world/character/${encodeURIComponent(characterId)}`) as CharacterProjection;
+      const envelope = await runtime.api.sendJson(
+        server,
+        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
+        { headers: runtime.api.claimHeaders(control) },
+      );
+      const result = (envelope.character || {}) as CharacterProjection;
       if (!mountedRef.current) return;
       setProjections(current => {
         const next = { ...current, [characterId]: result || {} };
@@ -362,17 +369,18 @@ export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }
         const control = claimControl(characterId);
         const response = await runtime.api.sendJson(
           server,
-          `/play/world/character/${encodeURIComponent(characterId)}/chat/pending/${encodeURIComponent(commandId)}${claimQuery(control, { client_id: currentClient })}`,
+          `/play/claims/${encodeURIComponent(control?.claimId || '')}/jobs/${encodeURIComponent(commandId)}`,
           { headers: runtime.api.claimHeaders(control) },
         );
         if (!mountedRef.current) return;
-        const action = response.action && typeof response.action === 'object' ? response.action as ChatAction : null;
+        const result = response.result && typeof response.result === 'object' ? response.result as JsonObject : response;
+        const action = result.action && typeof result.action === 'object' ? result.action as ChatAction : null;
         if (action?.tool) upsertAction(characterId, action);
-        if (response.complete) {
+        if (response.status === 'succeeded' || response.status === 'failed') {
           pendingPolls.current.delete(key);
-          if (response.reply) updateState(characterId, (state) => {
+          if (result.reply) updateState(characterId, (state) => {
             if (!state.messages.some(message => message.role === 'character' && message.command_id === commandId)) {
-              state.messages.push({ role: 'character', text: String(response.reply), command_id: commandId });
+              state.messages.push({ role: 'character', text: String(result.reply), command_id: commandId });
             }
           });
           if (selectedRef.current === characterId) setStatusLine(action?.tool ? `${action.tool}: ${action.status}` : 'Action finished.');
@@ -415,13 +423,15 @@ export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }
     clientIdRef.current = nextClientId;
     setClientId(nextClientId);
     try {
-      const chatStatus = await runtime.api.sendJson(normalized, '/play/world/chat/status');
-      if (!chatStatus.enabled) throw new Error('character chat is disabled');
-      const list = await runtime.api.sendJson(normalized, '/play/world/characters');
+      const chatStatus = await runtime.api.sendJson(normalized, '/public/features');
+      if (!chatStatus.character_chat) throw new Error('character chat is disabled');
+      const list = await runtime.api.sendJson(normalized, '/play/characters');
       if (!mountedRef.current || baseRef.current !== normalized) return;
-      const nextCharacters = Array.isArray(list.characters) ? list.characters as Character[] : [];
+      const nextCharacters = Array.isArray(list.characters)
+        ? list.characters.map((item: JsonObject) => ({ ...item, character_id: item.id })) as Character[]
+        : [];
       charactersRef.current = nextCharacters;
-      setAllowedTools(Array.isArray(chatStatus.allowed_tools) ? chatStatus.allowed_tools.filter(tool => typeof tool === 'string') as string[] : []);
+      setAllowedTools([]);
       setCharacters(nextCharacters);
       if (!nextCharacters.some(character => character.character_id === selectedRef.current)) {
         selectedRef.current = '';
@@ -571,9 +581,12 @@ export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }
     setDraft('');
     const state = loadChatState(clientIdRef.current, characterId);
     const control = claimControl(characterId);
+    if (!control?.claimId) {
+      setStatusLine('Claim this character in a player client before chatting.');
+      return;
+    }
     const payload = {
-      client_id: clientIdRef.current,
-      ...(control?.claimId ? { claim_id: control.claimId } : {}),
+      kind: 'chat',
       message,
       history_summary: state.summary || '',
       history: historyForPayload(state.messages),
@@ -581,9 +594,10 @@ export function CharacterChatPage({ runtime }: { runtime: CharacterChatRuntime }
     updateState(characterId, current => { current.messages.push({ role: 'user', text: message }); });
     setStatusLine('Waiting for reply...');
     try {
-      const response = await runtime.api.sendJson(server, `/play/world/character/${encodeURIComponent(characterId)}/chat`, {
+      const job = await runtime.api.sendJson(server, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
         method: 'POST', headers: runtime.api.claimHeaders(control), body: JSON.stringify(payload),
       });
+      const response = job.result && typeof job.result === 'object' ? job.result as JsonObject : job;
       if (!mountedRef.current) return;
       if (response.reply) updateState(characterId, current => { current.messages.push({ role: 'character', text: String(response.reply) }); });
       const action = response.action && typeof response.action === 'object' ? response.action as ChatAction : null;

@@ -1,4 +1,4 @@
 {
-  "serverUrl": "/api/",
+  "serverUrl": "/api/v1/",
   "autoConnect": false
 }

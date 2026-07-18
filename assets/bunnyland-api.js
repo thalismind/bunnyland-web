@@ -3,6 +3,9 @@
 
   let playerAuthHeader = null;
   let rotationTimer = null;
+  let browserClientId = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   function normalizeBase(url) {
     return String(url || '').trim().replace(/\/$/, '');
@@ -36,8 +39,8 @@
 
   function mergedJsonHeaders(headers = null) {
     return {
-      ...(headers || {}),
       ...jsonHeaders(playerAuthHeader),
+      ...(headers || {}),
     };
   }
 
@@ -56,15 +59,17 @@
   }
 
   async function authMe(base) {
-    const res = await fetch(`${assertSameOriginBase(base)}/auth/me`, { credentials: 'include' });
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/session`, {
+      credentials: 'include', headers: jsonHeaders(playerAuthHeader),
+    });
     return parseJsonResponse(res);
   }
 
   async function login(base, username, password) {
-    const res = await fetch(`${assertSameOriginBase(base)}/auth/login`, {
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/session`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: jsonHeaders(playerAuthHeader),
       body: JSON.stringify({ username, password, delivery: 'cookie' }),
     });
     const status = await parseJsonResponse(res);
@@ -73,17 +78,19 @@
   }
 
   async function rotateAuth(base) {
-    const res = await fetch(`${assertSameOriginBase(base)}/auth/rotate`, {
-      method: 'POST',
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/session`, {
+      method: 'PATCH',
       credentials: 'include',
+      headers: jsonHeaders(playerAuthHeader),
     });
     return parseJsonResponse(res);
   }
 
   async function logout(base) {
-    const res = await fetch(`${assertSameOriginBase(base)}/auth/logout`, {
-      method: 'POST',
+    const res = await fetch(`${assertSameOriginBase(base)}/auth/session`, {
+      method: 'DELETE',
       credentials: 'include',
+      headers: jsonHeaders(playerAuthHeader),
     });
     if (rotationTimer) clearTimeout(rotationTimer);
     rotationTimer = null;
@@ -124,12 +131,13 @@
   function jsonHeaders(authHeader = null) {
     return {
       'Content-Type': 'application/json',
+      'X-Bunnyland-Client-Id': browserClientId,
       ...(String(authHeader || '').startsWith('Bearer ') ? { Authorization: authHeader } : {}),
     };
   }
 
   function adminHeaders(authHeader = null, contentType = null) {
-    const headers = {};
+    const headers = { 'X-Bunnyland-Client-Id': browserClientId };
     if (contentType) headers['Content-Type'] = contentType;
     if (String(authHeader || '').startsWith('Bearer ')) {
       headers.Authorization = authHeader;
@@ -140,6 +148,7 @@
   function claimHeaders(control = null) {
     return {
       ...jsonHeaders(playerAuthHeader),
+      'X-Bunnyland-Client-Id': control?.clientId || browserClientId,
       ...(control?.claimSecret ? { 'X-Bunnyland-Claim-Secret': control.claimSecret } : {}),
     };
   }
@@ -151,6 +160,13 @@
   }
 
   async function sendJson(base, path, { method = 'GET', body = null, headers = null, promptAuth = true } = {}) {
+    const { data } = await sendJsonWithResponse(base, path, { method, body, headers, promptAuth });
+    return data;
+  }
+
+  async function sendJsonWithResponse(base, path, {
+    method = 'GET', body = null, headers = null, promptAuth = true,
+  } = {}) {
     const currentHeaders = () => mergedJsonHeaders(headers);
     let res = await fetch(`${assertSameOriginBase(base)}${path}`, {
       method,
@@ -168,7 +184,7 @@
         });
       }
     }
-    return parseJsonResponse(res);
+    return { data: await parseJsonResponse(res), response: res };
   }
 
   async function promptPlayerAuth(base) {
@@ -191,6 +207,15 @@
 
   function getPlayerAuth() {
     return playerAuthHeader;
+  }
+
+  function setClientId(clientId) {
+    const normalized = String(clientId || '').trim();
+    if (normalized) browserClientId = normalized;
+  }
+
+  function getClientId() {
+    return browserClientId;
   }
 
   async function sendAdmin(base, path, {
@@ -223,21 +248,22 @@
     prompt = true,
     getAuth = () => null,
   } = {}) {
-    const path = `/admin/world/character/${encodeURIComponent(characterId)}/image/${encodeURIComponent(purpose)}`;
-    const contentType = file?.type || 'application/octet-stream';
-    const currentHeaders = () => adminHeaders(getAuth(), contentType);
+    const path = `/admin/media/character/${encodeURIComponent(characterId)}/${encodeURIComponent(purpose)}`;
+    const form = new FormData();
+    form.append('file', file);
+    const currentHeaders = () => adminHeaders(getAuth());
     let res = await fetch(`${assertSameOriginBase(base)}${path}`, {
-      method: 'POST',
+      method: 'PUT',
       headers: currentHeaders(),
-      body: file,
+      body: form,
       credentials: 'include',
     });
     if (res.status === 401 && prompt) {
       if (await promptPlayerAuth(base)) {
         res = await fetch(`${assertSameOriginBase(base)}${path}`, {
-          method: 'POST',
+          method: 'PUT',
           headers: currentHeaders(),
-          body: file,
+          body: form,
           credentials: 'include',
         });
       }
@@ -245,7 +271,7 @@
     return parseJsonResponse(res);
   }
 
-  function socketUrl(base, path = '/admin/world/updates', _authHeader = null) {
+  function socketUrl(base, path = '/admin/world/stream', _authHeader = null) {
     const normalized = assertSameOriginBase(base);
     return new URL(`${normalized}${path}`, location.href).href.replace(/^http/, 'ws');
   }
@@ -261,19 +287,19 @@
   }
 
   async function requestSceneImage(base, characterId, control = null) {
-    const params = new URLSearchParams();
-    if (control?.claimId) params.set('claim_id', control.claimId);
-    const query = params.toString();
-    return sendJson(base, `/play/world/character/${encodeURIComponent(characterId)}/scene-image${query ? `?${query}` : ''}`, {
+    void characterId;
+    if (!control?.claimId) throw new Error('A character claim is required');
+    return sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
       method: 'POST',
       headers: claimHeaders(control),
+      body: JSON.stringify({ kind: 'scene_image' }),
     });
   }
 
   async function requestEventImage(base, recordId, extra = '') {
-    return sendJson(base, `/admin/world/event/${encodeURIComponent(recordId)}/image`, {
+    return sendJson(base, '/admin/world/generation-jobs', {
       method: 'POST',
-      body: JSON.stringify({ extra }),
+      body: JSON.stringify({ kind: 'image', entity_id: recordId, purpose: 'event', extra }),
     });
   }
 
@@ -285,6 +311,7 @@
     authMe,
     claimHeaders,
     ensurePlayerAuth,
+    getClientId,
     getPlayerAuth,
     jsonHeaders,
     login,
@@ -297,8 +324,10 @@
     requestSceneImage,
     sendAdmin,
     sendJson,
+    sendJsonWithResponse,
     serverFromUrl,
     setServerInUrl,
+    setClientId,
     setPlayerAuth,
     socketUrl,
     rotateAuth,

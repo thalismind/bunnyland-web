@@ -17,25 +17,27 @@ function runtime(options: { queued?: boolean } = {}) {
       mediaUrl: (base, path) => `${base}${path}`,
       normalizeBase: value => value.replace(/\/$/, ''),
       sendJson: vi.fn(async (_base, path, request) => {
-        if (path.endsWith('/chat/status')) return { enabled: true, allowed_tools: ['look', 'remember'] };
-        if (path.endsWith('/world/characters')) return {
+        if (path.endsWith('/public/features')) return { character_chat: true };
+        if (path.endsWith('/play/characters')) return {
           characters: [
-            { character_id: CHARACTER_ID, name: 'Juniper', kind: 'character' },
-            { character_id: 'character:2', name: 'Hazel', kind: 'character' },
+            { id: CHARACTER_ID, name: 'Juniper', kind: 'character' },
+            { id: 'character:2', name: 'Hazel', kind: 'character' },
           ],
         };
-        if (path.includes('/chat/pending/')) return {
-          complete: true,
-          reply: 'I remember.',
-          action: { tool: 'remember', command_id: 'cmd-1', status: 'executed' },
+        if (path.endsWith('/jobs/cmd-1')) return {
+          status: 'succeeded',
+          result: {
+            reply: 'I remember.',
+            action: { tool: 'remember', command_id: 'cmd-1', status: 'executed' },
+          },
         };
-        if (path.endsWith('/chat')) {
+        if (path.endsWith('/jobs')) {
           posted.push(JSON.parse(request?.body || '{}') as Record<string, unknown>);
           return options.queued
-            ? { reply: 'I will try.', action: { tool: 'remember', command_id: 'cmd-1', status: 'queued' } }
-            : { reply: 'hello back', action: { tool: 'look', status: 'executed' } };
+            ? { status: 'succeeded', result: { reply: 'I will try.', action: { tool: 'remember', command_id: 'cmd-1', status: 'queued' } } }
+            : { status: 'succeeded', result: { reply: 'hello back', action: { tool: 'look', status: 'executed' } } };
         }
-        return { portrait: { url: '/media/juniper.png' } };
+        return { character: { portrait: { url: '/media/juniper.png' } } };
       }),
       setServerInUrl: vi.fn(),
     },
@@ -46,7 +48,7 @@ function runtime(options: { queued?: boolean } = {}) {
         return { close };
       }),
       persistentClientId: () => CLIENT_ID,
-      storedClaimControl: () => null,
+      storedClaimControl: () => ({ claimId: 'claim-1' }),
     },
     ui: { initClientMenu: vi.fn(), initTheme: vi.fn() },
   };
@@ -74,7 +76,7 @@ describe('CharacterChatPage', () => {
     const view = render(<CharacterChatPage runtime={harness.runtime} />);
     await connectAndSelect(view);
     expect(view.container.querySelector('#status-line')?.textContent).toContain('Chatting with Juniper');
-    expect(view.container.querySelector('#chat-tool-list')?.textContent).toContain('Tools: look, remember');
+    expect(view.container.querySelector('#chat-tool-list')?.textContent).toBe('');
 
     fireEvent.input(view.container.querySelector('#character-filter')!, { target: { value: 'hazel' } });
     expect(view.container.querySelectorAll('.character-row')).toHaveLength(1);
@@ -85,7 +87,7 @@ describe('CharacterChatPage', () => {
     fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'hello' } });
     fireEvent.click(view.container.querySelector('#btn-send')!);
     await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain('hello back'));
-    expect(harness.posted[0]).toMatchObject({ client_id: CLIENT_ID, message: 'hello', history: [] });
+    expect(harness.posted[0]).toMatchObject({ kind: 'chat', message: 'hello', history: [] });
     expect(view.container.querySelector(`[data-id="${CHARACTER_ID}"]`)).toBe(row);
     expect(view.container.querySelector(`[data-id="${CHARACTER_ID}"]`)?.classList.contains('has-history')).toBe(true);
     expect(loadChatState(CLIENT_ID, CHARACTER_ID).messages).toHaveLength(3);

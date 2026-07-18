@@ -280,7 +280,7 @@ export interface CharacterSheetPageProps {
 }
 
 export function CharacterSheetPage({ services = DEFAULT_BROWSER_SERVICES }: CharacterSheetPageProps) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [apiBase, setApiBase] = useState('');
   const [connected, setConnected] = useState(false);
   const [characters, setCharacters] = useState<SheetCharacter[]>([]);

@@ -81,7 +81,7 @@ export function appendMessages(current: readonly StreamEvent[], messages: readon
 }
 
 export function EventStreamPage({ runtime }: EventStreamPageProps) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [base, setBase] = useState('');
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [entityNames, setEntityNames] = useState<Map<string, string>>(() => new Map());
@@ -118,7 +118,7 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
   const refreshFrom = useCallback(async (server: string): Promise<void> => {
     if (!server) return;
     try {
-      const data = await runtime.api.sendAdmin(server, '/admin/world/events/recent', {
+      const data = await runtime.api.sendAdmin(server, '/admin/world/events', {
         getAuth: () => authRef.current,
       });
       const messages = Array.isArray(data.events) ? data.events as EventMessage[] : [];

@@ -39,7 +39,7 @@ def launch_browser(playwright):
 
 def mock_config(page, discord_url: str) -> None:
     body = json.dumps(
-        {"serverUrl": "/api/", "autoConnect": False, "discordUrl": discord_url}
+        {"serverUrl": "/api/v1/", "autoConnect": False, "discordUrl": discord_url}
     )
     page.route(
         "**/config.json",
@@ -48,7 +48,7 @@ def mock_config(page, discord_url: str) -> None:
         ),
     )
     page.route(
-        "**/api/play/world/status",
+        "**/api/v1/public/features",
         lambda route: route.fulfill(status=200, json={"features": {}}),
     )
 

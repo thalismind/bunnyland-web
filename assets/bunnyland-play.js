@@ -64,8 +64,8 @@
     return {
       epoch: data?.world_epoch || 0,
       characters: (data?.characters || []).map(c => ({
-        id: c.character_id,
-        name: c.name || c.character_id,
+        id: c.id || c.character_id,
+        name: c.name || c.id || c.character_id,
         kind: c.kind || 'character',
         suspended: Boolean(c.suspended),
       })),
@@ -79,7 +79,10 @@
   }
 
   function parseCharacterProjection(data) {
+    const envelope = data || {};
+    data = envelope.character || envelope;
     if (!data || typeof data !== 'object' || !data.character_id) return null;
+    const scene = envelope.scene || {};
     const targetGroups = {};
     for (const [kind, targets] of Object.entries(data.target_groups || {})) {
       targetGroups[kind] = (targets || []).map(target => ({
@@ -92,23 +95,25 @@
     return {
       characterId: data.character_id,
       characterName: data.character_name || data.character_id,
-      worldEpoch: data.world_epoch || 0,
-      room: data.room || {},
+      worldEpoch: envelope.world_epoch || data.world_epoch || 0,
+      room: scene.room || data.room || {},
       inventory: data.inventory || [],
       points: data.points || {},
       controller: data.controller || null,
       portrait: data.portrait || {},
-      sheet: data.sheet || {},
+      sheet: envelope.sheet || data.sheet || {},
       targetGroups,
-      actions: data.actions || [],
+      actions: envelope.actions || data.actions || [],
     };
   }
 
   function parseRoomProjection(data) {
+    const envelope = data || {};
+    data = envelope.scene || envelope;
     const room = data?.room;
     if (!room || !room.id) return null;
     return {
-      worldEpoch: data.world_epoch || 0,
+      worldEpoch: envelope.world_epoch || data.world_epoch || 0,
       room: {
         id: room.id,
         name: room.title || room.id,
@@ -135,16 +140,18 @@
   }
 
   function parseQueuedCommands(data) {
+    const envelope = data || {};
+    data = envelope.character || envelope;
     if (!data || typeof data !== 'object' || !data.character_id) return null;
     return {
       characterId: data.character_id,
-      worldEpoch: data.world_epoch || 0,
+      worldEpoch: envelope.world_epoch || data.world_epoch || 0,
       generatedAtUnix: data.generated_at_unix ?? null,
       nextTickAtUnix: data.next_tick_at_unix ?? null,
       tickSeconds: data.tick_seconds ?? null,
       timeScale: data.time_scale ?? null,
       gameSecondsPerTick: data.game_seconds_per_tick ?? null,
-      commands: data.commands || [],
+      commands: envelope.commands || data.commands || [],
     };
   }
 
@@ -331,8 +338,9 @@
       characterId: data.character_id || fallbackCharacterId,
       controllerId: data.controller_id,
       generation: Number(data.controller_generation ?? data.generation ?? 0),
-      claimId: data.claim_id || '',
+      claimId: data.id || data.claim_id || '',
       claimSecret: data.claim_secret || '',
+      clientId: data.client_id || BunnylandApi.getClientId(),
       active,
     };
   }
@@ -346,6 +354,7 @@
       generation: Number(projected.generation || 0),
       claimId: control.claimId || '',
       claimSecret: control.claimSecret || '',
+      clientId: control.clientId || BunnylandApi.getClientId(),
       active: projected.controller_id === control.controllerId && control.active !== false,
     };
     if (next.claimId && next.claimSecret) return next;
@@ -384,6 +393,7 @@
         generation: Number(data.generation || 0),
         claimId: data.claimId,
         claimSecret: data.claimSecret,
+        clientId: data.clientId || BunnylandApi.getClientId(),
         active: data.active !== false,
       };
     } catch (_err) {
@@ -399,6 +409,7 @@
         generation: control.generation,
         claimId: control.claimId,
         claimSecret: control.claimSecret,
+        clientId: control.clientId || BunnylandApi.getClientId(),
         active: control.active !== false,
       }));
     } catch (_err) {
@@ -413,18 +424,6 @@
     } catch (_err) {
       // Best-effort continuity only.
     }
-  }
-
-  function claimParams(control) {
-    const params = new URLSearchParams();
-    if (control?.claimId) params.set('claim_id', control.claimId);
-    return params;
-  }
-
-  function claimQuery(control) {
-    const params = claimParams(control);
-    const query = params.toString();
-    return query ? `?${query}` : '';
   }
 
   function allTargets(projection) {
@@ -509,13 +508,14 @@
   }
 
   async function fetchRecentEvents(base) {
-    return BunnylandApi.sendJson(base, '/admin/world/events/recent');
+    return BunnylandApi.sendJson(base, '/admin/world/events');
   }
 
-  async function fetchCharacterRecentEvents(base, characterId, control = null) {
+  async function fetchCharacterRecentEvents(base, _characterId, control = null) {
+    if (!control?.claimId) throw new Error('An active claim is required');
     return BunnylandApi.sendJson(
       base,
-      `/play/world/character/${encodeURIComponent(characterId)}/events/recent${claimQuery(control)}`,
+      `/play/claims/${encodeURIComponent(control.claimId)}/events`,
       { headers: BunnylandApi.claimHeaders(control) }
     );
   }
@@ -526,7 +526,7 @@
 
   function openPlayerUpdates({
     base,
-    characterId,
+    characterId: _characterId,
     control = null,
     onFrame,
     onOpen = () => {},
@@ -539,7 +539,8 @@
       typeof WebSocket === 'function' ? url => new WebSocket(url) : null
     );
     if (!factory) return null;
-    const path = `/play/world/character/${encodeURIComponent(characterId)}/updates`;
+    if (!control?.claimId) return null;
+    const path = `/play/claims/${encodeURIComponent(control.claimId)}/stream`;
     const socket = factory(BunnylandApi.socketUrl(base, path, BunnylandApi.getPlayerAuth()));
     socket.onopen = () => {
       socket.send(JSON.stringify({
@@ -548,7 +549,7 @@
           token: BunnylandApi.getPlayerAuth()?.startsWith('Bearer ')
             ? BunnylandApi.getPlayerAuth().slice(7)
             : null,
-          claim_id: control?.claimId || null,
+          client_id: control?.clientId || BunnylandApi.getClientId(),
           claim_secret: control?.claimSecret || null,
         },
       }));
@@ -759,91 +760,127 @@
   }
 
   async function fetchCharacterList(base) {
-    return parseCharacterList(await BunnylandApi.sendJson(base, '/play/world/characters'));
+    return parseCharacterList(await BunnylandApi.sendJson(base, '/play/characters'));
   }
 
-  async function fetchCharacterProjection(base, characterId, control = null) {
+  async function fetchCharacterProjection(base, _characterId, control = null) {
+    if (!control?.claimId) return null;
     return parseCharacterProjection(
       await BunnylandApi.sendJson(
         base,
-        `/play/world/character/${encodeURIComponent(characterId)}${claimQuery(control)}`,
+        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
         { headers: BunnylandApi.claimHeaders(control) }
       )
     );
   }
 
-  async function fetchRoomProjection(base, roomId, characterId, control = null) {
-    const params = claimParams(control);
-    params.set('character_id', characterId);
+  async function fetchRoomProjection(base, _roomId, _characterId, control = null) {
+    if (!control?.claimId) return null;
     return parseRoomProjection(
       await BunnylandApi.sendJson(
         base,
-        `/play/world/room/${encodeURIComponent(roomId)}?${params.toString()}`,
+        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
         { headers: BunnylandApi.claimHeaders(control) }
       )
     );
   }
 
-  async function fetchQueuedCommands(base, characterId, control = null) {
+  async function fetchQueuedCommands(base, _characterId, control = null) {
+    if (!control?.claimId) return null;
     return parseQueuedCommands(
       await BunnylandApi.sendJson(
         base,
-        `/play/world/character/${encodeURIComponent(characterId)}/commands${claimQuery(control)}`,
+        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
         { headers: BunnylandApi.claimHeaders(control) }
       )
     );
   }
 
-  async function cancelQueuedCommand(base, characterId, commandId, control) {
-    const params = new URLSearchParams({
-      controller_id: control?.controllerId || '',
-      controller_generation: String(control?.generation ?? 0),
-    });
-    if (control?.claimId) params.set('claim_id', control.claimId);
+  async function cancelQueuedCommand(base, _characterId, commandId, control) {
+    if (!control?.claimId) throw new Error('An active claim is required');
     return BunnylandApi.sendJson(
       base,
-      `/play/world/character/${encodeURIComponent(characterId)}/commands/${encodeURIComponent(commandId)}?${params}`,
+      `/play/claims/${encodeURIComponent(control.claimId)}/commands/${encodeURIComponent(commandId)}`,
       { method: 'DELETE', headers: BunnylandApi.claimHeaders(control) }
     );
   }
 
   async function claimWebController(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/play/world/controllers/web/claim', {
-      method: 'POST',
-      headers: BunnylandApi.claimHeaders(control),
-      body: JSON.stringify(payload),
+    BunnylandApi.setClientId(payload.client_id || control?.clientId);
+    const claimId = control?.claimId || payload.claim_id || '';
+    const path = claimId
+      ? `/play/claims/${encodeURIComponent(claimId)}`
+      : '/play/claims';
+    const body = claimId ? null : JSON.stringify({
+      character_id: payload.character_id,
+      label: payload.label,
+      fallback_controller: payload.fallback_controller,
+      fallback_reason: payload.fallback_reason,
+      llm_profile_name: payload.llm_profile_name,
+      llm_model: payload.llm_model,
+      llm_provider: payload.llm_provider,
+      timeout_seconds: payload.timeout_seconds,
     });
+    const { data, response } = await BunnylandApi.sendJsonWithResponse(base, path, {
+      method: claimId ? 'PUT' : 'POST',
+      headers: BunnylandApi.claimHeaders(control),
+      body,
+    });
+    return {
+      ...data,
+      claim_id: data.id,
+      claim_secret: response.headers.get('X-Bunnyland-Claim-Secret') || control?.claimSecret || '',
+    };
   }
 
   async function updateWebControllerFallback(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/play/world/controllers/web/fallback', {
+    if (!control?.claimId) throw new Error('An active claim is required');
+    return BunnylandApi.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
       method: 'PATCH',
       headers: BunnylandApi.claimHeaders(control),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        kind: 'fallback',
+        fallback_controller: payload.fallback_controller,
+        fallback_reason: payload.fallback_reason,
+        llm_profile_name: payload.llm_profile_name,
+        llm_model: payload.llm_model,
+        llm_provider: payload.llm_provider,
+        timeout_seconds: payload.timeout_seconds,
+      }),
     });
   }
 
-  async function releaseWebController(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/play/world/controllers/web/release-controller', {
-      method: 'POST',
+  async function releaseWebController(base, _payload, control = null) {
+    if (!control?.claimId) throw new Error('An active claim is required');
+    return BunnylandApi.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
+      method: 'PATCH',
       headers: BunnylandApi.claimHeaders(control),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ kind: 'control', desired: 'fallback' }),
     });
   }
 
-  async function releaseWebClaim(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/play/world/controllers/web/release-claim', {
-      method: 'POST',
+  async function releaseWebClaim(base, _payload, control = null) {
+    if (!control?.claimId) throw new Error('An active claim is required');
+    return BunnylandApi.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}`, {
+      method: 'DELETE',
       headers: BunnylandApi.claimHeaders(control),
-      body: JSON.stringify(payload),
     });
   }
 
   async function submitCommand(base, payload, control = null) {
-    return BunnylandApi.sendJson(base, '/play/world/commands', {
+    if (!control?.claimId) throw new Error('An active claim is required');
+    const {
+      character_id: _characterId,
+      controller_id: _controllerId,
+      controller_generation: _generation,
+      claim_id: _claimId,
+      client_id: _clientId,
+      ...command
+    } = payload;
+    return BunnylandApi.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/commands`, {
       method: 'POST',
       headers: BunnylandApi.claimHeaders(control),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(command),
     });
   }
 

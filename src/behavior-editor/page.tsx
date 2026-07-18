@@ -225,7 +225,7 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
   const [serverBehaviors, setServerBehaviors] = useState<string[]>([]);
   const [badParams, setBadParams] = useState<Set<string>>(() => new Set());
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [base, setBase] = useState('');
   const [connected, setConnected] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: 'Ready', kind: '' });
@@ -342,7 +342,7 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
   ), [runtime]);
 
   const refreshFrom = useCallback(async (server: string): Promise<void> => {
-    const data = await send(server, '/admin/controllers/definitions');
+    const data = await send(server, '/admin/controller-definitions');
     if (!mountedRef.current) return;
     const nextConditions = Array.isArray(data.condition_library) ? data.condition_library.filter(item => typeof item === 'string') as string[] : [];
     const nextActions = Array.isArray(data.action_library) ? data.action_library.filter(item => typeof item === 'string') as string[] : [];
@@ -416,7 +416,11 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
       return;
     }
     try {
-      const data = await send(base, '/admin/controllers/behaviors', { method: 'POST', body: json });
+      const data = await send(
+        base,
+        `/admin/controller-definitions/behavior/${encodeURIComponent(spec.name)}`,
+        { method: 'PUT', body: JSON.stringify({ definition: JSON.parse(json) }) },
+      );
       if (!mountedRef.current) return;
       const names = Array.isArray(data.behaviors) ? data.behaviors.filter(item => typeof item === 'string') as string[] : [];
       setServerBehaviors(names.sort());

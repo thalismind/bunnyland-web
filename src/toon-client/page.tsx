@@ -113,7 +113,7 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
 }
 
 export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('○ Offline');
   const [characterList, setCharacterList] = useState<CharacterSummary[]>([]);

@@ -50,8 +50,8 @@ const api = {
         { name: 'recursive', uses_seed: true },
       ] };
     }
-    if (path === '/admin/world/generate') return { job_id: 'job-1', status: 'queued' };
-    return { job_id: 'job-1', status: 'succeeded' };
+    if (path === '/admin/world/generation-jobs') return { id: 'job-1', status: 'queued' };
+    return { id: 'job-1', status: 'succeeded' };
   }),
   sendJson: vi.fn(async () => initialSnapshot),
   setServerInUrl: vi.fn(),
@@ -94,7 +94,7 @@ describe('WorldGeneratorPage', () => {
     fireEvent.click(view.getByText('Generate New World'));
     expect(await view.findByText('Confirm reset before generating a replacement world')).toBeTruthy();
     expect(api.sendAdmin).not.toHaveBeenCalledWith(
-      expect.anything(), '/admin/world/generate', expect.anything(),
+      expect.anything(), '/admin/world/generation-jobs', expect.anything(),
     );
   });
 

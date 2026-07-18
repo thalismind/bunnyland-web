@@ -31,11 +31,11 @@ function terminalBase(serverUrl: string): string {
 }
 
 function clientServer(serverUrl: string): string {
-  return serverUrl.replace(/\/+$/, '') || '/api';
+  return serverUrl.replace(/\/+$/, '') || '/api/v1';
 }
 
 function useDeployment() {
-  const [serverUrl, setServerUrl] = useState('/api/');
+  const [serverUrl, setServerUrl] = useState('/api/v1/');
   const [discordUrl, setDiscordUrl] = useState('');
   const [availability, setAvailability] = useState<Record<'character_chat' | 'character_sheets', Availability>>({
     character_chat: 'checking',
@@ -47,7 +47,7 @@ function useDeployment() {
     let active = true;
     void (async () => {
       const linkedServer = landingGlobals.BunnylandApi.serverFromUrl();
-      let nextServerUrl = linkedServer || '/api/';
+      let nextServerUrl = linkedServer || '/api/v1/';
       let nextDiscordUrl = '';
       try {
         const response = await fetch('config.json', { cache: 'no-store', signal: controller.signal });

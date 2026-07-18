@@ -46,12 +46,13 @@ def json_route(body):
 
 def install_routes(page, posted: list[dict]) -> None:
     page.route(
-        "**/world/chat/status",
+        "**/public/features",
         json_route(
             {
                 "ok": True,
                 "schema_version": 1,
                 "world_epoch": 9,
+                "character_chat": True,
                 "enabled": True,
                 "allowed_tools": [
                     "forget",
@@ -68,19 +69,19 @@ def install_routes(page, posted: list[dict]) -> None:
         ),
     )
     page.route(
-        "**/world/characters",
+        "**/play/characters",
         json_route(
             {
                 "world_epoch": 9,
                 "characters": [
-                    {"character_id": CHARACTER, "name": "Juniper", "kind": "character"},
-                    {"character_id": OTHER, "name": "Hazel", "kind": "character"},
+                    {"id": CHARACTER, "name": "Juniper", "kind": "character"},
+                    {"id": OTHER, "name": "Hazel", "kind": "character"},
                 ],
             }
         ),
     )
     page.route(
-        "**/world/character/character%3A1",
+        "**/play/claims/claim-1/projection",
         json_route(
             {
                 "ok": True,
@@ -97,11 +98,16 @@ def install_routes(page, posted: list[dict]) -> None:
                 "sheet": {},
                 "target_groups": {},
                 "actions": [],
+                "character": {
+                    "character_id": CHARACTER,
+                    "character_name": "Juniper",
+                    "portrait": {"url": "/media/portraits/juniper.png", "alpha_url": ""},
+                },
             }
         ),
     )
     page.route(
-        "**/world/character/character%3A2",
+        "**/play/claims/claim-2/projection",
         json_route(
             {
                 "ok": True,
@@ -118,11 +124,16 @@ def install_routes(page, posted: list[dict]) -> None:
                 "sheet": {},
                 "target_groups": {},
                 "actions": [],
+                "character": {
+                    "character_id": OTHER,
+                    "character_name": "Hazel",
+                    "portrait": {"url": "/media/portraits/hazel.png", "alpha_url": ""},
+                },
             }
         ),
     )
     page.route(
-        "**/api/media/portraits/*.png",
+        "**/api/v1/media/portraits/*.png",
         lambda route: route.fulfill(
             status=200,
             content_type="image/svg+xml",
@@ -142,6 +153,9 @@ def install_routes(page, posted: list[dict]) -> None:
             content_type="application/json",
             body=json.dumps(
                 {
+                    "id": "cmd-remember-1",
+                    "kind": "chat",
+                    "status": "succeeded",
                     "ok": True,
                     "schema_version": 1,
                     "world_epoch": 11,
@@ -160,11 +174,22 @@ def install_routes(page, posted: list[dict]) -> None:
                             }
                         ],
                     },
+                    "result": {
+                        "reply": "I remember the greenhouse warning.",
+                        "action": {
+                            "tool": "remember",
+                            "command_id": "cmd-remember-1",
+                            "status": "executed",
+                            "result_events": [
+                                {"event_type": "NotesSearchedEvent", "results": ["greenhouse warning"]}
+                            ],
+                        },
+                    },
                 }
             ),
         )
 
-    page.route("**/world/character/*/chat/pending/*", pending_handler)
+    page.route("**/play/claims/*/jobs/cmd-remember-1", pending_handler)
 
     def chat_handler(route):
         payload = json.loads(route.request.post_data or "{}")
@@ -195,29 +220,33 @@ def install_routes(page, posted: list[dict]) -> None:
             content_type="application/json",
             body=json.dumps(
                 {
+                    "id": "chat-job-1",
+                    "kind": "chat",
+                    "status": "succeeded",
                     "ok": True,
                     "schema_version": 1,
                     "world_epoch": 10,
                     "character_id": CHARACTER,
                     "reply": reply,
                     "action": action,
+                    "result": {"reply": reply, "action": action},
                 }
             ),
         )
 
-    page.route("**/world/character/*/chat", chat_handler)
+    page.route("**/play/claims/*/jobs", chat_handler)
 
 
 def connect(page) -> None:
     page.goto(f"{BASE_URL}/character-chat.html", wait_until="domcontentloaded")
-    page.locator("#api-url").fill("/api")
+    page.locator("#api-url").fill("/api/v1")
     page.locator("#btn-connect").click()
     page.wait_for_function("() => document.querySelectorAll('.character-row').length === 2")
     expect(page.locator("#api-status")).to_contain_text("Live")
     expect(page.locator("#character-list")).to_contain_text("Juniper")
     expect(page.locator("#character-list")).to_contain_text("Hazel")
     expect(page.locator("#chat-title")).to_contain_text("No character selected")
-    expect(page.locator("#chat-tool-list")).to_contain_text("Tools: forget, inspect")
+    expect(page.locator("#chat-tool-list")).to_have_text("")
     expect(page.locator("#selected-character")).to_be_hidden()
     expect(page.locator("#transcript")).to_contain_text("Pick a character to start chatting.")
     page.locator("#character-filter").fill("hazel")
@@ -230,19 +259,19 @@ def connect(page) -> None:
     expect(page.locator("#status-line")).to_contain_text("Chatting with Juniper")
     expect(page.locator("#selected-character")).to_be_visible()
     expect(page.locator("#chat-portrait-frame img")).to_have_attribute(
-        "src", re.compile(r"/api/media/portraits/juniper\.png$")
+        "src", re.compile(r"/api/v1/media/portraits/juniper\.png$")
     )
 
 
 def submit_message(page, text: str) -> None:
     page.locator("#chat-input").fill(text)
-    with page.expect_response("**/world/character/*/chat"):
+    with page.expect_response("**/play/claims/*/jobs"):
         page.locator("#btn-send").click()
 
 
 def submit_message_with_enter(page, text: str) -> None:
     page.locator("#chat-input").fill(text)
-    with page.expect_response("**/world/character/*/chat"):
+    with page.expect_response("**/play/claims/*/jobs"):
         page.locator("#chat-input").press("Enter")
 
 
@@ -254,9 +283,9 @@ def assert_initial_send_and_persistence(page, posted: list[dict]) -> None:
     expect(page.locator(".action-message.executed")).to_contain_text("look")
     expect(page.locator(f'.character-row[data-id="{CHARACTER}"].has-history')).to_have_count(1)
     expect(page.locator(f'.character-row[data-id="{CHARACTER}"] .history-icon')).to_contain_text("●")
-    assert posted[-1]["url"].endswith("/play/world/character/character%3A1/chat")
+    assert posted[-1]["url"].endswith("/play/claims/claim-1/jobs")
     payload = posted[-1]["payload"]
-    if payload["client_id"] != CLIENT_ID or payload["history"] != []:
+    if payload["kind"] != "chat" or payload["history"] != []:
         raise AssertionError(f"unexpected initial chat payload: {payload!r}")
     state = page.evaluate(
         """(key) => JSON.parse(localStorage.getItem(key))""",
@@ -380,10 +409,10 @@ def assert_character_selection(page, posted: list[dict]) -> None:
     expect(page.locator("#status-line")).to_contain_text("Chatting with Hazel")
     expect(page.locator("#transcript")).to_contain_text("No local chat history")
     expect(page.locator("#chat-portrait-frame img")).to_have_attribute(
-        "src", re.compile(r"/api/media/portraits/hazel\.png$")
+        "src", re.compile(r"/api/v1/media/portraits/hazel\.png$")
     )
     submit_message(page, "hazel hello")
-    if not posted[-1]["url"].endswith("/play/world/character/character%3A2/chat"):
+    if not posted[-1]["url"].endswith("/play/claims/claim-2/jobs"):
         raise AssertionError(f"Hazel chat used wrong URL: {posted[-1]['url']!r}")
     expect(page.locator("#transcript")).to_contain_text("hazel hello")
     expect(page.locator("#transcript")).to_contain_text("reply to hazel hello")
@@ -433,6 +462,14 @@ def main() -> None:
             f"""
             localStorage.setItem('bunnyland.clientMenu.seen', '1');
             localStorage.setItem('bunnyland.characterChat.clientId', {json.dumps(CLIENT_ID)});
+            localStorage.setItem('bunnyland.webTui.clientId.claim.{CHARACTER}', JSON.stringify({{
+              controllerId: 'controller-1', claimId: 'claim-1', claimSecret: 'secret-1',
+              clientId: {json.dumps(CLIENT_ID)}, generation: 1, active: true,
+            }}));
+            localStorage.setItem('bunnyland.webTui.clientId.claim.{OTHER}', JSON.stringify({{
+              controllerId: 'controller-2', claimId: 'claim-2', claimSecret: 'secret-2',
+              clientId: {json.dumps(CLIENT_ID)}, generation: 1, active: true,
+            }}));
             """
         )
         posted: list[dict] = []

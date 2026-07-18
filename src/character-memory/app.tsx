@@ -207,7 +207,7 @@ export interface CharacterMemoryPageProps {
 }
 
 export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: CharacterMemoryPageProps) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [base, setBase] = useState('');
   const [apiStatus, setApiStatus] = useState('offline');
   const [characters, setCharacters] = useState<MemoryCharacterResponse[]>([]);
@@ -268,7 +268,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
     }
     setApiStatus('connecting');
     try {
-      const response = await services.sendAdmin(normalized, '/admin/memory/characters');
+      const response = await services.sendAdmin(normalized, '/admin/memory/collections');
       if (!aliveRef.current || requestGeneration.current !== generation) return;
       const next = response as { characters?: MemoryCharacterResponse[] };
       setCharacters(next.characters || []);
@@ -309,7 +309,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
     if (!base) return;
     const generation = ++requestGeneration.current;
     try {
-      const response = await services.sendAdmin(base, '/admin/memory/characters');
+      const response = await services.sendAdmin(base, '/admin/memory/collections');
       if (!aliveRef.current || requestGeneration.current !== generation) return;
       setCharacters((response as { characters?: MemoryCharacterResponse[] }).characters || []);
       if (!collection) return;

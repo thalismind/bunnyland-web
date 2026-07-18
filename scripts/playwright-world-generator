@@ -100,16 +100,17 @@ def install_routes(page, generated_requests: list[dict]) -> None:
     def generate(route) -> None:
         generated_requests.append(json.loads(route.request.post_data or "{}"))
         state["snapshot"] = GENERATED_SNAPSHOT
-        json_response(route, {"job_id": "job-1", "status": "queued"})
+        json_response(route, {"id": "job-1", "kind": "world", "status": "queued"})
 
-    page.route("**/admin/world/generate", generate)
+    page.route("**/admin/world/generation-jobs", generate)
 
     def generation_status(route) -> None:
         state["generation_checks"] += 1
         json_response(
             route,
             {
-                "job_id": "job-1",
+                "id": "job-1",
+                "kind": "world",
                 "status": "succeeded",
                 "rooms": 1,
                 "characters": 1,
@@ -117,7 +118,7 @@ def install_routes(page, generated_requests: list[dict]) -> None:
             },
         )
 
-    page.route("**/admin/world/generation", generation_status)
+    page.route("**/admin/world/generation-jobs/job-1", generation_status)
 
 
 def install_socket_stub(page) -> None:
@@ -180,6 +181,7 @@ def main() -> None:
         expect(page.locator("#entity-list")).to_contain_text("Juniper")
 
         expected = {
+            "kind": "world",
             "seed": "bright meadow",
             "generator": "recursive",
             "max_rooms": 3,

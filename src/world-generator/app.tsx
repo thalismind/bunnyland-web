@@ -36,6 +36,8 @@ interface GenerationStatus {
   rooms?: number;
   status?: string;
   world_epoch?: number;
+  id?: string;
+  result?: GenerationStatus;
 }
 
 interface SocketMessage {
@@ -50,6 +52,7 @@ interface BunnylandApiClient {
   }): Promise<unknown>;
   applyServerParam(options: { connect(server: string): void }): string;
   normalizeBase(url: string): string;
+  getClientId(): string;
   sendAdmin(base: string, path: string, options?: {
     body?: string | null | undefined;
     getAuth?: () => string | null;
@@ -237,6 +240,10 @@ export function WorldGeneratorPage() {
       }
     };
     socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: 'authenticate',
+        data: { client_id: BunnylandApi.getClientId() },
+      }));
       if (socketRef.current === socket) setStatus({ kind: 'ok', text: 'live' });
     };
     socket.onclose = () => {
@@ -295,18 +302,19 @@ export function WorldGeneratorPage() {
     while (busyRef.current && !signal.aborted) {
       await abortableDelay(1000, signal);
       const [generation] = await Promise.all([
-        sendAt<GenerationStatus>(baseRef.current, '/admin/world/generation', {
+        sendAt<GenerationStatus>(baseRef.current, `/admin/world/generation-jobs/${encodeURIComponent(jobId)}`, {
           admin: true, prompt: false,
         }),
         fetchSnapshot(),
       ]);
-      if (generation.job_id !== jobId) continue;
+      if (generation.id !== jobId) continue;
+      const result = generation.result || generation;
       if (generation.status === 'succeeded') {
-        log(`Generated ${String(generation.rooms)} room(s), ${String(generation.characters)} character(s) at epoch ${String(generation.world_epoch)}`, 'ok');
+        log(`Generated ${String(result.rooms)} room(s), ${String(result.characters)} character(s) at epoch ${String(generation.world_epoch)}`, 'ok');
         return;
       }
       if (generation.status === 'failed') {
-        throw new Error(generation.error ?? 'world generation failed');
+        throw new Error(result.error ?? 'world generation failed');
       }
     }
   }, [fetchSnapshot, log, sendAt]);
@@ -329,9 +337,10 @@ export function WorldGeneratorPage() {
     setBusy(true);
     log(`Starting ${selectedGenerator} generation`, 'ok');
     try {
-      const response = await sendAt<{ job_id: string; status: string }>(baseRef.current, '/admin/world/generate', {
+      const response = await sendAt<{ id: string; status: string }>(baseRef.current, '/admin/world/generation-jobs', {
         admin: true,
         body: JSON.stringify({
+          kind: 'world',
           confirm_reset: true,
           generator: selectedGenerator,
           max_rooms: Number(maxRooms) > 0 ? Number(maxRooms) : null,
@@ -341,9 +350,9 @@ export function WorldGeneratorPage() {
         method: 'POST',
       });
       if (controller.signal.aborted) return;
-      log(`Generation job ${response.job_id} is ${response.status}`, 'ok');
+      log(`Generation job ${response.id} is ${response.status}`, 'ok');
       await fetchSnapshot();
-      await watchGeneration(response.job_id, controller.signal);
+      await watchGeneration(response.id, controller.signal);
       await fetchSnapshot();
     } catch (error) {
       if (!controller.signal.aborted) log(`Generation error: ${errorMessage(error)}`, 'error');
@@ -379,7 +388,7 @@ export function WorldGeneratorPage() {
         <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland World Generator</span>
         <span class="toolbar-sep">|</span>
         <label for="api-url">Server:</label>
-        <input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/" spellcheck={false} />
+        <input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
         <button id="btn-connect" onClick={() => base ? disconnect() : void connect(apiInputRef.current?.value.trim() ?? '')}>
           {base ? 'Disconnect' : 'Connect'}
         </button>

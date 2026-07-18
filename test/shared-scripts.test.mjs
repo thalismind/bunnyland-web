@@ -34,6 +34,9 @@ function loadBrowserAssets(files) {
       getElementById: (id) => documentElements.get(id) || null,
     },
     fetch: async () => ({ ok: true, json: async () => ({}) }),
+    FormData: class FormData {
+      append() {}
+    },
     globalThis: null,
     history: { replaceState: () => {} },
     location: {
@@ -102,12 +105,12 @@ test('BunnylandApi normalizes URLs and websocket endpoints', () => {
 
   assert.equal(BunnylandApi.normalizeBase(' http://server.test/api/ '), 'http://server.test/api');
   assert.equal(
-    BunnylandApi.socketUrl('http://example.test/api/', '/admin/world/updates'),
-    'ws://example.test/api/admin/world/updates',
+    BunnylandApi.socketUrl('http://example.test/api/v1/', '/admin/world/stream'),
+    'ws://example.test/api/v1/admin/world/stream',
   );
   assert.equal(
-    BunnylandApi.socketUrl('/api', '/play/world/updates', `Basic ${Buffer.from('admin:p@ss').toString('base64')}`),
-    'ws://example.test/api/play/world/updates',
+    BunnylandApi.socketUrl('/api/v1', '/admin/world/stream'),
+    'ws://example.test/api/v1/admin/world/stream',
   );
 });
 
@@ -160,12 +163,12 @@ test('BunnylandApi prompts and reuses player auth for player routes', async () =
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  const result = await BunnylandApi.sendJson('/api/', '/play/world/characters');
+  const result = await BunnylandApi.sendJson('/api/v1/', '/play/characters');
 
   assert.deepEqual(result, { ok: true });
   assert.equal(calls.length, 3);
   assert.equal(calls[0].options.headers.Authorization, undefined);
-  assert.equal(calls[1].url, '/api/auth/login');
+  assert.equal(calls[1].url, '/api/v1/auth/session');
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     username: 'player1', password: 'player-pass', delivery: 'cookie',
   });
@@ -236,7 +239,7 @@ test('BunnylandApi retries explicit claim headers with prompted player auth', as
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  const result = await BunnylandApi.sendJson('/api/', '/play/world/character/c1?claim_id=claim1', {
+  const result = await BunnylandApi.sendJson('/api/v1/', '/play/claims/claim1/projection', {
     headers: BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' }),
   });
 
@@ -244,7 +247,7 @@ test('BunnylandApi retries explicit claim headers with prompted player auth', as
   assert.equal(calls.length, 3);
   assert.equal(calls[0].options.headers.Authorization, undefined);
   assert.equal(calls[0].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
-  assert.equal(calls[1].url, '/api/auth/login');
+  assert.equal(calls[1].url, '/api/v1/auth/session');
   assert.equal(calls[2].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
 
@@ -262,10 +265,10 @@ test('BunnylandApi replaces stale explicit player auth after prompt', async () =
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
-  await BunnylandApi.sendJson('/api/', '/play/world/character/c1?claim_id=claim1', { headers });
+  await BunnylandApi.sendJson('/api/v1/', '/play/claims/claim1/projection', { headers });
 
   assert.equal(calls[0].options.headers.Authorization, undefined);
-  assert.equal(calls[1].url, '/api/auth/login');
+  assert.equal(calls[1].url, '/api/v1/auth/session');
   assert.equal(calls[2].options.headers.Authorization, undefined);
   assert.equal(calls[2].options.headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
@@ -287,7 +290,7 @@ test('BunnylandApi prompts before configured player-auth autoconnect', async () 
   let authCalls = 0;
   context.fetch = async (url) => {
     authCalls += 1;
-    if (String(url).endsWith('/auth/me')) {
+    if (String(url).endsWith('/auth/session') && authCalls === 1) {
       return { ok: false, status: 401, json: async () => ({ detail: 'login required' }) };
     }
     return { ok: true, status: 200, json: async () => ({ subject: 'player' }) };
@@ -310,9 +313,9 @@ test('Character chat page is in the client menu and sends bounded local history'
   assert.match(ui, /character-chat\.html/);
   assert.match(page, /HISTORY_LIMIT = 24/);
   assert.match(page, /history: historyForPayload\(state\.messages\)/);
-  assert.match(page, /chat\/pending\/\$\{encodeURIComponent\(commandId\)\}/);
+  assert.match(page, /jobs\/\$\{encodeURIComponent\(commandId\)\}/);
   assert.match(page, /localStorage\.setItem\(storageKey\(clientId, characterId\)/);
-  assert.match(page, /\/world\/character\/\$\{encodeURIComponent\(characterId\)\}\/chat/);
+  assert.match(page, /\/play\/claims\/\$\{encodeURIComponent\(control\.claimId\)\}\/jobs/);
 });
 
 test('BunnylandWorld parses snapshots and editor search tokens', () => {
@@ -477,7 +480,7 @@ test('BunnylandPlay scopes room projections to the claimed character', async () 
 
   assert.equal(
     calls[0][1],
-    '/play/world/room/room%3A1?claim_id=claim%3A1&character_id=character%3A1',
+    '/play/claims/claim%3A1/projection',
   );
   assert.equal(calls[0][2].headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
@@ -573,12 +576,14 @@ test('BunnylandPlay parses queue timing and cancels commands with controller ide
   const result = await BunnylandPlay.cancelQueuedCommand('/api/', 'character:1', 'queued:1', {
     controllerId: 'web:tui',
     generation: 7,
+    claimId: 'claim:1',
+    claimSecret: 'claim-secret',
   });
   assert.deepEqual(result, { cancelled: true });
   assert.equal(request.options.method, 'DELETE');
   assert.equal(
     request.url,
-    '/api/play/world/character/character%3A1/commands/queued%3A1?controller_id=web%3Atui&controller_generation=7',
+    '/api/play/claims/claim%3A1/commands/queued%3A1',
   );
 });
 
@@ -620,25 +625,31 @@ test('BunnylandApi builds media URLs and image-request requests', async () => {
     return { ok: true, status: 200, json: async () => ({ status: 'queued', url: '/public/media/events/x.png' }) };
   };
 
-  const scene = await BunnylandApi.requestSceneImage('http://example.test/', 'character:1');
+  const scene = await BunnylandApi.requestSceneImage(
+    'http://example.test/',
+    'character:1',
+    { claimId: 'claim:1', claimSecret: 'claim-secret' },
+  );
   assert.equal(scene.status, 'queued');
-  assert.equal(calls[0].url, 'http://example.test/play/world/character/character%3A1/scene-image');
+  assert.equal(calls[0].url, 'http://example.test/play/claims/claim%3A1/jobs');
   assert.equal(calls[0].options.method, 'POST');
 
   await BunnylandApi.requestEventImage('http://example.test', 'rec:9', 'dramatic');
-  assert.equal(calls[1].url, 'http://example.test/admin/world/event/rec%3A9/image');
-  assert.deepEqual(JSON.parse(calls[1].options.body), { extra: 'dramatic' });
+  assert.equal(calls[1].url, 'http://example.test/admin/world/generation-jobs');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    kind: 'image', entity_id: 'rec:9', purpose: 'event', extra: 'dramatic',
+  });
 
   const file = { type: 'image/png' };
   await BunnylandApi.uploadCharacterImage('http://example.test/', 'character:1', 'sprite', file, {
     getAuth: () => 'Token secret',
   });
-  assert.equal(calls[2].url, 'http://example.test/admin/world/character/character%3A1/image/sprite');
-  assert.equal(calls[2].options.method, 'POST');
-  assert.equal(calls[2].options.headers['Content-Type'], 'image/png');
+  assert.equal(calls[2].url, 'http://example.test/admin/media/character/character%3A1/sprite');
+  assert.equal(calls[2].options.method, 'PUT');
+  assert.equal(calls[2].options.headers['Content-Type'], undefined);
   assert.equal(calls[2].options.headers.Authorization, undefined);
   assert.equal(calls[2].options.credentials, 'include');
-  assert.equal(calls[2].options.body, file);
+  assert.equal(calls[2].options.body instanceof context.FormData, true);
 });
 
 test('BunnylandPlay exposes portraits and image-request messages', () => {

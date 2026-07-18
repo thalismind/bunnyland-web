@@ -150,15 +150,15 @@ def install_routes(page, state: dict) -> None:
         )
 
     page.route(
-        "**/world/characters",
+        "**/play/characters",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
             body=json.dumps(CHARACTER_LIST),
         ),
     )
-    page.route("**/world/character/*/scene-image", scene_image)
-    page.route("**/world/character/*", character_projection)
+    page.route("**/play/claims/*/jobs", scene_image)
+    page.route("**/play/claims/*/projection", character_projection)
 
 
 def main() -> None:
@@ -168,10 +168,18 @@ def main() -> None:
         coverage = PlaywrightCoverage("character-sheet")
         browser = launch_browser(playwright)
         page = coverage.new_page(browser, viewport={"width": 1280, "height": 800})
+        page.add_init_script(
+            f"""
+            localStorage.setItem('bunnyland.webTui.clientId.claim.{CHARACTER}', JSON.stringify({{
+              controllerId: 'web:sheet', claimId: 'sheet-claim', claimSecret: 'sheet-secret',
+              clientId: 'sheet-client', generation: 2, active: true,
+            }}));
+            """
+        )
         state = {"requested": 0, "ready": False}
         install_routes(page, state)
 
-        page.goto(f"{BASE_URL}/character-sheet.html?server=/api#{CHARACTER}", wait_until="domcontentloaded")
+        page.goto(f"{BASE_URL}/character-sheet.html?server=/api/v1#{CHARACTER}", wait_until="domcontentloaded")
         page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
 
         expect(page).to_have_title("Bunnyland Character Sheet: Bun")

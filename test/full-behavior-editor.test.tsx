@@ -18,7 +18,7 @@ function runtime(options: RuntimeOptions = {}): BehaviorEditorRuntime {
       applyServerParam: vi.fn(() => ''),
       normalizeBase: vi.fn(value => value.replace(/\/$/, '')),
       sendAdmin: vi.fn(async (_base, path, request) => {
-        if (path.endsWith('/definitions')) {
+        if (path.endsWith('/controller-definitions')) {
           return {
             condition_library: ['has_visible_objects', 'is_story_time'],
             action_library: ['move_first_exit', 'say', 'take_first_item', 'wave'],
@@ -84,7 +84,9 @@ describe('BehaviorEditorPage', () => {
 
     fireEvent.click(view.container.querySelector('#btn-register')!);
     await waitFor(() => expect(view.container.querySelector('#save-status')?.textContent).toContain("Registered behavior 'local-behavior'"));
-    expect(JSON.parse(posted)).toEqual(JSON.parse((view.container.querySelector('#json-output') as HTMLTextAreaElement).value));
+    expect(JSON.parse(posted)).toEqual({
+      definition: JSON.parse((view.container.querySelector('#json-output') as HTMLTextAreaElement).value),
+    });
     expect(view.getByText('local-behavior', { selector: '.behavior-name-row' })).toBeTruthy();
   });
 

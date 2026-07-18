@@ -185,9 +185,9 @@ def test_connect_register_disconnect(page) -> None:
             body=json.dumps({"behaviors": ["doorway-greeter", "local-behavior"]}),
         )
 
-    page.route("**/admin/controllers/definitions", definitions_handler)
-    page.route("**/admin/controllers/behaviors", register_handler)
-    page.locator("#api-url").fill("/api")
+    page.route("**/admin/controller-definitions", definitions_handler)
+    page.route("**/admin/controller-definitions/behavior/*", register_handler)
+    page.locator("#api-url").fill("/api/v1")
     page.locator("#btn-connect").click()
     expect(page.locator("#api-status")).to_have_text("live")
     expect(page.locator("#library-source")).to_have_text("from server")
@@ -199,7 +199,10 @@ def test_connect_register_disconnect(page) -> None:
 
     page.locator("#btn-register").click()
     expect(page.locator("#save-status")).to_have_text("Registered behavior 'local-behavior'")
-    assert_(posted and posted[-1]["name"] == "local-behavior", f"register body wrong: {posted!r}")
+    assert_(
+        posted and posted[-1]["definition"]["name"] == "local-behavior",
+        f"register body wrong: {posted!r}",
+    )
     assert_("local-behavior" in (page.locator("#behavior-list").text_content() or ""),
             "registered behavior list did not refresh")
 

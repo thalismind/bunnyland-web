@@ -152,9 +152,7 @@ def install_routes(page, posted: list[dict]) -> None:
     def assert_claim(route) -> None:
         if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
             raise AssertionError(f"missing claim secret header on {route.request.url}")
-        if f"claim_id={CLAIM_ID}" not in route.request.url and (
-            not route.request.post_data or f'"claim_id":"{CLAIM_ID}"' not in route.request.post_data
-        ):
+        if f"/claims/{CLAIM_ID}" not in route.request.url:
             raise AssertionError(f"missing claim id on {route.request.url}")
 
     def commands_handler(route):
@@ -178,7 +176,9 @@ def install_routes(page, posted: list[dict]) -> None:
     def claim_handler(route):
         route.fulfill(
             status=200, content_type="application/json",
+            headers={"X-Bunnyland-Claim-Secret": CLAIM_SECRET},
             body=json.dumps({
+                "id": CLAIM_ID,
                 "character_id": CHARACTER,
                 "controller_id": "web:1",
                 "generation": 1,
@@ -194,19 +194,19 @@ def install_routes(page, posted: list[dict]) -> None:
     # Ids carry a colon that fetch() percent-encodes, so match by glob (``*`` does not
     # cross ``/``) rather than the literal id. More specific patterns are registered last
     # so Playwright (last-match-wins) prefers them.
-    page.route("**/world/characters", json_route(CHARACTER_LIST))
-    page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
-    page.route("**/world/character/**/events/recent**", recent_events_handler)
-    page.route("**/world/room/*", json_route(ROOM_PROJECTION))
-    page.route("**/world/character/**/commands**", commands_handler)
-    page.route("**/world/controllers/web/claim", claim_handler)
-    page.route("**/world/commands", commands_handler)
-    page.route("**/world/character/**/commands/**", cancel_handler)
+    projection = {**CHARACTER_PROJECTION, **QUEUED, "scene": ROOM_PROJECTION}
+    page.route("**/play/characters", json_route(CHARACTER_LIST))
+    page.route("**/play/claims/**", claim_handler)
+    page.route("**/play/claims/**/projection", json_route(projection))
+    page.route("**/play/claims/**/events**", recent_events_handler)
+    page.route("**/play/claims", claim_handler)
+    page.route("**/play/claims/**/commands", commands_handler)
+    page.route("**/play/claims/**/commands/**", cancel_handler)
 
 
 def connect_and_select(page) -> None:
     page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")
-    page.locator("#api-url").fill("/api")
+    page.locator("#api-url").fill("/api/v1")
     page.locator("#btn-connect").click()
     page.wait_for_function(
         "() => window.app?.characterList && window.app.characterList.length > 0"
@@ -289,7 +289,7 @@ def check_selected_sprite_preselects_target(page) -> None:
 
 def check_door_click_queues_move(page, posted: list[dict]) -> None:
     expect(page.locator(".door")).to_be_visible(timeout=15000)
-    with page.expect_response("**/world/commands"):
+    with page.expect_response("**/play/claims/*/commands"):
         page.locator(".door").first.click()
     if not posted or posted[-1]["command_type"] != "move":
         raise AssertionError(f"door click did not post move: {posted!r}")
@@ -298,14 +298,12 @@ def check_door_click_queues_move(page, posted: list[dict]) -> None:
 
 
 def check_queue_cancel(page) -> None:
-    with page.expect_response("**/world/character/*/commands/*"):
+    with page.expect_response("**/play/claims/*/commands/*"):
         page.locator('.queued-action[data-cancel-command="queued-1"]').click()
     deleted = page.exposed_deleted_commands
     if (
         not deleted
-        or "controller_id=web%3A1" not in deleted[-1]
-        or "controller_generation=1" not in deleted[-1]
-        or f"claim_id={CLAIM_ID}" not in deleted[-1]
+        or f"/claims/{CLAIM_ID}/commands/queued-1" not in deleted[-1]
     ):
         raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 

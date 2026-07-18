@@ -459,7 +459,7 @@ export function WebTuiPage() {
   return <>
     <div id="toolbar">
       <div class="toolbar-row" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Web TUI</span>
-        <span class="toolbar-sep">|</span><label for="api-url">Server:</label><input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/" spellcheck={false} />
+        <span class="toolbar-sep">|</span><label for="api-url">Server:</label><input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
         <button id="btn-connect" onClick={() => model.connected ? disconnect() : connect(apiInputRef.current?.value.trim() ?? '')}>{model.connected ? 'Disconnect' : 'Connect Live'}</button>
         <span id="api-status" class={model.status.kind}>{model.status.text}</span>
         <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button><button id="btn-help" type="button" title="Help — controls & commands (press ?)" aria-label="Help">?</button>

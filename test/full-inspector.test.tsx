@@ -140,8 +140,8 @@ describe('full Inspector page', () => {
     const sendAdmin = vi.fn(async () => ({ changed_entities: [], deleted_entities: [] }));
     facade()!._sendAdmin = sendAdmin;
     await facade()!._assignController('character', 'controller');
-    expect(sendAdmin).toHaveBeenCalledWith('/admin/controllers/assign', expect.objectContaining({
-      body: JSON.stringify({ character_id: 'character', controller_id: 'controller' }), method: 'POST',
+    expect(sendAdmin).toHaveBeenCalledWith('/admin/characters/character/controller', expect.objectContaining({
+      body: JSON.stringify({ controller_id: 'controller' }), method: 'PUT',
     }));
 
     view.unmount();

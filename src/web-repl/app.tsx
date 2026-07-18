@@ -240,7 +240,7 @@ export interface WebReplPageProps {
 }
 
 export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPageProps) {
-  const [apiUrl, setApiUrl] = useState('/api/');
+  const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [apiBase, setApiBase] = useState('');
   const [connected, setConnected] = useState(false);
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);

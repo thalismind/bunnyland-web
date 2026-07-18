@@ -164,9 +164,7 @@ def install_routes(page, posted: list[dict]) -> None:
     def assert_claim(route) -> None:
         if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
             raise AssertionError(f"missing claim secret header on {route.request.url}")
-        if f"claim_id={CLAIM_ID}" not in route.request.url and (
-            not route.request.post_data or f'"claim_id":"{CLAIM_ID}"' not in route.request.post_data
-        ):
+        if f"/claims/{CLAIM_ID}" not in route.request.url:
             raise AssertionError(f"missing claim id on {route.request.url}")
 
     def command_handler(route):
@@ -187,8 +185,10 @@ def install_routes(page, posted: list[dict]) -> None:
         route.fulfill(
             status=200,
             content_type="application/json",
+            headers={"X-Bunnyland-Claim-Secret": CLAIM_SECRET},
             body=json.dumps(
                 {
+                    "id": CLAIM_ID,
                     "character_id": CHARACTER,
                     "controller_id": "web:repl",
                     "controller_generation": 3,
@@ -210,20 +210,20 @@ def install_routes(page, posted: list[dict]) -> None:
         assert_claim(route)
         route.fulfill(status=200, content_type="application/json", body=json.dumps(EVENTS))
 
-    page.route("**/world/characters", json_route(CHARACTER_LIST))
-    page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
-    page.route("**/world/character/**/events/recent**", recent_events_handler)
-    page.route("**/world/character/**/commands**", json_route(QUEUED))
-    page.route("**/world/character/**/scene-image**", scene_image_handler)
-    page.route("**/world/controllers/web/claim", claim_handler)
-    page.route("**/world/controllers/web/fallback", claim_handler)
-    page.route("**/world/commands", command_handler)
-    page.route("**/world/character/**/commands/**", cancel_handler)
+    projection = {**CHARACTER_PROJECTION, **QUEUED}
+    page.route("**/play/characters", json_route(CHARACTER_LIST))
+    page.route("**/play/claims/**", claim_handler)
+    page.route("**/play/claims/**/projection", json_route(projection))
+    page.route("**/play/claims/**/events**", recent_events_handler)
+    page.route("**/play/claims/**/jobs", scene_image_handler)
+    page.route("**/play/claims", claim_handler)
+    page.route("**/play/claims/**/commands", command_handler)
+    page.route("**/play/claims/**/commands/**", cancel_handler)
 
 
 def connect_and_select(page) -> None:
     page.goto(f"{BASE_URL}/web-repl.html", wait_until="domcontentloaded")
-    page.locator("#api-url").fill("/api")
+    page.locator("#api-url").fill("/api/v1")
     page.locator("#btn-connect").click()
     expect(page.locator('label[for="player-select"]')).to_have_text("Character:")
     page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
@@ -260,10 +260,6 @@ def submit_say(page, posted: list[dict]) -> None:
         raise AssertionError("REPL did not post a command")
     body = posted[-1]
     expected = {
-        "character_id": CHARACTER,
-        "controller_id": "web:repl",
-        "controller_generation": 3,
-        "claim_id": CLAIM_ID,
         "command_type": "say",
         "payload": {"text": "hello web"},
         "cost": {"action": 1, "focus": 1},
@@ -323,7 +319,7 @@ def exercise_meta_commands(page) -> None:
         expect(page.locator("#repl-log")).to_contain_text(expected)
 
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi#character:2" not in opened:
+    if "character-sheet.html?server=%2Fapi%2Fv1#character:2" not in opened:
         raise AssertionError(f"profile command opened wrong URL: {opened!r}")
 
     page.locator("#repl-input").fill("clear")
@@ -340,15 +336,13 @@ def exercise_meta_commands(page) -> None:
 
 def cancel_queued_command(page) -> None:
     page.locator("#repl-input").fill("cancel queued-1")
-    with page.expect_response("**/world/character/*/commands/*"):
+    with page.expect_response("**/play/claims/*/commands/*"):
         page.locator("#btn-send").click()
     expect(page.locator("#repl-log")).to_contain_text("Cancelled queued-1.")
     deleted = page.exposed_deleted_commands
     if (
         not deleted
-        or "controller_id=web%3Arepl" not in deleted[-1]
-        or "controller_generation=3" not in deleted[-1]
-        or f"claim_id={CLAIM_ID}" not in deleted[-1]
+        or f"/claims/{CLAIM_ID}/commands/queued-1" not in deleted[-1]
     ):
         raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 

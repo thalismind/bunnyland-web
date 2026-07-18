@@ -179,9 +179,7 @@ def install_routes(page, posted: list[dict]) -> None:
     def assert_claim(route) -> None:
         if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
             raise AssertionError(f"missing claim secret header on {route.request.url}")
-        if f"claim_id={CLAIM_ID}" not in route.request.url and (
-            not route.request.post_data or f'"claim_id":"{CLAIM_ID}"' not in route.request.post_data
-        ):
+        if f"/claims/{CLAIM_ID}" not in route.request.url:
             raise AssertionError(f"missing claim id on {route.request.url}")
 
     def command_handler(route):
@@ -206,8 +204,10 @@ def install_routes(page, posted: list[dict]) -> None:
         route.fulfill(
             status=200,
             content_type="application/json",
+            headers={"X-Bunnyland-Claim-Secret": CLAIM_SECRET},
             body=json.dumps(
                 {
+                    "id": CLAIM_ID,
                     "character_id": CHARACTER,
                     "controller_id": "web:tui",
                     "controller_generation": 4,
@@ -229,22 +229,20 @@ def install_routes(page, posted: list[dict]) -> None:
         assert_claim(route)
         route.fulfill(status=200, content_type="application/json", body=json.dumps(EVENTS))
 
-    page.route("**/world/characters", json_route(CHARACTER_LIST))
-    page.route("**/world/character/**", json_route(CHARACTER_PROJECTION))
-    page.route("**/world/character/**/events/recent**", recent_events_handler)
-    page.route("**/world/character/**/commands**", json_route(QUEUED))
-    page.route("**/world/character/**/scene-image**", scene_image_handler)
-    page.route("**/world/controllers/web/claim", claim_handler)
-    page.route("**/world/controllers/web/fallback", claim_handler)
-    page.route("**/world/controllers/web/release-controller", claim_handler)
-    page.route("**/world/controllers/web/release-claim", json_route({"ok": True, "released": True}))
-    page.route("**/world/commands", command_handler)
-    page.route("**/world/character/**/commands/**", cancel_handler)
+    projection = {**CHARACTER_PROJECTION, **QUEUED}
+    page.route("**/play/characters", json_route(CHARACTER_LIST))
+    page.route("**/play/claims/**", claim_handler)
+    page.route("**/play/claims/**/projection", json_route(projection))
+    page.route("**/play/claims/**/events**", recent_events_handler)
+    page.route("**/play/claims/**/jobs", scene_image_handler)
+    page.route("**/play/claims", claim_handler)
+    page.route("**/play/claims/**/commands", command_handler)
+    page.route("**/play/claims/**/commands/**", cancel_handler)
 
 
 def connect_and_select(page) -> None:
     page.goto(f"{BASE_URL}/web-tui.html", wait_until="domcontentloaded")
-    page.locator("#api-url").fill("/api")
+    page.locator("#api-url").fill("/api/v1")
     page.locator("#btn-connect").click()
     page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
     page.locator("#player-select").select_option(CHARACTER)
@@ -292,14 +290,14 @@ def use_image_and_sheet_buttons(page) -> None:
     expect(page.locator("#target-label")).to_have_text("Target: none")
     expect(page.locator("#btn-clear-target")).to_be_disabled()
 
-    with page.expect_response("**/world/character/**/scene-image**"):
+    with page.expect_response("**/play/claims/**/jobs"):
         page.locator("#btn-request-image").click()
     expect(page.locator("#activity")).to_contain_text("image requested")
 
     page.evaluate("() => { window.openedSheetUrl = ''; window.open = (url) => { window.openedSheetUrl = url; return {}; }; }")
     page.locator("#btn-open-sheet").click()
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi#character:1" not in opened:
+    if "character-sheet.html?server=%2Fapi%2Fv1#character:1" not in opened:
         raise AssertionError(f"sheet button opened wrong URL: {opened!r}")
 
     page.locator('#inventory .option[data-entity="item:1"]').click()
@@ -313,7 +311,7 @@ def use_image_and_sheet_buttons(page) -> None:
     expect(page.locator('#inventory .option.selected[data-entity="item:1"]')).to_have_count(0)
     page.locator("#btn-open-sheet").click()
     opened = page.evaluate("() => window.openedSheetUrl")
-    if "character-sheet.html?server=%2Fapi#character:1" not in opened:
+    if "character-sheet.html?server=%2Fapi%2Fv1#character:1" not in opened:
         raise AssertionError(f"sheet button did not fall back after clearing selection: {opened!r}")
 
 
@@ -327,10 +325,6 @@ def submit_tell(page, posted: list[dict]) -> None:
     if not posted:
         raise AssertionError("Web TUI did not post a command")
     expected = {
-        "character_id": CHARACTER,
-        "controller_id": "web:tui",
-        "controller_generation": 4,
-        "claim_id": CLAIM_ID,
         "command_type": "tell",
         "payload": {"target_id": OTHER, "text": "psst"},
         "cost": {"action": 1, "focus": 1},
@@ -372,14 +366,14 @@ def update_fallback_and_release(page) -> None:
     page.locator("#btn-release-character").click()
     expect(page.locator("#claim-dialog")).to_be_visible()
     page.locator("#claim-timeout").fill("17")
-    with page.expect_response("**/world/controllers/web/fallback"):
+    with page.expect_response("**/play/claims/*"):
         page.locator("#claim-fallback").select_option("llm")
         page.locator("#btn-dialog-save-fallback").click()
     updates = page.exposed_fallback_updates
     if not updates or updates[-1]["fallback_controller"] != "llm" or updates[-1]["timeout_seconds"] != 1020:
         raise AssertionError(f"fallback settings were not posted: {updates!r}")
 
-    with page.expect_response("**/world/controllers/web/release-claim"):
+    with page.expect_response("**/play/claims/*"):
         page.locator("#btn-dialog-release-claim").click()
     expect(page.locator("#player-select")).to_have_value("")
     expect(page.locator("#btn-release-character")).to_be_disabled()
@@ -396,7 +390,7 @@ def update_fallback_and_release(page) -> None:
 
 
 def click_door_queues_move(page, posted: list[dict]) -> None:
-    with page.expect_response("**/world/commands"):
+    with page.expect_response("**/play/claims/*/commands"):
         page.locator("#doors .option").first.click()
     if not posted or posted[-1]["command_type"] != "move":
         raise AssertionError(f"door click did not queue move: {posted!r}")
@@ -441,14 +435,12 @@ def narrate_event(page) -> None:
 
 
 def cancel_queued_command(page) -> None:
-    with page.expect_response("**/world/character/*/commands/*"):
+    with page.expect_response("**/play/claims/*/commands/*"):
         page.locator('#queued .option[data-cancel-command="queued-1"]').click()
     deleted = page.exposed_deleted_commands
     if (
         not deleted
-        or "controller_id=web%3Atui" not in deleted[-1]
-        or "controller_generation=4" not in deleted[-1]
-        or f"claim_id={CLAIM_ID}" not in deleted[-1]
+        or f"/claims/{CLAIM_ID}/commands/queued-1" not in deleted[-1]
     ):
         raise AssertionError(f"queued command was not cancelled with controller identity: {deleted!r}")
 

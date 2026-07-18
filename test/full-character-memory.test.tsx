@@ -60,7 +60,7 @@ describe('full Character Memory page', () => {
 
   it('preserves the focused editor and its draft across unrelated filtering updates', async () => {
     const sendAdmin = vi.fn(async (_base: string, path: string) => {
-      if (path.endsWith('/characters')) return {
+      if (path.endsWith('/memory/collections')) return {
         characters: [{
           character_id: 'character:hazel', name: 'Hazel', private_collection: 'memory-hazel',
         }],
@@ -81,7 +81,7 @@ describe('full Character Memory page', () => {
 
   it('patches the selected document through the admin API', async () => {
     const sendAdmin = vi.fn(async (_base: string, path: string, options = {}) => {
-      if (path.endsWith('/characters')) return {
+      if (path.endsWith('/memory/collections')) return {
         characters: [{
           character_id: 'character:hazel', name: 'Hazel', private_collection: 'memory-hazel',
         }],
@@ -96,7 +96,7 @@ describe('full Character Memory page', () => {
     fireEvent.input(editor, { target: { value: 'Updated memory.' } });
     fireEvent.click(view.container.querySelector('#btn-save-document')!);
     await waitFor(() => expect(sendAdmin).toHaveBeenCalledWith(
-      '/api',
+      '/api/v1',
       '/admin/memory/collections/memory-hazel/documents/memory%3Aone',
       expect.objectContaining({ method: 'PATCH' }),
     ));
