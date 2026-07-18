@@ -376,7 +376,12 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     page.locator("#memory-tags .tag-input").fill("new")
     page.locator("#memory-tags [data-add-tag]").click()
     assert_(not page.locator("#btn-save-document").is_disabled(), "new document save stayed disabled")
-    page.locator("#btn-save-document").click()
+    with page.expect_response(
+        lambda response: response.request.method == "POST"
+        and f"/admin/memory/collections/{character['collection']}/documents" in response.url
+        and response.status == 201
+    ):
+        page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
     created = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
     created_document = next(
