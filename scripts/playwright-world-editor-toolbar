@@ -15,6 +15,7 @@ from playwright_server import ensure_web_server
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-world-editor-toolbar.png"
+WELCOME_MOBILE_SCREENSHOT = SCREENSHOT_DIR / "bunnyland-welcome-mobile.png"
 
 
 def launch_browser(playwright):
@@ -154,6 +155,37 @@ def main() -> None:
         page.locator("#btn-client-menu").click()
         if page.locator('.client-menu-item[href="index.html"].active').count() != 1:
             raise AssertionError("shared client menu does not include active welcome page")
+        mobile_context = browser.new_context(
+            viewport={"width": 390, "height": 760}, device_scale_factor=1, is_mobile=True, has_touch=True
+        )
+        mobile_page = mobile_context.new_page()
+        coverage.start_page(mobile_page)
+        mobile_page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
+        scroll_metrics = mobile_page.evaluate(
+            """
+            () => {
+              const root = document.scrollingElement;
+              const app = document.getElementById('app');
+              return {
+                appHeight: app.getBoundingClientRect().height,
+                clientHeight: root.clientHeight,
+                scrollHeight: root.scrollHeight,
+              };
+            }
+            """
+        )
+        if scroll_metrics["scrollHeight"] <= scroll_metrics["clientHeight"]:
+            raise AssertionError(f"mobile welcome page has no scrollable document: {scroll_metrics!r}")
+        if scroll_metrics["appHeight"] <= scroll_metrics["clientHeight"]:
+            raise AssertionError(f"mobile welcome app root is constrained to the viewport: {scroll_metrics!r}")
+        mobile_page.evaluate("window.scrollTo(0, 240)")
+        mobile_page.wait_for_timeout(50)
+        scroll_metrics["scrollTop"] = mobile_page.evaluate("document.scrollingElement.scrollTop")
+        if scroll_metrics["scrollTop"] <= 0:
+            raise AssertionError(f"mobile welcome page did not scroll: {scroll_metrics!r}")
+        mobile_page.screenshot(path=str(WELCOME_MOBILE_SCREENSHOT))
+        coverage.close_page(mobile_page)
+        mobile_context.close()
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
         page.locator("#btn-toggle-snapshot").click()
         if not page.locator("#main.snapshot-hidden").is_visible():

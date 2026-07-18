@@ -8,13 +8,19 @@
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <link rel="stylesheet" href="assets/bunnyland-themes.css">
   <style>
-    body {
+    body.welcome-page {
+      display: block;
       min-height: 100vh;
       height: auto;
       overflow: auto;
       background:
         radial-gradient(circle at 15% 10%, var(--bl-accent-wash), transparent 28rem),
         linear-gradient(180deg, var(--bl-bg-deep), var(--bl-bg) 360px, var(--bl-bg-strong));
+    }
+
+    body.welcome-page > #app {
+      height: auto;
+      min-height: 100vh;
     }
 
     .welcome-shell {
@@ -408,7 +414,7 @@
     .play-list a:hover { color: var(--bl-accent-strong); }
   </style>
 </head>
-<body>
+<body class="welcome-page">
   <div id="app"></div>
   <script src="assets/bunnyland-ui.js?v=20260624-admin-tools"></script>
   <script src="assets/bunnyland-api.js"></script>
