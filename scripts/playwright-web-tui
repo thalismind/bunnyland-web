@@ -474,6 +474,21 @@ def main() -> None:
         click_door_queues_move(page, posted)
         submit_unavailable(page, posted)
         submit_tell(page, posted)
+        layout = page.evaluate(
+            """
+            () => {
+              const app = document.getElementById('app');
+              const actions = document.getElementById('verbs');
+              return {
+                appHeight: Math.round(app.getBoundingClientRect().height),
+                viewportHeight: window.innerHeight,
+                actionsOverflow: getComputedStyle(actions).overflowY,
+              };
+            }
+            """
+        )
+        if layout["appHeight"] != layout["viewportHeight"] or layout["actionsOverflow"] != "auto":
+            raise AssertionError(f"TUI viewport is not bounded: {layout!r}")
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-tui.png"))
         coverage.close_browser(browser)
 

@@ -372,6 +372,24 @@ def narrate_event(page) -> None:
     expect(page.locator("#repl-log")).to_contain_text("You arrive in the Hallway.")
 
 
+def assert_bounded_viewport(page) -> None:
+    layout = page.evaluate(
+        """
+        () => {
+          const app = document.getElementById('app');
+          const log = document.getElementById('repl-log');
+          return {
+            appHeight: Math.round(app.getBoundingClientRect().height),
+            viewportHeight: window.innerHeight,
+            logOverflow: getComputedStyle(log).overflowY,
+          };
+        }
+        """
+    )
+    if layout["appHeight"] != layout["viewportHeight"] or layout["logOverflow"] != "auto":
+        raise AssertionError(f"REPL viewport is not bounded: {layout!r}")
+
+
 def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -390,6 +408,7 @@ def main() -> None:
         submit_say(page, posted)
         submit_tell_named_target(page, posted)
         submit_go_direction(page, posted)
+        assert_bounded_viewport(page)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-web-repl.png"))
         coverage.close_browser(browser)
 

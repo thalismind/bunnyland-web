@@ -251,6 +251,32 @@ def check_action_search_and_indicators(page) -> None:
     expect(page.locator('.verb.ready[data-tool="say"]')).to_be_visible()
 
 
+def check_viewport_and_action_scroll(page) -> None:
+    layout = page.evaluate(
+        """
+        () => {
+          const app = document.querySelector('#app');
+          const actions = document.querySelector('#actions-body');
+          const list = document.querySelector('.verb-list');
+          for (let index = 0; index < 30; index += 1) {
+            list.append(list.firstElementChild.cloneNode(true));
+          }
+          return {
+            appHeight: Math.round(app.getBoundingClientRect().height),
+            viewportHeight: window.innerHeight,
+            overflowY: getComputedStyle(actions).overflowY,
+            scrollHeight: actions.scrollHeight,
+            clientHeight: actions.clientHeight,
+          };
+        }
+        """
+    )
+    if layout["appHeight"] != layout["viewportHeight"]:
+        raise AssertionError(f"Toon root did not fill the viewport: {layout!r}")
+    if layout["overflowY"] != "auto" or layout["scrollHeight"] <= layout["clientHeight"]:
+        raise AssertionError(f"Toon action list did not become scrollable: {layout!r}")
+
+
 def check_selected_sprite_preselects_target(page) -> None:
     page.locator(".sprite").filter(has_text="Marlow").click()
     page.locator('.verb.ready[data-tool="tell"]').click()
@@ -382,6 +408,7 @@ def main() -> None:
         check_tell_dropdown_and_text(page, posted)
         check_single_form_at_a_time(page)
         check_event_activity(page)
+        check_viewport_and_action_scroll(page)
 
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-toon-action-form.png"))
         coverage.close_browser(browser)

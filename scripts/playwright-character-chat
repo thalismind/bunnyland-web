@@ -390,6 +390,24 @@ def assert_character_selection(page, posted: list[dict]) -> None:
     expect(page.locator(f'.character-row[data-id="{OTHER}"].has-history')).to_have_count(1)
 
 
+def assert_desktop_viewport(page) -> None:
+    layout = page.evaluate(
+        """
+        () => {
+          const app = document.getElementById('app');
+          const transcript = document.getElementById('transcript');
+          return {
+            appHeight: Math.round(app.getBoundingClientRect().height),
+            viewportHeight: window.innerHeight,
+            transcriptOverflow: getComputedStyle(transcript).overflowY,
+          };
+        }
+        """
+    )
+    if layout["appHeight"] != layout["viewportHeight"] or layout["transcriptOverflow"] != "auto":
+        raise AssertionError(f"character chat viewport is not bounded: {layout!r}")
+
+
 def assert_mobile_layout(page) -> None:
     page.set_viewport_size({"width": 390, "height": 760})
     page.wait_for_timeout(100)
@@ -428,6 +446,7 @@ def main() -> None:
         assert_markdown_rendering_without_html(page)
         assert_bounded_history_payload(page, posted)
         assert_character_selection(page, posted)
+        assert_desktop_viewport(page)
         assert_mobile_layout(page)
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-chat.png"))
         coverage.close_browser(browser)

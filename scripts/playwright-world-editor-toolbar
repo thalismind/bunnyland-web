@@ -73,6 +73,17 @@ def main() -> None:
         if boxes["toolbar-row3"]["height"] < 20:
             raise AssertionError("toolbar row 3 is unexpectedly collapsed")
 
+        button_heights = page.evaluate(
+            """
+            () => Object.fromEntries(['btn-toggle-live', 'btn-save-live'].map((id) => [
+              id,
+              document.getElementById(id).getBoundingClientRect().height,
+            ]))
+            """
+        )
+        if abs(button_heights["btn-toggle-live"] - button_heights["btn-save-live"]) > 1:
+            raise AssertionError(f"runtime toolbar buttons have different heights: {button_heights!r}")
+
         page.locator("#toolbar").screenshot(path=str(SCREENSHOT))
 
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")

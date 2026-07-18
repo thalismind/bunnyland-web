@@ -21,9 +21,9 @@
 #stage-empty { position: absolute; inset: 0; z-index: 7000; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--bl-text-muted); }
 #stage-empty .title { color: var(--bl-text); font-size: 18px; }
 #stage-empty.hidden { display: none; }
-#actions { display: flex; flex-direction: column; width: 300px; min-width: 220px; overflow: hidden; border-left: 1px solid var(--bl-border); background: var(--bl-bg-strong); }
+#actions { display: flex; flex-direction: column; width: 300px; min-width: 220px; min-height: 0; overflow: hidden; border-left: 1px solid var(--bl-border); background: var(--bl-bg-strong); }
 #actions-header { padding: 7px 12px; border-bottom: 1px solid var(--bl-border); color: var(--bl-text); font-size: var(--bl-text-md); }
-#actions-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+#actions-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; }
 #player-portrait, #event-image { display: block; width: 100%; border-bottom: 1px solid var(--bl-border); }
 #event-image { cursor: zoom-in; }
 #image-lightbox { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 85%); cursor: zoom-out; }

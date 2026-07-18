@@ -121,6 +121,7 @@ afterEach(() => {
   cleanup();
   history.replaceState(null, '', '/inspector.html');
   closeMenu.mockClear();
+  vi.unstubAllGlobals();
 });
 
 describe('full Inspector page', () => {
@@ -184,6 +185,29 @@ describe('full Inspector page', () => {
     expect(location.search).toBe('?server=%2Fapi');
     expect(canvas.ds).toEqual({ offset: [7, 12], scale: 1.4 });
     expect((window.BunnylandApi as any).sendAdmin).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('clears the active socket before a synchronous close callback', async () => {
+    let closeCalls = 0;
+    let socketCount = 0;
+    class SynchronousCloseSocket {
+      onclose: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      constructor() { socketCount += 1; }
+      close() { closeCalls += 1; this.onclose?.(new Event('close')); }
+      send() {}
+    }
+    vi.stubGlobal('WebSocket', SynchronousCloseSocket);
+    history.replaceState(null, '', '/inspector.html?server=%2Fapi');
+    const view = render(<InspectorApp/>);
+    await waitFor(() => expect(socketCount).toBe(1));
+
+    facade()!.loadSnapshot(makeWorld());
+
+    expect(closeCalls).toBe(1);
     view.unmount();
   });
 });

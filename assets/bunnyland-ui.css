@@ -271,6 +271,16 @@ body {
   overflow: hidden;
 }
 
+:where(body > #app) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
 label { color: var(--bl-text-soft); }
 input, select, textarea, button { font-family: var(--bl-font-mono); }
 
@@ -305,6 +315,7 @@ button {
   border-radius: var(--bl-radius-sm);
   cursor: pointer;
   font-size: var(--bl-text-sm);
+  line-height: 1.2;
   white-space: nowrap;
 }
 
