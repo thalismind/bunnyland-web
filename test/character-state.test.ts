@@ -4,8 +4,8 @@ import {
   HISTORY_LIMIT,
   loadChatState,
   renderMarkdown,
-} from '../src/character/chat-state';
-import { legacyCharacterUrl } from '../src/character/redirect';
+} from '../src/character/chat-state.ts';
+import { legacyCharacterUrl } from '../src/character/redirect.ts';
 
 afterEach(() => localStorage.clear());
 
