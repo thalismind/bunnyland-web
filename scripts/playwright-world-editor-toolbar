@@ -4,6 +4,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 
 from playwright.sync_api import sync_playwright
@@ -93,11 +94,11 @@ def main() -> None:
         page.on(
             "request",
             lambda request: welcome_api_requests.append(request.url)
-            if "/api/v1/public/features" in request.url
+            if re.search(r"/api(?:/v1)?/public/features(?:[?#]|$)", request.url)
             else None,
         )
         page.route(
-            "**/api/v1/public/features",
+            re.compile(r".*/api(?:/v1)?/public/features(?:\?.*)?$"),
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -107,7 +108,7 @@ def main() -> None:
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
         if welcome_dialogs:
             raise AssertionError(f"anonymous welcome page prompted for player credentials: {welcome_dialogs!r}")
-        if not any("/api/v1/public/features" in url for url in welcome_api_requests):
+        if not welcome_api_requests:
             raise AssertionError(f"welcome page did not request public features: {welcome_api_requests!r}")
         if not page.locator("h1").text_content() or "Hungry Courier" not in page.locator("h1").text_content():
             raise AssertionError("welcome page headline did not render")

@@ -36,7 +36,7 @@ jobs:
       - name: Run type, build, lint, and unit checks
         run: |
           mkdir -p artifacts/test-results
-          python -m unittest scripts/test_playwright_server.py
+          python -m unittest discover -s scripts -p 'test_*.py'
           npm run check
 
       - name: Install Playwright (pip)
@@ -63,17 +63,6 @@ jobs:
             python -m playwright install-deps chromium
           else
             python -m playwright install --with-deps chromium
-          fi
-
-      - name: Pull server container for memory regression
-        run: |
-          if command -v nerdctl >/dev/null 2>&1; then
-            sudo nerdctl pull ghcr.io/thalismind/bunnyland-server:main
-          elif command -v docker >/dev/null 2>&1; then
-            docker pull ghcr.io/thalismind/bunnyland-server:main
-          else
-            echo "no supported container runtime found; install nerdctl or docker" >&2
-            exit 1
           fi
 
       - name: Run Playwright regressions

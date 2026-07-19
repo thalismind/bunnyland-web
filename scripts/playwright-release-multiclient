@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import socket
 import subprocess
@@ -27,9 +26,12 @@ from typing import Any
 
 from playwright.sync_api import expect, sync_playwright
 
+from playwright_container import container_cli, stop_container
+from playwright_coverage import PlaywrightCoverage
+
 
 WEB_REPO = Path(__file__).resolve().parents[1]
-BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+BASE_URL = ""
 ARTIFACT_DIR = Path(
     os.environ.get(
         "BUNNYLAND_RELEASE_ARTIFACT_DIR",
@@ -39,65 +41,22 @@ ARTIFACT_DIR = Path(
 SCREENSHOT_DIR = Path(
     os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", ARTIFACT_DIR / "screenshots")
 )
-SERVER_REPO = Path(
-    os.environ.get(
-        "BUNNYLAND_SERVER_REPO",
-        Path(__file__).resolve().parents[2] / "bunnyland-server",
-    )
-)
 SERVER_IMAGE = os.environ.get(
     "BUNNYLAND_RELEASE_SERVER_IMAGE",
     "ghcr.io/thalismind/bunnyland-server:main",
 )
-SERVER_MODE = os.environ.get("BUNNYLAND_RELEASE_SERVER_MODE", "local").strip().lower()
 SERVER_LOG = Path(os.environ.get("BUNNYLAND_RELEASE_SERVER_LOG", ARTIFACT_DIR / "server.log"))
 WEB_LOG = Path(os.environ.get("BUNNYLAND_RELEASE_WEB_LOG", ARTIFACT_DIR / "web.log"))
 OTEL_TRACE_FILE = Path(
     os.environ.get("BUNNYLAND_RELEASE_OTEL_TRACE_FILE", ARTIFACT_DIR / "otel-traces.jsonl")
 )
-PLAYER_USER = os.environ.get("BUNNYLAND_PLAYER_USER", "")
-PLAYER_PASSWORD = os.environ.get("BUNNYLAND_PLAYER_PASSWORD", "")
 SERVER_CONTAINER_NAME: str | None = None
+SERVER_RUNTIME: list[str] | None = None
 SERVER_AUTH_DIR: Path | None = None
-SERVER_TOKEN_VOLUME: str | None = None
 
 
-def _runtime_works(command: list[str]) -> bool:
-    try:
-        return (
-            subprocess.run(
-                [*command, "ps"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            ).returncode
-            == 0
-        )
-    except OSError:
-        return False
-
-
-def container_cli() -> list[str]:
-    override = os.environ.get("BUNNYLAND_CONTAINER_CLI")
-    if override:
-        command = shlex.split(override)
-        if not command:
-            raise RuntimeError("BUNNYLAND_CONTAINER_CLI must not be empty")
-        return command
-    for candidate in ("nerdctl", "docker"):
-        resolved = shutil.which(candidate)
-        if resolved and _runtime_works([resolved]):
-            return [resolved]
-        sudo = shutil.which("sudo")
-        if resolved and sudo and _runtime_works([sudo, resolved]):
-            return [sudo, resolved]
-    raise RuntimeError(
-        "container runtime CLI not found; install nerdctl or set BUNNYLAND_CONTAINER_CLI"
-    )
-
-
-def prepare_container_auth(runtime: list[str]) -> tuple[Path, str]:
-    global SERVER_AUTH_DIR, SERVER_TOKEN_VOLUME
+def prepare_container_auth(runtime: list[str]) -> Path:
+    global SERVER_AUTH_DIR
     SERVER_AUTH_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-release-auth-"))
     SERVER_AUTH_DIR.chmod(0o700)
     users_file = SERVER_AUTH_DIR / "auth-users.yml"
@@ -121,55 +80,54 @@ def prepare_container_auth(runtime: list[str]) -> tuple[Path, str]:
         "users:\n"
         "  release-multiclient:\n"
         f"    password_hash: {password_hash!r}\n"
+        "    enabled: true\n"
         "    scopes: [world:play]\n",
         encoding="utf-8",
     )
     users_file.chmod(0o600)
 
-    SERVER_TOKEN_VOLUME = f"bunnyland-release-token-{os.getpid()}"
-    subprocess.run(
-        [*runtime, "volume", "create", SERVER_TOKEN_VOLUME],
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    token = subprocess.run(
-        [
-            *runtime,
-            "run",
-            "--rm",
-            "-v",
-            f"{SERVER_TOKEN_VOLUME}:/data",
-            SERVER_IMAGE,
-            "auth",
-            "provision-token",
-            "--db",
-            "/data/auth-tokens.sqlite3",
-            "--subject",
-            "release-multiclient",
-            "--scope",
-            "world:play",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    os.environ["BUNNYLAND_PLAY_TOKEN"] = token
-    return users_file, SERVER_TOKEN_VOLUME
+    return users_file
 
 
 def cleanup_container_auth() -> None:
-    global SERVER_AUTH_DIR, SERVER_TOKEN_VOLUME
-    if SERVER_TOKEN_VOLUME:
-        subprocess.run(
-            [*container_cli(), "volume", "rm", SERVER_TOKEN_VOLUME],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        SERVER_TOKEN_VOLUME = None
+    global SERVER_AUTH_DIR
     if SERVER_AUTH_DIR:
-        shutil.rmtree(SERVER_AUTH_DIR, ignore_errors=True)
+        shutil.rmtree(SERVER_AUTH_DIR)
         SERVER_AUTH_DIR = None
+
+
+def login_player(api_url: str) -> None:
+    data = json.dumps({
+        "username": "release-multiclient",
+        "password": "release-multiclient-fixture-only",
+        "delivery": "body",
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"{api_url}/auth/session",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    scopes = payload.get("scopes") or []
+    if "world:play" not in scopes:
+        raise RuntimeError(
+            "body-delivered session omitted world:play scope "
+            f"(authenticated={payload.get('authenticated')!r}, scopes={scopes!r}, keys={sorted(payload)})"
+        )
+    token = payload.get("token") or payload.get("access_token") or payload.get("bearer_token")
+    if not token:
+        raise RuntimeError(f"body-delivered session omitted a bearer token; keys={sorted(payload)}")
+    normalized = str(token)
+    if normalized.lower().startswith("bearer "):
+        normalized = normalized[7:]
+    if not normalized.startswith("blt_"):
+        raise RuntimeError(
+            "body-delivered session returned an unexpected credential format "
+            f"(prefix={normalized[:4]!r}, length={len(normalized)})"
+        )
+    os.environ["BUNNYLAND_PLAY_TOKEN"] = normalized
 
 
 def launch_browser(playwright):
@@ -192,16 +150,16 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def api_get(
-    api_url: str,
-    path: str,
-    extra_headers: dict[str, str] | None = None,
-) -> dict[str, Any]:
+def api_get(api_url: str, path: str) -> dict[str, Any]:
     headers = player_headers()
-    headers.update(extra_headers or {})
     request = urllib.request.Request(f"{api_url}{path}", headers=headers)
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = response.read()
+            return json.loads(payload.decode("utf-8")) if payload else {}
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"{path} returned HTTP {error.code}: {detail}") from error
 
 
 def player_auth_header() -> str:
@@ -211,7 +169,10 @@ def player_auth_header() -> str:
 
 def player_headers() -> dict[str, str]:
     auth = player_auth_header()
-    return {"Authorization": auth} if auth else {}
+    headers = {"X-Bunnyland-Client-Id": "release-multiclient-api"}
+    if auth:
+        headers["Authorization"] = auth
+    return headers
 
 
 def url_ok(url: str, timeout: float = 2.0) -> bool:
@@ -234,18 +195,18 @@ def wait_for_url(url: str, proc: subprocess.Popen | None = None, timeout: float 
 
 
 def start_web_server() -> tuple[str, subprocess.Popen | None]:
-    if url_ok(f"{BASE_URL}/index.html"):
-        return BASE_URL, None
-    if os.environ.get("BUNNYLAND_WEB_NO_SERVER") == "1":
-        wait_for_url(f"{BASE_URL}/index.html")
-        return BASE_URL, None
+    override = os.environ.get("BUNNYLAND_RELEASE_WEB_URL")
+    if override:
+        base_url = override.rstrip("/")
+        wait_for_url(f"{base_url}/index.html")
+        return base_url, None
 
     port = free_port()
     base_url = f"http://127.0.0.1:{port}"
     WEB_LOG.parent.mkdir(parents=True, exist_ok=True)
     log = WEB_LOG.open("w", encoding="utf-8")
     proc = subprocess.Popen(
-        ["python3", "-m", "http.server", str(port)],
+        [str(WEB_REPO / "serve.sh"), str(port)],
         cwd=WEB_REPO,
         stdout=log,
         stderr=subprocess.STDOUT,
@@ -284,76 +245,22 @@ def start_server() -> tuple[str, subprocess.Popen | None]:
         wait_for_api(api_url)
         return api_url, None
 
-    if SERVER_MODE in {"container", "docker"}:
-        return start_container_server()
-    if SERVER_MODE not in {"local", "source"}:
-        raise RuntimeError(
-            "BUNNYLAND_RELEASE_SERVER_MODE must be 'container' or 'local' "
-            f"(got {SERVER_MODE!r})"
-        )
-    if not SERVER_REPO.exists():
-        raise RuntimeError(
-            f"local server repo not found at {SERVER_REPO}; set "
-            "BUNNYLAND_RELEASE_SERVER_MODE=container to use a published server image"
-        )
-
-    port = free_port()
-    api_url = f"http://127.0.0.1:{port}"
-    SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
-    log = SERVER_LOG.open("w", encoding="utf-8")
-    cmd = [
-        "uv",
-        "run",
-        "--extra",
-        "server",
-        "--extra",
-        "otel",
-        "bunnyland",
-        "serve",
-        "--generator",
-        os.environ.get("BUNNYLAND_RELEASE_GENERATOR", "apartment-demo"),
-        "--seed",
-        os.environ.get("BUNNYLAND_RELEASE_SEED", "v1 release web multiclient"),
-        "--ticks",
-        "0",
-        "--tick-seconds",
-        os.environ.get("BUNNYLAND_RELEASE_TICK_SECONDS", "0.2"),
-        "--api-host",
-        "127.0.0.1",
-        "--api-port",
-        str(port),
-        "--claim-timeout-seconds",
-        "0",
-    ]
-    env = os.environ.copy()
-    env.setdefault("BUNNYLAND_OTEL_ENABLED", "1")
-    env.setdefault("BUNNYLAND_OTEL_TRACE_FILE", str(OTEL_TRACE_FILE))
-    env.setdefault("OTEL_METRICS_EXPORTER", "none")
-    env.setdefault("OTEL_SERVICE_NAME", "bunnyland-release-multiclient")
-    proc = subprocess.Popen(cmd, cwd=SERVER_REPO, stdout=log, stderr=subprocess.STDOUT, env=env)
-    try:
-        wait_for_api(api_url, proc=proc)
-    except Exception:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        raise
-    return api_url, proc
+    return start_container_server()
 
 
 def start_container_server() -> tuple[str, subprocess.Popen | None]:
-    global SERVER_CONTAINER_NAME
+    global SERVER_CONTAINER_NAME, SERVER_RUNTIME
     port = free_port()
-    api_url = f"http://127.0.0.1:{port}"
+    api_url = f"http://127.0.0.1:{port}/v1"
     SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
     OTEL_TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
     log = SERVER_LOG.open("w", encoding="utf-8")
     container_trace_file = f"/otel-artifacts/{OTEL_TRACE_FILE.name}"
     SERVER_CONTAINER_NAME = f"bunnyland-release-{port}"
     runtime = container_cli()
-    users_file, token_volume = prepare_container_auth(runtime)
+    SERVER_RUNTIME = runtime
+    subprocess.run([*runtime, "pull", SERVER_IMAGE], check=True)
+    users_file = prepare_container_auth(runtime)
     cmd = [
         *runtime,
         "run",
@@ -365,9 +272,7 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
         "-v",
         f"{OTEL_TRACE_FILE.parent.resolve()}:/otel-artifacts",
         "-v",
-        f"{users_file}:/run/secrets/bunnyland-users.yml:ro",
-        "-v",
-        f"{token_volume}:/data",
+        f"{users_file.resolve()}:/auth-users.yml:ro",
         "-e",
         "BUNNYLAND_OTEL_ENABLED=1",
         "-e",
@@ -391,95 +296,52 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
         "--api-port",
         "8765",
         "--auth-users-file",
-        "/run/secrets/bunnyland-users.yml",
+        "/auth-users.yml",
         "--token-db",
-        "/data/auth-tokens.sqlite3",
+        "/tmp/auth-tokens.sqlite3",
         "--claim-timeout-seconds",
         "0",
     ]
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
     try:
         wait_for_api(api_url, proc=proc)
+        login_player(api_url)
     except Exception:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        stop_container(runtime, SERVER_CONTAINER_NAME, proc)
         cleanup_container_auth()
         raise
     return api_url, proc
 
 
-def projection(
-    api_url: str,
-    character_id: str,
-    control: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    path = f"/play/world/character/{urllib.parse.quote(character_id, safe='')}"
-    headers: dict[str, str] = {}
-    if control:
-        claim_id = str(control.get("claimId") or "")
-        claim_secret = str(control.get("claimSecret") or "")
-        if claim_id:
-            path = f"{path}?{urllib.parse.urlencode({'claim_id': claim_id})}"
-        if claim_secret:
-            headers["X-Bunnyland-Claim-Secret"] = claim_secret
-    return api_get(api_url, path, headers)
-
-
 def playable_characters(api_url: str) -> list[dict[str, Any]]:
-    lobby = api_get(api_url, "/play/world/characters")
-    movable: list[dict[str, Any]] = []
-    others: list[dict[str, Any]] = []
+    lobby = api_get(api_url, "/play/characters")
+    characters: list[dict[str, Any]] = []
     for summary in lobby.get("characters", []):
-        character_id = summary.get("character_id")
+        character_id = summary.get("id")
         if not character_id:
             continue
-        view = projection(api_url, character_id)
-        exits = (view.get("room") or {}).get("exits") or []
-        actions = view.get("actions") or []
-        has_move = any(action.get("command_type") == "move" for action in actions)
-        has_say = any(action.get("command_type") == "say" for action in actions)
-        item = {"id": character_id, "name": summary.get("name") or character_id, "view": view}
-        if exits and has_move:
-            movable.append(item)
-        elif has_say:
-            others.append(item)
-    selected = movable[:2] + [item for item in others if item["id"] not in {c["id"] for c in movable[:2]}][:1]
-    if len(selected) < 3:
-        selected = movable[:3]
-    if len(selected) < 3 or len(movable) < 2:
-        raise RuntimeError(
-            f"expected at least two movable characters and three claimable characters; "
-            f"movable={len(movable)}, selected={len(selected)}"
-        )
-    return selected
+        characters.append({"id": character_id, "name": summary.get("name") or character_id})
+    if len(characters) < 3:
+        raise RuntimeError(f"expected at least three claimable characters: {lobby!r}")
+    return characters[:3]
 
 
-def room_id(
-    api_url: str,
-    character_id: str,
-    control: dict[str, Any] | None = None,
-) -> str:
-    return str((projection(api_url, character_id, control).get("room") or {}).get("id") or "")
+def page_room_id(page) -> str:
+    return str(page.evaluate(
+        "() => (window.app?.characterProjection || window.app?.projection)?.room?.id || ''"
+    ))
 
 
-def wait_for_room_change(
-    api_url: str,
-    character_id: str,
-    old_room: str,
-    control: dict[str, Any],
-    timeout: float = 30.0,
-) -> str:
-    deadline = time.monotonic() + timeout
-    current = old_room
-    while time.monotonic() < deadline:
-        current = room_id(api_url, character_id, control)
-        if current and current != old_room:
-            return current
-        time.sleep(0.5)
-    raise RuntimeError(f"{character_id} did not move out of {old_room}; last room={current}")
+def wait_for_room_change(page, old_room: str) -> str:
+    page.wait_for_function(
+        """(oldRoom) => {
+          const projection = window.app?.characterProjection || window.app?.projection;
+          return projection?.room?.id && projection.room.id !== oldRoom;
+        }""",
+        arg=old_room,
+        timeout=30000,
+    )
+    return page_room_id(page)
 
 
 def connect_page(page, page_name: str, api_url: str) -> None:
@@ -527,7 +389,7 @@ def select_tui(page, character_id: str) -> None:
     expect(page.locator("#verbs")).to_contain_text("Move")
 
 
-def select_repl(page, character_id: str, room_title: str) -> None:
+def select_repl(page, character_id: str) -> None:
     page.locator("#player-select").select_option(character_id)
     page.wait_for_function(
         """(id) => window.app?.control?.characterId === id
@@ -538,64 +400,36 @@ def select_repl(page, character_id: str, room_title: str) -> None:
     )
     page.locator("#repl-input").fill("look")
     page.locator("#btn-send").click()
+    room_title = page.evaluate("() => window.app?.projection?.room?.title || ''")
     expect(page.locator("#repl-log")).to_contain_text(room_title, timeout=10000)
 
 
 def submit_toon_move(
     page,
-    api_url: str,
-    character_id: str,
-    control: dict[str, Any],
 ) -> str:
-    before = room_id(api_url, character_id, control)
+    before = page_room_id(page)
     page.locator('.verb.ready[data-tool="move"]').click()
     page.locator("#action-form-overlay select.af-input").first.select_option(index=1)
     page.locator("#action-form-overlay .af-submit").click()
-    return wait_for_room_change(api_url, character_id, before, control)
+    return wait_for_room_change(page, before)
 
 
 def submit_tui_move(
     page,
-    api_url: str,
-    character_id: str,
-    control: dict[str, Any],
 ) -> str:
-    before = room_id(api_url, character_id, control)
+    before = page_room_id(page)
     page.locator("#action-filter").fill("move")
     page.locator("#verbs .option").filter(has_text="Move").first.click()
     page.locator("#action-form-overlay select.form-input").first.select_option(index=1)
     page.locator("#action-form-overlay .form-submit").click()
-    return wait_for_room_change(api_url, character_id, before, control)
+    return wait_for_room_change(page, before)
 
 
-def submit_repl_move(
-    page,
-    api_url: str,
-    character: dict[str, Any],
-    control: dict[str, Any],
-) -> str:
-    before = room_id(api_url, character["id"], control)
-    exits = (character["view"].get("room") or {}).get("exits") or []
-    direction = exits[0].get("direction") or exits[0].get("label") or exits[0].get("id")
-    page.locator("#repl-input").fill(f"go {direction}")
-    page.locator("#btn-send").click()
-    expect(page.locator("#repl-log")).to_contain_text("» move", timeout=10000)
-    return wait_for_room_change(api_url, character["id"], before, control)
-
-
-def submit_repl_command(
-    page,
-    api_url: str,
-    character: dict[str, Any],
-    control: dict[str, Any],
-) -> str:
-    exits = (character["view"].get("room") or {}).get("exits") or []
-    if exits:
-        return submit_repl_move(page, api_url, character, control)
+def submit_repl_command(page) -> str:
     page.locator("#repl-input").fill("say release repl smoke")
     page.locator("#btn-send").click()
     expect(page.locator("#repl-log")).to_contain_text("» say", timeout=10000)
-    return room_id(api_url, character["id"], control)
+    return page_room_id(page)
 
 
 def assert_distinct_controls(pages: dict[str, Any]) -> dict[str, Any]:
@@ -625,15 +459,20 @@ def main() -> None:
     global BASE_URL
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    BASE_URL, web_proc = start_web_server()
-    api_url, server_proc = start_server()
+    web_proc = None
+    server_proc = None
     try:
+        BASE_URL, web_proc = start_web_server()
+        api_url, server_proc = start_server()
         characters = playable_characters(api_url)
         with sync_playwright() as playwright:
+            coverage = PlaywrightCoverage("release-multiclient")
             browser = launch_browser(playwright)
             toon = browser.new_context(viewport={"width": 1360, "height": 860}).new_page()
             tui = browser.new_context(viewport={"width": 1280, "height": 820}).new_page()
             repl = browser.new_context(viewport={"width": 1280, "height": 820}).new_page()
+            for page in (toon, tui, repl):
+                coverage.start_page(page)
 
             connect_page(toon, "toon-client.html", api_url)
             connect_page(tui, "web-tui.html", api_url)
@@ -641,26 +480,19 @@ def main() -> None:
 
             select_toon(toon, characters[0]["id"])
             select_tui(tui, characters[1]["id"])
-            room_title = str((characters[2]["view"].get("room") or {}).get("title") or "")
-            select_repl(repl, characters[2]["id"], room_title)
+            select_repl(repl, characters[2]["id"])
             controls = assert_distinct_controls({"toon": toon, "tui": tui, "repl": repl})
 
             moved = {
-                "toon": submit_toon_move(
-                    toon, api_url, characters[0]["id"], controls["toon"]
-                ),
-                "tui": submit_tui_move(
-                    tui, api_url, characters[1]["id"], controls["tui"]
-                ),
-                "repl": submit_repl_command(
-                    repl, api_url, characters[2], controls["repl"]
-                ),
+                "toon": submit_toon_move(toon),
+                "tui": submit_tui_move(tui),
+                "repl": submit_repl_command(repl),
             }
 
             toon.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-release-toon.png"), full_page=True)
             tui.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-release-web-tui.png"), full_page=True)
             repl.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-release-web-repl.png"), full_page=True)
-            browser.close()
+            coverage.close_browser(browser)
 
         otel_span_count = assert_trace_artifact()
         reported_controls = {
@@ -683,25 +515,14 @@ def main() -> None:
             "moved_to": moved,
         }, indent=2))
     finally:
-        if server_proc is not None:
-            server_proc.terminate()
-            try:
-                server_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
+        if SERVER_RUNTIME and SERVER_CONTAINER_NAME:
+            stop_container(SERVER_RUNTIME, SERVER_CONTAINER_NAME, server_proc)
         if web_proc is not None:
             web_proc.terminate()
             try:
                 web_proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 web_proc.kill()
-        if SERVER_CONTAINER_NAME:
-            subprocess.run(
-                [*container_cli(), "stop", SERVER_CONTAINER_NAME],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
         cleanup_container_auth()
 
 
@@ -712,5 +533,4 @@ if __name__ == "__main__":
         if SERVER_LOG.exists():
             print(f"\n--- bunnyland server log: {SERVER_LOG} ---", file=sys.stderr)
             print(SERVER_LOG.read_text(encoding="utf-8", errors="replace")[-8000:], file=sys.stderr)
-        cleanup_container_auth()
         raise exc

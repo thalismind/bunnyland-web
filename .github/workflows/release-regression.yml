@@ -48,20 +48,8 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
 
-      - name: Pull server container
-        run: |
-          if command -v nerdctl >/dev/null 2>&1; then
-            sudo nerdctl pull "${{ inputs.server_image }}"
-          elif command -v docker >/dev/null 2>&1; then
-            docker pull "${{ inputs.server_image }}"
-          else
-            echo "no supported container runtime found; install nerdctl or docker" >&2
-            exit 1
-          fi
-
       - name: Run real-server web regression
         env:
-          BUNNYLAND_RELEASE_SERVER_MODE: container
           BUNNYLAND_RELEASE_SERVER_IMAGE: ${{ inputs.server_image }}
           BUNNYLAND_RELEASE_GENERATOR: ${{ inputs.generator }}
           BUNNYLAND_RELEASE_ARTIFACT_DIR: artifacts/release-multiclient

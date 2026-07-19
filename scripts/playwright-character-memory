@@ -3,7 +3,6 @@
 
 import json
 import os
-import shlex
 import shutil
 import socket
 import subprocess
@@ -19,6 +18,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
+from playwright_container import container_cli, stop_container
 from playwright_coverage import PlaywrightCoverage
 from playwright_server import ensure_web_server
 
@@ -32,7 +32,9 @@ SERVER_IMAGE = os.environ.get(
     "ghcr.io/thalismind/bunnyland-server:main",
 )
 SERVER_CONTAINER_NAME: str | None = None
+SERVER_RUNTIME: list[str] | None = None
 TOKEN_DATA_DIR: Path | None = None
+TOKEN_VOLUME_NAME: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,40 +61,6 @@ class ClaimCommandRequest:
 
 
 RequestBody = ClaimCreateRequest | ClaimCommandRequest
-
-
-def _runtime_works(command: list[str]) -> bool:
-    try:
-        return (
-            subprocess.run(
-                [*command, "ps"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            ).returncode
-            == 0
-        )
-    except OSError:
-        return False
-
-
-def container_cli() -> list[str]:
-    override = os.environ.get("BUNNYLAND_CONTAINER_CLI")
-    if override:
-        command = shlex.split(override)
-        if not command:
-            raise RuntimeError("BUNNYLAND_CONTAINER_CLI must not be empty")
-        return command
-    for candidate in ("nerdctl", "docker"):
-        resolved = shutil.which(candidate)
-        if resolved and _runtime_works([resolved]):
-            return [resolved]
-        sudo = shutil.which("sudo")
-        if resolved and sudo and _runtime_works([sudo, resolved]):
-            return [sudo, resolved]
-    raise RuntimeError(
-        "container runtime CLI not found; install nerdctl or set BUNNYLAND_CONTAINER_CLI"
-    )
 
 
 def reserve_port() -> int:
@@ -168,7 +136,7 @@ def wait_for_api(api_url: str, proc: subprocess.Popen | None, timeout: float = 4
 
 
 def start_memory_api() -> tuple[str, subprocess.Popen | None]:
-    global ADMIN_TOKEN, SERVER_CONTAINER_NAME, TOKEN_DATA_DIR
+    global ADMIN_TOKEN, SERVER_CONTAINER_NAME, SERVER_RUNTIME, TOKEN_DATA_DIR, TOKEN_VOLUME_NAME
     override = os.environ.get("BUNNYLAND_MEMORY_API_URL")
     if override:
         if not ADMIN_TOKEN:
@@ -183,15 +151,18 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
     log = log_path.open("w", encoding="utf-8")
     SERVER_CONTAINER_NAME = f"bunnyland-memory-{port}"
     runtime = container_cli()
+    SERVER_RUNTIME = runtime
     subprocess.run([*runtime, "pull", SERVER_IMAGE], check=True)
     TOKEN_DATA_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-memory-auth-"))
+    TOKEN_VOLUME_NAME = f"bunnyland-memory-auth-{port}"
+    subprocess.run([*runtime, "volume", "create", TOKEN_VOLUME_NAME], check=True)
     provision = subprocess.run(
         [
             *runtime,
             "run",
             "--rm",
             "-v",
-            f"{TOKEN_DATA_DIR}:/data",
+            f"{TOKEN_VOLUME_NAME}:/data",
             SERVER_IMAGE,
             "auth",
             "provision-token",
@@ -242,7 +213,9 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
             "-p",
             f"127.0.0.1:{port}:8765",
             "-v",
-            f"{TOKEN_DATA_DIR}:/data",
+            f"{TOKEN_VOLUME_NAME}:/data",
+            "-v",
+            f"{users_file.resolve()}:/auth-users.yml:ro",
             SERVER_IMAGE,
             "serve",
             "--generator",
@@ -260,7 +233,7 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
             "--token-db",
             "/data/auth-tokens.sqlite3",
             "--auth-users-file",
-            "/data/auth-users.yml",
+            "/auth-users.yml",
             "--claim-timeout-seconds",
             "0",
             "--memory-backend",
@@ -272,14 +245,24 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
     try:
         wait_for_api(api_url, proc)
     except Exception:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
+        stop_container(runtime, SERVER_CONTAINER_NAME, proc)
         raise
     return api_url, proc
+
+
+def cleanup_memory_auth() -> None:
+    global TOKEN_DATA_DIR, TOKEN_VOLUME_NAME
+    if SERVER_RUNTIME and TOKEN_VOLUME_NAME:
+        subprocess.run(
+            [*SERVER_RUNTIME, "volume", "rm", "-f", TOKEN_VOLUME_NAME],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        TOKEN_VOLUME_NAME = None
+    if TOKEN_DATA_DIR:
+        shutil.rmtree(TOKEN_DATA_DIR)
+        TOKEN_DATA_DIR = None
 
 
 def select_memory_character(api_url: str) -> dict:
@@ -495,8 +478,9 @@ def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     failures = []
-    api_url, api_proc = start_memory_api()
+    api_proc = None
     try:
+        api_url, api_proc = start_memory_api()
         character = select_memory_character(api_url)
         document_id = seed_memory_note(api_url, character)
         with sync_playwright() as playwright:
@@ -519,20 +503,9 @@ def main() -> None:
                     coverage.close_page(page)
             coverage.close_browser(browser)
     finally:
-        if api_proc is not None:
-            api_proc.terminate()
-            try:
-                api_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                api_proc.kill()
-                api_proc.wait(timeout=10)
-        if SERVER_CONTAINER_NAME:
-            subprocess.run(
-                [*container_cli(), "stop", SERVER_CONTAINER_NAME],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+        if SERVER_RUNTIME and SERVER_CONTAINER_NAME:
+            stop_container(SERVER_RUNTIME, SERVER_CONTAINER_NAME, api_proc)
+        cleanup_memory_auth()
 
     if failures:
         raise SystemExit("character memory regressions:\n  " + "\n  ".join(failures))

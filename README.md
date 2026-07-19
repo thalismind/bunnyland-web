@@ -56,6 +56,11 @@ The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_UR
 `scripts/playwright-all` enables browser JS/CSS coverage automatically and writes the
 merged summary to `artifacts/playwright-coverage/coverage-summary.json`.
 
+Live-API regressions also pull and start their declared Bunnyland server image. They prefer
+Docker in CI and `sudo nerdctl` locally, with nerdctl and Podman fallbacks; set
+`BUNNYLAND_CONTAINER_CLI` to select a specific working CLI. Each script owns and removes
+its test container and ephemeral auth storage.
+
 ## Vite, TypeScript, and Preact
 
 The browser clients are built as a Vite multi-page application. Canonical HTML URLs remain
