@@ -195,4 +195,15 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#inventory')).toBeTruthy();
     expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
   });
+
+  it('uses connected polling without a reconnect loop for an unclaimed profile', async () => {
+    history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
+    const runtime = makeServices();
+    runtime.services.storedClaimControl = vi.fn(() => null);
+    const view = render(<CharacterPage services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#api-status')?.textContent).toBe('● Connected · polling'));
+    expect(runtime.services.fetchCharacterList).toHaveBeenCalled();
+    expect(runtime.services.createPlayerLiveUpdates).not.toHaveBeenCalled();
+  });
 });

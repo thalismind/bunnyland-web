@@ -624,10 +624,19 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
       return () => window.clearInterval(timer);
     }
+    const control = claimControl(selectedId);
+    if (!control?.claimId) {
+      liveStateRef.current = 'polling';
+      setStatusKind('live');
+      setApiStatus('● Connected · polling');
+      void refreshRef.current();
+      const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
+      return () => window.clearInterval(timer);
+    }
     const live = services.createPlayerLiveUpdates({
       base: apiBase,
       characterId: selectedId,
-      control: claimControl(selectedId),
+      control,
       refresh: () => refreshRef.current(),
       onState: (state) => {
         if (!aliveRef.current) return;

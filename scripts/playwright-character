@@ -307,6 +307,7 @@ def main() -> None:
 
         page.locator("#character-select").select_option(OTHER)
         page.wait_for_function("() => location.hash === '#character%3A2' || location.hash === '#character:2'")
+        expect(page.locator("#api-status")).to_have_text("● Connected · polling")
 
         page.locator("#btn-client-menu").click()
         expect(page.locator("#client-menu-dialog")).to_contain_text("Character Profile")
