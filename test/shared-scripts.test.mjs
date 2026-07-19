@@ -511,6 +511,32 @@ test('browser pages use the current shared API helper cache key', () => {
   }
 });
 
+test('browser pages use the current shared UI helper cache key', () => {
+  const pages = [
+    'behavior-editor.html',
+    'character-memory.html',
+    'character.html',
+    'event-stream.html',
+    'index.html',
+    'inspector.html',
+    'script-editor.html',
+    'toon-client.html',
+    'trace-analyzer.html',
+    'web-repl.html',
+    'web-tui.html',
+    'world-editor.html',
+    'world-generator.html',
+  ];
+  for (const page of pages) {
+    const html = fs.readFileSync(page, 'utf8');
+    assert.match(
+      html,
+      /assets\/bunnyland-ui\.js\?v=20260718-formal-v1/,
+      `${page} must load the current shared UI helper`,
+    );
+  }
+});
+
 test('player pages use the current shared play helper cache key', () => {
   const pages = [
     'toon-client.html',
