@@ -8,7 +8,7 @@ export interface ToolLink {
 
 export const toolLinks: readonly ToolLink[] = [
   { description: 'Replace or reset the live world from a generator, seed, or prompt.', href: 'world-generator.html', label: 'Open Generator', supportsServer: true, title: 'World Generator' },
-  { description: 'Browse the world as a graph — a loaded snapshot or a live connection.', href: 'inspector.html', label: 'Open Inspector', supportsServer: true, title: 'World Inspector' },
+  { description: 'Browse and extend the world graph from a snapshot or live connection.', href: 'inspector.html', label: 'Open World Graph', supportsServer: true, title: 'World Graph' },
   { description: 'Build behavior-tree JSON for behavioral controllers; register it on a live server.', href: 'behavior-editor.html', label: 'Open Behavior Editor', supportsServer: true, title: 'Behavior Editor' },
   { description: 'Inspect and edit character memory documents and metadata.', href: 'character-memory.html', label: 'Open Memory Editor', supportsServer: true, title: 'Memory Editor' },
   { description: 'Author and validate trigger/action script JSON against a snapshot.', href: 'script-editor.html', label: 'Open Script Editor', title: 'Script Editor' },

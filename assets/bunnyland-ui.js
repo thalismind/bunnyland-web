@@ -20,7 +20,7 @@
   const THEME_VALUE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
   const boundThemeSelects = new Set();
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
-  // Admin tools order: World Generator, World Inspector, editor tools alphabetically, then miscellaneous tools.
+  // Admin tools order: World Generator, World Graph, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
     {
       href: 'index.html',
@@ -78,9 +78,9 @@
     },
     {
       href: 'inspector.html',
-      title: 'World Inspector',
-      label: 'Graph client',
-      description: 'Browse the ECS world graph, inspect entities, and connect to a live server.',
+      title: 'World Graph',
+      label: 'Graph editor',
+      description: 'Browse and extend the ECS world graph from a snapshot or live server.',
       supportsServer: true,
       admin: true,
     },

@@ -286,6 +286,6 @@ Each carries an entity-appropriate zoom-out button (`↑ Room Map`, `↑ Room`, 
 
 ## Notes
 
-- No build step — single `inspector.html` file, LiteGraph loaded from CDN.
+- The World Graph is built with the shared Vite application; LiteGraph is loaded from CDN.
 - Nodes are repositionable; pan with middle-click/right-drag, zoom with scroll wheel.
 - The inspector persists the last selected entity when navigating between views.

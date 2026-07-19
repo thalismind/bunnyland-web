@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { cleanup, render, waitFor } from '@testing-library/preact';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorApp, type InspectorFacade } from '../src/inspector/app';
@@ -60,7 +60,12 @@ function makeWorld(epoch = 1, includeSecond = false): any {
       room: {
         id: 'room',
         components: { NameComponent: { name: 'Parlor' }, RoomComponent: { indoor: true } },
-        relationships: { Contains: [{ edge: {}, target: 'character' }], ExitTo: includeSecond ? [{ edge: { direction: 'east' }, target: 'room:two' }] : [] },
+        relationships: { Contains: [{ edge: {}, target: 'character' }, { edge: {}, target: 'door' }], ExitTo: includeSecond ? [{ edge: { direction: 'east' }, target: 'room:two' }] : [] },
+      },
+      door: {
+        id: 'door',
+        components: { DoorComponent: { open: false }, NameComponent: { name: 'East Door' } },
+        relationships: {},
       },
       character: {
         id: 'character',
@@ -166,6 +171,51 @@ describe('full Inspector page', () => {
     expect(facade()!.lgcanvas.ds).toEqual({ offset: [31, -19], scale: 1.75 });
     expect(facade()!.lgcanvas.selected_nodes.selected).toBe(roomNode);
     expect(facade()!._nodeMap['room:two']).toBeTruthy();
+    view.unmount();
+  });
+
+  it('generates and applies scoped LLM patches from graph actions', async () => {
+    const view = render(<InspectorApp/>);
+    await waitFor(() => expect(facade()).toBeTruthy());
+    facade()!.loadSnapshot(makeWorld());
+    facade()!._apiBase = '/api/v1';
+    const sendAdmin = vi.fn(async (_path: string, options: any) => {
+      const body = JSON.parse(options.body);
+      return { result: { patch: { operations: [{ op: 'add_entity', client_id: `$generated_${body.kind}`, components: [] }] } } };
+    });
+    const sendPatch = vi.fn(async () => ({ changed_entities: [], deleted_entities: [] }));
+    facade()!._sendAdmin = sendAdmin;
+    facade()!._sendPatch = sendPatch;
+    const promptMock = vi.fn()
+      .mockReturnValueOnce('a mysterious traveler')
+      .mockReturnValueOnce('a silver key')
+      .mockReturnValueOnce('door')
+      .mockReturnValueOnce('east')
+      .mockReturnValueOnce('a rain-soaked library');
+    vi.stubGlobal('prompt', promptMock);
+
+    facade()!._showContextMenu('room', 100, 100);
+    await waitFor(() => expect(view.container.querySelector('[data-menu-action="generate-character"]')).toBeTruthy());
+    fireEvent.click(view.container.querySelector('[data-menu-action="generate-character"]')!);
+    await waitFor(() => expect(sendPatch).toHaveBeenCalledTimes(1));
+
+    facade()!._showContextMenu('room', 100, 100);
+    await waitFor(() => expect(view.container.querySelector('[data-menu-action="generate-item"]')).toBeTruthy());
+    fireEvent.click(view.container.querySelector('[data-menu-action="generate-item"]')!);
+    await waitFor(() => expect(sendPatch).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(view.container.querySelector<HTMLButtonElement>('#btn-generate-room')?.disabled).toBe(false));
+    fireEvent.click(view.container.querySelector('#btn-generate-room')!);
+    await waitFor(() => expect(sendPatch).toHaveBeenCalledTimes(3));
+
+    expect(sendAdmin.mock.calls.map((call) => [call[0], JSON.parse(call[1].body)])).toEqual([
+      ['/admin/world/generation-jobs', { kind: 'character', prompt: 'a mysterious traveler', room_entity_id: 'room' }],
+      ['/admin/world/generation-jobs', { container_entity_id: 'room', kind: 'item', prompt: 'a silver key' }],
+      ['/admin/world/generation-jobs', { direction: 'east', door_entity_id: 'door', kind: 'room', prompt: 'a rain-soaked library' }],
+    ]);
+    expect(sendPatch.mock.calls.map((call) => call[0][0].client_id)).toEqual([
+      '$generated_character', '$generated_item', '$generated_room',
+    ]);
     view.unmount();
   });
 

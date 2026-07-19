@@ -93,7 +93,7 @@ def main() -> None:
             "Web REPL",
             "Character Profile",
             "World Generator",
-            "World Inspector",
+            "World Graph",
             "Behavior Editor",
             "Memory Editor",
             "Script Editor",
@@ -395,10 +395,12 @@ def main() -> None:
             """
             () => {
               window.app.loadSnapshot({
-                entities: { room: {}, char: {}, old_ctrl: {}, new_ctrl: {}, item: {} },
+                entities: { room: {}, door: {}, char: {}, old_ctrl: {}, new_ctrl: {}, item: {} },
                 components: {
                   RoomComponent: { room: { title: 'Room' } },
+                  DoorComponent: { door: { open: false } },
                   IdentityComponent: {
+                    door: { name: 'East Door', kind: 'door', tags: [] },
                     char: { name: 'Juniper', kind: 'character', tags: [] },
                     old_ctrl: { name: 'Old', kind: 'controller', tags: [] },
                     new_ctrl: { name: 'New', kind: 'controller', tags: [] },
@@ -415,6 +417,7 @@ def main() -> None:
                   Contains: {
                     room: [
                       { target: 'char', edge: { mode: 'room_content', visible: true, discovered: true, order: 0 } },
+                      { target: 'door', edge: { mode: 'room_content', visible: true, discovered: true, order: 1 } },
                     ],
                   },
                   ControlledBy: {
@@ -529,6 +532,50 @@ def main() -> None:
             raise AssertionError(f"monitor room sent unexpected patch: {monitor_result!r}")
         if monitor_result["calls"][0]["options"].get("status") != "● Room monitoring enabled":
             raise AssertionError(f"monitor room used unexpected status: {monitor_result!r}")
+        page.evaluate(
+            """
+            () => {
+              window.__generationCalls = [];
+              window.__promptResponses = [];
+              window.prompt = () => window.__promptResponses.shift() ?? null;
+              window.app._sendAdmin = async (path, options) => {
+                const body = JSON.parse(options.body);
+                window.__generationCalls.push({ type: 'generate', path, body });
+                return { result: { patch: { operations: [{ op: 'add_entity', client_id: `$generated_${body.kind}`, components: [] }] } } };
+              };
+              window.app._sendPatch = async (operations, options) => {
+                window.__generationCalls.push({ type: 'patch', operations, options });
+                return { world_epoch: 14, changed_entities: [], deleted_entities: [] };
+              };
+              window.app._showContextMenu('room', 100, 100);
+            }
+            """
+        )
+        room_menu_text = page.locator("#graph-context-menu").text_content() or ""
+        for expected in ["Add Character", "Add Item"]:
+            if expected not in room_menu_text:
+                raise AssertionError(f"room context menu missed {expected!r}: {room_menu_text!r}")
+        page.evaluate("window.__promptResponses = ['a night courier']")
+        page.locator('[data-menu-action="generate-character"]').dispatch_event("click")
+        page.wait_for_function("window.__generationCalls.length === 2")
+        page.evaluate("window.app._showContextMenu('room', 100, 100); window.__promptResponses = ['a brass key']")
+        page.locator('[data-menu-action="generate-item"]').dispatch_event("click")
+        page.wait_for_function("window.__generationCalls.length === 4")
+        page.evaluate("window.__promptResponses = ['door', 'east', 'a rain library']")
+        page.locator("#btn-generate-room").click()
+        page.wait_for_function("window.__generationCalls.length === 6")
+        generation_calls = page.evaluate("window.__generationCalls")
+        expected_generation_bodies = [
+            {"kind": "character", "prompt": "a night courier", "room_entity_id": "room"},
+            {"container_entity_id": "room", "kind": "item", "prompt": "a brass key"},
+            {"direction": "east", "door_entity_id": "door", "kind": "room", "prompt": "a rain library"},
+        ]
+        if [call["body"] for call in generation_calls[::2]] != expected_generation_bodies:
+            raise AssertionError(f"generation actions used unexpected requests: {generation_calls!r}")
+        if [call["operations"][0]["client_id"] for call in generation_calls[1::2]] != [
+            "$generated_character", "$generated_item", "$generated_room"
+        ]:
+            raise AssertionError(f"generation actions applied unexpected patches: {generation_calls!r}")
         clone_ops = page.evaluate(
             """
             () => window.app._cloneEntityOperations('char', 'clone_char')
