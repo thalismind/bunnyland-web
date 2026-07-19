@@ -127,11 +127,7 @@
 .section { margin-bottom: 18px; }
 .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .section-title { margin-bottom: 8px; color: var(--bl-accent-strong); font-size: var(--bl-text-xs); letter-spacing: 0.5px; text-transform: uppercase; }
-.action-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-bottom: 8px; }
-#action-filter { width: 100%; min-width: 0; }
-#action-filter-clear { padding-right: 8px; padding-left: 8px; }
 .sheet-list { display: grid; gap: 6px; }
-#actions { max-height: 320px; padding-right: 2px; overflow-y: auto; }
 
 .sheet-row {
   display: grid;

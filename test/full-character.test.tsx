@@ -9,20 +9,12 @@ import {
 } from '../src/character/page';
 
 const PROJECTION: SheetProjection = {
-  actions: [{
-    available: true, command_type: 'say', cost: { action: 1 }, lane: 'world', title: 'Say', tool_name: 'say',
-  }],
   characterId: 'character:one',
   characterName: 'Dr. Hazel',
   controller: { controller_id: 'web:sheet', generation: 2, kind: 'web', name: 'Sheet' },
-  inventory: [{ id: 'item:key', kind: 'item', label: 'brass key' }],
   points: { action: 4, action_max: 5, focus: 2, focus_max: 3 },
   portrait: { url: '/portrait.png' },
   room: {
-    entities: [
-      { id: 'character:one', isCharacter: true, kind: 'character', name: 'Hazel' },
-      { id: 'character:two', isCharacter: true, kind: 'character', name: 'Marlow' },
-    ],
     id: 'room:parlor',
     title: 'Parlor',
   },
@@ -52,36 +44,21 @@ function appFacade(): SheetFacade | undefined {
 }
 
 function makeServices(projection: () => SheetProjection = () => structuredClone(PROJECTION)) {
-  const closeLive = vi.fn();
   const closeMenu = vi.fn();
-  let liveOptions: Parameters<CharacterServices['createPlayerLiveUpdates']>[0] | undefined;
   const services: CharacterServices = {
-    actionAvailable: (action) => action.available !== false,
-    actionCost: (action) => ({ action: Number(action.cost?.action || 0), focus: Number(action.cost?.focus || 0) }),
     actionIcon: () => '💬',
-    actionLane: (action) => action.lane || 'world',
-    actionTitle: (action) => action.title || action.tool_name || action.command_type || 'Action',
     applyConfig: vi.fn(async () => ({})),
-    claimHeaders: vi.fn(() => ({ 'X-Bunnyland-Claim-Secret': 'secret' })),
-    createPlayerLiveUpdates: vi.fn((options) => {
-      liveOptions = options;
-      options.onState('live');
-      void options.refresh();
-      return { close: closeLive };
-    }),
     fetchCharacterList: vi.fn(async () => ({
       characters: [{ id: 'character:one', kind: 'character', name: 'Hazel' }], epoch: 12,
     })),
-    fetchCharacterProjection: vi.fn(async () => projection()),
+    fetchCharacterProfile: vi.fn(async () => projection()),
     formatPoints: (value) => String(Number(value || 0)),
     initClientMenu: () => ({ close: closeMenu }),
     initTheme: vi.fn(),
     mediaUrl: (base, url) => `${base}${url}`,
     normalizeBase: (url) => url.replace(/\/$/, ''),
-    orderActionsByAvailability: (actions) => actions,
     persistentClientId: () => 'chat-test-client',
     portraitStatusMessage: (current) => current?.portrait?.url ? 'Portrait ready.' : 'Portrait pending.',
-    requestSceneImage: vi.fn(async () => ({ ok: true })),
     sendJson: vi.fn(async (_base, path, options) => {
       if (path.endsWith('/public/features')) return { character_chat: true, character_sheets: true };
       if (path.endsWith('/jobs')) return {
@@ -94,10 +71,9 @@ function makeServices(projection: () => SheetProjection = () => structuredClone(
     }),
     serverFromUrl: () => '/api',
     setServerInUrl: vi.fn(),
-    storedClaimControl: vi.fn((_key, characterId) => ({ claimId: `claim:${characterId}`, claimSecret: 'secret' })),
     uploadCharacterImage: vi.fn(async () => ({ url: '/uploaded.png' })),
   };
-  return { closeLive, closeMenu, getLiveOptions: () => liveOptions, services };
+  return { closeMenu, services };
 }
 
 beforeEach(() => {
@@ -111,50 +87,40 @@ afterEach(() => {
 });
 
 describe('full Character page', () => {
-  it('projects keyed character details in place across live refreshes', async () => {
+  it('projects keyed character stats in place without a claim', async () => {
     let current = PROJECTION;
     const runtime = makeServices(() => current);
     const view = render(<CharacterPage services={runtime.services} />);
-    await waitFor(() => expect(view.container.querySelector('[data-row-key="item:key"]')).toBeTruthy());
-    const originalInventory = view.container.querySelector('[data-row-key="item:key"]');
+    await waitFor(() => expect(view.container.querySelector('[data-metric="Health"]')).toBeTruthy());
+    const originalHealth = view.container.querySelector('[data-metric="Health"]');
     expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel');
     expect(view.container.querySelector('#vitals')?.textContent).toContain('Health');
     expect(view.container.querySelector('#vitals')?.textContent).not.toContain('Initiative');
-    expect(runtime.services.fetchCharacterProjection).toHaveBeenCalledWith(
-      '/api', 'character:one', expect.objectContaining({ claimId: 'claim:character:one' }),
-    );
+    expect(runtime.services.fetchCharacterProfile).toHaveBeenCalledWith('/api', 'character:one');
+    expect(view.container.querySelector('#actions')).toBeNull();
+    expect(view.container.querySelector('#inventory')).toBeNull();
 
     current = {
       ...PROJECTION,
-      inventory: [{ id: 'item:key', kind: 'item', label: 'polished brass key' }],
+      sheet: {
+        ...PROJECTION.sheet,
+        vitals: [
+          { label: 'Health', maximum: 10, text: '9 / 10', value: 9 },
+          { label: 'Initiative', text: '3', value: 3 },
+        ],
+      },
       worldEpoch: 13,
     };
     await appFacade()?.refresh();
-    await waitFor(() => expect(view.container.querySelector('[data-row-key="item:key"]')?.textContent).toContain('polished'));
-    expect(view.container.querySelector('[data-row-key="item:key"]')).toBe(originalInventory);
+    await waitFor(() => expect(view.container.querySelector('[data-metric="Health"]')?.textContent).toContain('9 / 10'));
+    expect(view.container.querySelector('[data-metric="Health"]')).toBe(originalHealth);
   });
 
-  it('preserves action-filter focus while projections update', async () => {
-    const runtime = makeServices();
-    const view = render(<CharacterPage services={runtime.services} />);
-    await waitFor(() => expect(view.container.querySelector('[data-row-key="say:say"]')).toBeTruthy());
-    const filter = view.container.querySelector('#action-filter') as HTMLInputElement;
-    filter.focus();
-    fireEvent.input(filter, { target: { value: 'say' } });
-    await appFacade()?.refresh();
-    expect(view.container.querySelector('#action-filter')).toBe(filter);
-    expect(filter.value).toBe('say');
-    expect(document.activeElement).toBe(filter);
-    fireEvent.click(view.container.querySelector('#action-filter-clear')!);
-    await waitFor(() => expect(filter.value).toBe(''));
-  });
-
-  it('delegates through the compatibility facade and closes live effects on unmount', async () => {
+  it('delegates through the compatibility facade and closes menu effects on unmount', async () => {
     history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
     const runtime = makeServices();
     const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(appFacade()?.projection?.characterId).toBe('character:one'));
-    expect(runtime.getLiveOptions()?.characterId).toBe('character:one');
     expect(characterInitials('Dr. Hazel Rowan')).toBe('HR');
 
     const currentProjection = appFacade()?.projection;
@@ -164,46 +130,40 @@ describe('full Character page', () => {
     appFacade()?.selectCharacter('', { updateHash: true });
     await waitFor(() => expect(location.hash).toBe(''));
     expect(location.search).toBe('?server=%2Fapi');
-    await waitFor(() => expect(runtime.closeLive).toHaveBeenCalledOnce());
-
     view.unmount();
     expect(runtime.closeMenu).toHaveBeenCalledOnce();
     expect(appFacade()).toBeUndefined();
   });
 
-  it('switches to chat without opening another live connection and preserves the server query', async () => {
+  it('switches to claim-free chat and preserves the server query', async () => {
     history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
     const runtime = makeServices();
     const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
-    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
 
     fireEvent.click(view.container.querySelector('#tab-chat')!);
     expect(location.search).toBe('?server=%2Fapi&view=chat');
     expect(view.container.querySelector('#chat-pane')).toBeTruthy();
-    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
 
     fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Hello' } });
     fireEvent.click(view.container.querySelector('#btn-send')!);
     await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain('Hello back.'));
     expect(runtime.services.sendJson).toHaveBeenCalledWith(
-      '/api', '/play/claims/claim%3Acharacter%3Aone/jobs', expect.objectContaining({ method: 'POST' }),
+      '/api', '/chat/characters/character%3Aone/jobs', expect.objectContaining({ method: 'POST' }),
     );
 
     fireEvent.click(view.container.querySelector('#tab-sheet')!);
     expect(location.search).toBe('?server=%2Fapi');
-    expect(view.container.querySelector('#inventory')).toBeTruthy();
-    expect(runtime.services.createPlayerLiveUpdates).toHaveBeenCalledOnce();
+    expect(view.container.querySelector('#vitals')).toBeTruthy();
   });
 
-  it('uses connected polling without a reconnect loop for an unclaimed profile', async () => {
+  it('uses connected polling without claim coordination', async () => {
     history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
     const runtime = makeServices();
-    runtime.services.storedClaimControl = vi.fn(() => null);
     const view = render(<CharacterPage services={runtime.services} />);
 
-    await waitFor(() => expect(view.container.querySelector('#api-status')?.textContent).toBe('● Connected · polling'));
+    await waitFor(() => expect(view.container.querySelector('#api-status')?.textContent).toBe('● Connected · epoch 12'));
     expect(runtime.services.fetchCharacterList).toHaveBeenCalled();
-    expect(runtime.services.createPlayerLiveUpdates).not.toHaveBeenCalled();
+    expect(runtime.services.fetchCharacterProfile).toHaveBeenCalled();
   });
 });

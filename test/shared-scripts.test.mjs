@@ -325,9 +325,10 @@ test('Character page is in the client menu and sends bounded local history', () 
   assert.match(ui, /character\.html/);
   assert.match(state, /HISTORY_LIMIT = 24/);
   assert.match(page, /history: historyForPayload\(state\.messages\)/);
-  assert.match(page, /jobs\/\$\{encodeURIComponent\(commandId\)\}/);
+  assert.match(page, /jobs\/\$\{encodeURIComponent\(jobId\)\}/);
   assert.match(state, /localStorage\.setItem\(chatStorageKey\(clientId, characterId\)/);
-  assert.match(page, /\/play\/claims\/\$\{encodeURIComponent\(control\.claimId\)\}\/jobs/);
+  assert.match(page, /\/chat\/characters\/\$\{encodeURIComponent\(characterId\)\}\/jobs/);
+  assert.doesNotMatch(page, /storedClaimControl|claimHeaders|createPlayerLiveUpdates/);
 });
 
 test('BunnylandWorld parses snapshots and editor search tokens', () => {

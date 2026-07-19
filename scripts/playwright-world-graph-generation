@@ -39,6 +39,7 @@ SERVER_IMAGE = os.environ.get(
 )
 PROXY_IMAGE = os.environ.get("BUNNYLAND_WORLD_GRAPH_PROXY_IMAGE", "nginx:1.27-bookworm")
 USERNAME = "world-graph-playwright"
+CHARACTER_USERNAME = "character-playwright"
 PASSWORD = "world-graph-playwright-fixture-only"
 SERVER_LOG = ARTIFACT_DIR / "server.log"
 PROXY_LOG = ARTIFACT_DIR / "proxy.log"
@@ -103,7 +104,11 @@ def prepare_fixture(runtime: list[str]) -> Path:
         f"  {USERNAME}:\n"
         f"    password_hash: {password_hash!r}\n"
         "    enabled: true\n"
-        "    scopes: [world:admin]\n",
+        "    scopes: [world:admin]\n"
+        f"  {CHARACTER_USERNAME}:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    enabled: true\n"
+        "    scopes: [character:profile, character:chat]\n",
         encoding="utf-8",
     )
     users_file.chmod(0o600)
@@ -360,6 +365,95 @@ def generate_and_assert(page, *, action, kind: str, expected_name: str) -> dict[
     return {"job": job, "patch": patch}
 
 
+def exercise_character_scopes(
+    browser,
+    coverage: PlaywrightCoverage,
+    admin_page,
+    base_url: str,
+    character_id: str,
+) -> str:
+    origin = admin_page.evaluate("location.origin")
+    admin_client_id = admin_page.evaluate("BunnylandApi.getClientId()")
+    claim_response = admin_page.context.request.post(
+        f"{origin}/api/v1/play/claims",
+        headers={"X-Bunnyland-Client-Id": admin_client_id},
+        data={"character_id": character_id, "label": "live character regression"},
+    )
+    if claim_response.status != 201:
+        raise AssertionError(
+            f"could not claim generated character: {claim_response.status} {claim_response.text()}"
+        )
+    claim = claim_response.json()
+    claim_secret = claim_response.headers.get("x-bunnyland-claim-secret")
+    if not claim_secret:
+        raise AssertionError("claim response omitted its secret")
+
+    context = browser.new_context(
+        ignore_https_errors=True,
+        viewport={"width": 1280, "height": 800},
+    )
+    page = context.new_page()
+    coverage.start_page(page)
+    page.add_init_script(
+        f"""
+        window.prompt = (message, fallback = '') => {{
+          const text = String(message || '');
+          if (text === 'Bunnyland username') return {json.dumps(CHARACTER_USERNAME)};
+          if (text === 'Bunnyland password') return {json.dumps(PASSWORD)};
+          return fallback;
+        }};
+        """
+    )
+    page.goto(
+        f"{base_url}/character.html?server=%2Fapi%2Fv1#{character_id}",
+        wait_until="domcontentloaded",
+    )
+    page.wait_for_function(
+        "(id) => window.app?.projection?.characterId === id",
+        arg=character_id,
+        timeout=30000,
+    )
+    expect(page.locator("#api-status")).to_contain_text("Connected", timeout=10000)
+    expect(page.locator("#character-name")).to_have_text("Playwright Cartographer")
+    expect(page.locator("#controller-value")).to_contain_text("web")
+
+    profile_client_id = page.evaluate("BunnylandApi.getClientId()")
+    headers = {"X-Bunnyland-Client-Id": profile_client_id}
+    denied = context.request.get(f"{origin}/api/v1/play/characters", headers=headers)
+    if denied.status != 403:
+        raise AssertionError(f"character-only credentials unexpectedly received play access: {denied.status}")
+    submitted = context.request.post(
+        f"{origin}/api/v1/chat/characters/{character_id}/jobs",
+        headers=headers,
+        data={"kind": "chat", "message": "Are you ready to map the annex?"},
+    )
+    if submitted.status != 202 or submitted.json().get("status") != "queued":
+        raise AssertionError(f"character chat job was not queued: {submitted.status} {submitted.text()}")
+    job_id = str(submitted.json()["id"])
+    replied = admin_page.context.request.post(
+        f"{origin}/api/v1/play/claims/{claim['id']}/chat-jobs/{job_id}",
+        headers={
+            "X-Bunnyland-Client-Id": admin_client_id,
+            "X-Bunnyland-Claim-Secret": claim_secret,
+        },
+        data={"reply": "The annex is mapped."},
+    )
+    if replied.status != 200:
+        raise AssertionError(f"character controller could not reply: {replied.status} {replied.text()}")
+    fetched = context.request.get(
+        f"{origin}/api/v1/chat/characters/{character_id}/jobs/{job_id}",
+        headers=headers,
+    )
+    result = fetched.json()
+    if fetched.status != 200 or result.get("status") != "succeeded":
+        raise AssertionError(f"character chat job did not complete: {fetched.status} {result!r}")
+    if result.get("result", {}).get("reply") != "The annex is mapped.":
+        raise AssertionError(f"character chat reply was not preserved: {result!r}")
+    coverage.close_page(page)
+    context.close()
+    return job_id
+
+
 def main() -> None:
     server_proc = None
     proxy_proc = None
@@ -455,7 +549,8 @@ def main() -> None:
             )
 
             world = page.evaluate("window.app.world")
-            if entity_named(world, "Playwright Cartographer") is None:
+            generated_character = entity_named(world, "Playwright Cartographer")
+            if generated_character is None:
                 raise AssertionError("applied character is absent from the World Graph")
             if entity_named(world, "playwright sun coin") is None:
                 raise AssertionError("applied item is absent from the World Graph")
@@ -473,6 +568,13 @@ def main() -> None:
                 "window.__worldStreamMessages.filter((message) => message.type === 'patch').length"
             )
             page.screenshot(path=str(SCREENSHOT), full_page=True)
+            character_chat_job = exercise_character_scopes(
+                browser,
+                coverage,
+                page,
+                base_url,
+                str(generated_character["id"]),
+            )
             coverage.close_browser(browser)
 
         print(
@@ -481,6 +583,7 @@ def main() -> None:
                     "world_graph_generation": "ok",
                     "server_image": SERVER_IMAGE,
                     "jobs": [character["job"]["id"], item["job"]["id"], room["job"]["id"]],
+                    "character_chat_job": character_chat_job,
                     "stream_patch_count": stream_patch_count,
                     "artifacts": str(ARTIFACT_DIR),
                 },

@@ -31,12 +31,6 @@ const CHAT_CLIENT_ID_KEY = 'bunnyland.characterChat.clientId';
 const MARKDOWN_KEY = 'bunnyland.characterChat.markdown';
 const LOBBY_POLL_INTERVAL_MS = 2000;
 const PENDING_POLL_MS = 2000;
-const CLAIM_CLIENT_KEYS = [
-  'bunnyland.webTui.clientId',
-  'bunnyland.webRepl.clientId',
-  'bunnyland.toon.clientId',
-  'bunnyland.3d',
-];
 
 export interface SheetCharacter {
   id: string;
@@ -51,25 +45,7 @@ export interface SheetEntry {
   value?: string;
 }
 
-export interface SheetAction {
-  available?: boolean;
-  command_type?: string;
-  cost?: { action?: number; focus?: number };
-  lane?: string;
-  title?: string;
-  tool_name?: string;
-  unavailable_reason?: string;
-}
-
-interface SheetEntity {
-  id: string;
-  isCharacter?: boolean;
-  kind?: string;
-  name?: string;
-}
-
 export interface SheetProjection {
-  actions: SheetAction[];
   characterId: string;
   characterName: string;
   controller: {
@@ -79,10 +55,9 @@ export interface SheetProjection {
     kind?: string;
     name?: string;
   } | null;
-  inventory: Array<{ id: string; kind?: string; label?: string; name?: string }>;
   points: Record<string, number>;
   portrait?: { url?: string };
-  room: { entities?: SheetEntity[]; id?: string; title?: string };
+  room: { id?: string; title?: string };
   sheet?: OverviewContent & {
     affect?: SheetMetric[];
     injuries?: SheetEntry[];
@@ -100,29 +75,12 @@ export interface SheetProjection {
   worldEpoch: number;
 }
 
-interface ClaimControl {
-  claimId?: string;
-  claimSecret?: string;
-}
-
 interface FeatureStatus {
   character_chat?: boolean;
   character_sheets?: boolean;
 }
 
 export type CharacterView = 'chat' | 'sheet';
-
-interface LiveUpdates {
-  close: () => void;
-}
-
-interface LiveOptions {
-  base: string;
-  characterId: string;
-  control: ClaimControl | null;
-  onState: (state: string) => void;
-  refresh: () => void | Promise<void>;
-}
 
 interface UploadOptions {
   getAuth: () => string | null;
@@ -131,31 +89,19 @@ interface UploadOptions {
 
 export interface CharacterServices {
   actionIcon: (action: { command_type: string; tool_name: string }) => string;
-  actionAvailable: (action: SheetAction) => boolean;
-  actionCost: (action: SheetAction) => { action: number; focus: number };
-  actionLane: (action: SheetAction) => string;
-  actionTitle: (action: SheetAction) => string;
   applyConfig: (options: {
     connect: (server: string) => void;
     isConnected: () => boolean;
   }) => Promise<unknown>;
-  claimHeaders: (control: ClaimControl | null) => Record<string, string>;
-  createPlayerLiveUpdates: (options: LiveOptions) => LiveUpdates;
   fetchCharacterList: (base: string) => Promise<{ characters?: SheetCharacter[]; epoch?: number }>;
-  fetchCharacterProjection: (
-    base: string, characterId: string, control: ClaimControl | null,
-  ) => Promise<SheetProjection | null>;
+  fetchCharacterProfile: (base: string, characterId: string) => Promise<SheetProjection | null>;
   formatPoints: (value: unknown) => string;
   initClientMenu: () => { close?: () => void } | void;
   initTheme: () => unknown;
   mediaUrl: (base: string, url: string) => string;
   normalizeBase: (url: string) => string;
-  orderActionsByAvailability: (actions: SheetAction[]) => SheetAction[];
   persistentClientId: (key: string, prefix: string) => string;
   portraitStatusMessage: (projection: SheetProjection | null, state: string) => string;
-  requestSceneImage: (
-    base: string, characterId: string, control: ClaimControl | null,
-  ) => Promise<{ ok?: boolean }>;
   serverFromUrl: () => string;
   sendJson: (base: string, path: string, options?: {
     body?: string;
@@ -163,7 +109,6 @@ export interface CharacterServices {
     method?: string;
   }) => Promise<JsonObject>;
   setServerInUrl: (base: string) => void;
-  storedClaimControl: (key: string, characterId: string) => ClaimControl | null;
   uploadCharacterImage: (
     base: string, characterId: string, purpose: string, file: File, options: UploadOptions,
   ) => Promise<{ url?: string }>;
@@ -172,20 +117,18 @@ export interface CharacterServices {
 interface LegacyWindow extends Window {
   BunnylandApi: {
     applyConfigToInput: CharacterServices['applyConfig'];
-    claimHeaders: CharacterServices['claimHeaders'];
     mediaUrl: CharacterServices['mediaUrl'];
     normalizeBase: CharacterServices['normalizeBase'];
-    requestSceneImage: CharacterServices['requestSceneImage'];
     sendJson: CharacterServices['sendJson'];
     serverFromUrl: CharacterServices['serverFromUrl'];
     setServerInUrl: CharacterServices['setServerInUrl'];
     uploadCharacterImage: CharacterServices['uploadCharacterImage'];
   };
   BunnylandPlay: Pick<CharacterServices,
-    'actionAvailable' | 'actionCost' | 'actionIcon' | 'actionLane' | 'actionTitle' |
-    'createPlayerLiveUpdates' | 'fetchCharacterList' | 'fetchCharacterProjection' |
-    'formatPoints' | 'orderActionsByAvailability' | 'persistentClientId' |
-    'portraitStatusMessage' | 'storedClaimControl'>;
+    'actionIcon' | 'fetchCharacterProfile' | 'formatPoints' | 'persistentClientId' |
+    'portraitStatusMessage'> & {
+      fetchCharacterProfileList: CharacterServices['fetchCharacterList'];
+    };
   BunnylandUI: {
     initClientMenu: CharacterServices['initClientMenu'];
     initTheme: CharacterServices['initTheme'];
@@ -196,13 +139,12 @@ function browserServices(): CharacterServices {
   const legacy = window as unknown as LegacyWindow;
   return {
     ...legacy.BunnylandPlay,
+    fetchCharacterList: (base) => legacy.BunnylandPlay.fetchCharacterProfileList(base),
     applyConfig: (options) => legacy.BunnylandApi.applyConfigToInput(options),
-    claimHeaders: (control) => legacy.BunnylandApi.claimHeaders(control),
     initClientMenu: () => legacy.BunnylandUI.initClientMenu(),
     initTheme: () => legacy.BunnylandUI.initTheme(),
     mediaUrl: (base, url) => legacy.BunnylandApi.mediaUrl(base, url),
     normalizeBase: (url) => legacy.BunnylandApi.normalizeBase(url),
-    requestSceneImage: (base, id, control) => legacy.BunnylandApi.requestSceneImage(base, id, control),
     sendJson: (base, path, options) => legacy.BunnylandApi.sendJson(base, path, options),
     serverFromUrl: () => legacy.BunnylandApi.serverFromUrl(),
     setServerInUrl: (base) => legacy.BunnylandApi.setServerInUrl(base),
@@ -344,18 +286,16 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
   const [selectedId, setSelectedId] = useState(hashCharacterId);
   const [projection, setProjection] = useState<SheetProjection | null>(null);
   const [portraitState, setPortraitState] = useState('');
-  const [actionFilter, setActionFilter] = useState('');
   const [uploadState, setUploadState] = useState('');
   const [uploadingPurpose, setUploadingPurpose] = useState('');
   const [apiStatus, setApiStatus] = useState('○ Offline');
   const [statusKind, setStatusKind] = useState('');
   const [statusNote, setStatusNote] = useState('');
-  const [chatStatus, setChatStatus] = useState('Select a claimed character to start chatting.');
+  const [chatStatus, setChatStatus] = useState('Select a character to start chatting.');
   const [chatDraft, setChatDraft] = useState('');
   const [chatClientId, setChatClientId] = useState('');
   const [, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
-  const [coordinatorVersion, setCoordinatorVersion] = useState(0);
   const [, forceRender] = useState(0);
   const aliveRef = useRef(true);
   const apiBaseRef = useRef('');
@@ -365,12 +305,8 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
   const authHeaderRef = useRef<string | null>(null);
   const chatClientIdRef = useRef('');
   const requestGeneration = useRef(0);
-  const requestedPortraits = useRef(new Set<string>());
-  const failedPortraits = useRef(new Set<string>());
-  const liveStateRef = useRef('fallback');
   const pendingPolls = useRef(new Map<string, number>());
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
-  const actionFilterRef = useRef<HTMLInputElement>(null);
   const portraitUploadRef = useRef<HTMLInputElement>(null);
   const spriteUploadRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -381,14 +317,6 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
   projectionRef.current = projection;
   chatClientIdRef.current = chatClientId;
 
-  const claimControl = useCallback((characterId: string): ClaimControl | null => {
-    for (const key of CLAIM_CLIENT_KEYS) {
-      const control = services.storedClaimControl(key, characterId);
-      if (control) return control;
-    }
-    return null;
-  }, [services]);
-
   const bumpHistory = useCallback((): void => setHistoryRevision((value) => value + 1), []);
 
   const updateChatState = useCallback((characterId: string, update: (messages: StoredMessage[]) => StoredMessage[]): void => {
@@ -398,13 +326,14 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
     bumpHistory();
   }, [bumpHistory]);
 
-  const upsertAction = useCallback((characterId: string, action: ChatAction): void => {
+  const upsertAction = useCallback((characterId: string, action: ChatAction, jobId = ''): void => {
     if (!action.tool) return;
     updateChatState(characterId, (messages) => {
       const commandId = action.command_id || '';
       const next: StoredMessage = {
         action,
         command_id: commandId,
+        job_id: jobId,
         role: 'action',
         text: actionSummary(action),
       };
@@ -424,18 +353,16 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
     }
   }, []);
 
-  const startPendingPoll = useCallback((characterId: string, commandId: string, immediate = false): void => {
+  const startPendingPoll = useCallback((characterId: string, jobId: string, immediate = false): void => {
     const base = apiBaseRef.current;
-    const control = claimControl(characterId);
-    if (!base || !control?.claimId || !commandId) return;
-    const key = `${characterId}:${commandId}`;
+    if (!base || !jobId) return;
+    const key = `${characterId}:${jobId}`;
     if (pendingPolls.current.has(key)) return;
     const poll = async (): Promise<void> => {
       try {
         const response = await services.sendJson(
           base,
-          `/play/claims/${encodeURIComponent(control.claimId || '')}/jobs/${encodeURIComponent(commandId)}`,
-          { headers: services.claimHeaders(control) },
+          `/chat/characters/${encodeURIComponent(characterId)}/jobs/${encodeURIComponent(jobId)}`,
         );
         if (!aliveRef.current) return;
         const result = response.result && typeof response.result === 'object'
@@ -444,13 +371,22 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
         const action = result.action && typeof result.action === 'object'
           ? result.action as ChatAction
           : null;
-        if (action?.tool) upsertAction(characterId, action);
+        if (action?.tool) upsertAction(characterId, action, jobId);
         if (response.status === 'succeeded' || response.status === 'failed') {
           pendingPolls.current.delete(key);
+          if (response.status === 'failed') {
+            const failure = response.failure && typeof response.failure === 'object'
+              ? response.failure as JsonObject
+              : null;
+            if (selectedIdRef.current === characterId) {
+              setChatStatus(String(failure?.detail || 'Chat failed.'));
+            }
+            return;
+          }
           if (result.reply) updateChatState(characterId, (messages) => (
-            messages.some((message) => message.role === 'character' && message.command_id === commandId)
+            messages.some((message) => message.role === 'character' && message.command_id === jobId)
               ? messages
-              : [...messages, { role: 'character', text: String(result.reply), command_id: commandId }]
+              : [...messages, { role: 'character', text: String(result.reply), command_id: jobId }]
           ));
           if (selectedIdRef.current === characterId) {
             setChatStatus(action?.tool ? `${action.tool}: ${action.status}` : 'Action finished.');
@@ -465,7 +401,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       }
     };
     pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, immediate ? 0 : PENDING_POLL_MS));
-  }, [claimControl, services, updateChatState, upsertAction]);
+  }, [services, updateChatState, upsertAction]);
 
   const refresh = useCallback(async (): Promise<void> => {
     const base = apiBaseRef.current;
@@ -479,45 +415,23 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       setCharacters(nextCharacters);
       let nextProjection: SheetProjection | null = null;
       if (selected && nextCharacters.some((character) => character.id === selected)) {
-        nextProjection = await services.fetchCharacterProjection(base, selected, claimControl(selected));
+        nextProjection = await services.fetchCharacterProfile(base, selected);
         if (!aliveRef.current || generation !== requestGeneration.current || selected !== selectedIdRef.current) return;
         setProjection(nextProjection);
         projectionRef.current = nextProjection;
-        if (!nextProjection) {
-          setPortraitState('');
-        } else if (nextProjection.portrait?.url) {
-          setPortraitState('');
-        } else if (failedPortraits.current.has(selected)) {
-          setPortraitState('failed');
-        } else if (requestedPortraits.current.has(selected)) {
-          setPortraitState('queued');
-        } else {
-          requestedPortraits.current.add(selected);
-          setPortraitState('requesting');
-          void services.requestSceneImage(base, selected, claimControl(selected)).then((result) => {
-            if (!aliveRef.current || selected !== selectedIdRef.current) return;
-            setPortraitState(result.ok === false ? 'failed' : 'queued');
-            if (result.ok === false) failedPortraits.current.add(selected);
-          }).catch(() => {
-            if (!aliveRef.current || selected !== selectedIdRef.current) return;
-            failedPortraits.current.add(selected);
-            setPortraitState('failed');
-          });
-        }
+        setPortraitState('');
         const chatState = loadChatState(chatClientIdRef.current, selected);
         for (const message of chatState.messages) {
-          if (message.role === 'action' && message.action?.status === 'queued' && message.command_id) {
-            startPendingPoll(selected, message.command_id);
+          if (message.role === 'action' && message.action?.status === 'queued' && message.job_id) {
+            startPendingPoll(selected, message.job_id);
           }
         }
       } else {
         setProjection(null);
         projectionRef.current = null;
       }
-      if (!selected || liveStateRef.current === 'live') {
-        setStatusKind('live');
-        setApiStatus(`● Live · epoch ${nextProjection?.worldEpoch || list.epoch || 0}s`);
-      }
+      setStatusKind('live');
+      setApiStatus(`● Connected · epoch ${nextProjection?.worldEpoch || list.epoch || 0}`);
       setStatusNote('');
     } catch (error) {
       if (!aliveRef.current || generation !== requestGeneration.current) return;
@@ -525,7 +439,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       setApiStatus(`⚠ ${errorMessage(error)}`);
       setStatusNote(errorMessage(error));
     }
-  }, [claimControl, services, startPendingPoll]);
+  }, [services, startPendingPoll]);
   refreshRef.current = refresh;
 
   const selectCharacter = useCallback((id: string, options: { updateHash?: boolean } = {}): void => {
@@ -540,7 +454,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
     setUploadState('');
     setUploadingPurpose('');
     setChatDraft('');
-    setChatStatus(next ? 'Loading character…' : 'Select a claimed character to start chatting.');
+    setChatStatus(next ? 'Loading character…' : 'Select a character to start chatting.');
     if (options.updateHash) {
       const url = new URL(location.href);
       url.hash = next ? encodeURIComponent(next) : '';
@@ -565,7 +479,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
     setStatusKind('');
     setApiStatus('○ Offline');
     setStatusNote('');
-    setChatStatus('Select a claimed character to start chatting.');
+    setChatStatus('Select a character to start chatting.');
     if (syncUrl) services.setServerInUrl('');
   }, [clearPendingPolls, services]);
 
@@ -619,39 +533,10 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
 
   useEffect(() => {
     if (!connected || !apiBase) return;
-    if (!selectedId) {
-      void refreshRef.current();
-      const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
-      return () => window.clearInterval(timer);
-    }
-    const control = claimControl(selectedId);
-    if (!control?.claimId) {
-      liveStateRef.current = 'polling';
-      setStatusKind('live');
-      setApiStatus('● Connected · polling');
-      void refreshRef.current();
-      const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
-      return () => window.clearInterval(timer);
-    }
-    const live = services.createPlayerLiveUpdates({
-      base: apiBase,
-      characterId: selectedId,
-      control,
-      refresh: () => refreshRef.current(),
-      onState: (state) => {
-        if (!aliveRef.current) return;
-        liveStateRef.current = state;
-        if (state === 'live') {
-          setStatusKind('live');
-          setApiStatus('● Live');
-        } else if (state !== 'closed') {
-          setStatusKind('err');
-          setApiStatus('◌ Reconnecting · polling');
-        }
-      },
-    });
-    return () => live.close();
-  }, [apiBase, claimControl, connected, coordinatorVersion, selectedId, services]);
+    void refreshRef.current();
+    const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [apiBase, connected, selectedId]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -664,11 +549,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       const id = hashCharacterId();
       if (id !== selectedIdRef.current) selectCharacter(id);
     };
-    const onStorage = (): void => {
-      if (connectedRef.current && selectedIdRef.current) setCoordinatorVersion((value) => value + 1);
-    };
     window.addEventListener('hashchange', onHashChange);
-    window.addEventListener('storage', onStorage);
     const server = services.serverFromUrl();
     if (server) {
       setApiUrl(server);
@@ -687,7 +568,6 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       requestGeneration.current += 1;
       clearPendingPolls();
       window.removeEventListener('hashchange', onHashChange);
-      window.removeEventListener('storage', onStorage);
       menu?.close?.();
     };
   }, [clearPendingPolls, connect, selectCharacter, services]);
@@ -737,7 +617,6 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       setUploadState(`${purpose === 'portrait' ? 'Portrait' : 'Sprite'} uploaded.`);
       if (purpose === 'portrait') {
         setPortraitState('');
-        failedPortraits.current.delete(selected);
       }
       setUploadingPurpose('');
       await refreshRef.current();
@@ -766,41 +645,6 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
   const initiative = metricByLabel(vitals, 'Initiative');
   const room = projection?.room || {};
   const points = projection?.points || {};
-  const visibleRows: SheetRow[] = (room.entities || [])
-    .filter((entity) => entity.isCharacter || entity.kind === 'character')
-    .map((entity) => ({
-      key: entity.id,
-      label: entity.name || entity.id,
-      meta: entity.id === selectedId ? 'self' : entity.kind || 'character',
-    }));
-  const inventoryRows: SheetRow[] = (projection?.inventory || []).map((item) => ({
-    key: item.id,
-    label: item.label || item.name || item.id,
-    meta: item.kind || 'item',
-  }));
-  const actionNeedle = actionFilter.trim().toLowerCase();
-  const actionRows = services.orderActionsByAvailability(projection?.actions || [])
-    .filter((action) => {
-      if (!actionNeedle) return true;
-      const cost = services.actionCost(action);
-      return [
-        services.actionTitle(action), action.command_type || '', action.tool_name || '',
-        services.actionLane(action), action.unavailable_reason || '',
-        cost.action ? `${cost.action} AP` : '', cost.focus ? `${cost.focus} FP` : '',
-      ].join(' ').toLowerCase().includes(actionNeedle);
-    })
-    .map((action): SheetRow => {
-      const cost = services.actionCost(action);
-      const parts = [];
-      if (cost.action) parts.push(`${cost.action} AP`);
-      if (cost.focus) parts.push(`${cost.focus} FP`);
-      return {
-        key: `${action.command_type || ''}:${action.tool_name || ''}`,
-        label: services.actionTitle(action),
-        meta: action.unavailable_reason || `${services.actionLane(action)} · ${parts.join(' + ') || 'free'}`,
-        unavailable: !services.actionAvailable(action),
-      };
-    });
   const uploadDisabled = !connected || !apiBase || !selectedId || Boolean(uploadingPurpose);
   const selectedChatState = selectedId && chatClientId
     ? loadChatState(chatClientId, selectedId)
@@ -849,40 +693,39 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
     const characterId = selectedIdRef.current;
     const base = apiBaseRef.current;
     if (!message || !base || !characterId) return;
-    const control = claimControl(characterId);
-    if (!control?.claimId) {
-      setChatStatus('Claim this character in a player client before chatting.');
-      return;
-    }
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
     setChatStatus('Waiting for reply…');
     try {
-      const job = await services.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
+      const job = await services.sendJson(base, `/chat/characters/${encodeURIComponent(characterId)}/jobs`, {
         body: JSON.stringify({
           kind: 'chat',
           message,
           history_summary: state.summary || '',
           history: historyForPayload(state.messages),
         }),
-        headers: services.claimHeaders(control),
         method: 'POST',
       });
       const result = job.result && typeof job.result === 'object' ? job.result as JsonObject : job;
       if (!aliveRef.current) return;
-      if (result.reply) {
+      const jobId = String(job.id || '');
+      if (result.reply && jobId) {
         updateChatState(characterId, (messages) => [
           ...messages,
-          { role: 'character', text: String(result.reply), command_id: String(job.id || '') },
+          { role: 'character', text: String(result.reply), command_id: jobId },
         ]);
       }
       const action = result.action && typeof result.action === 'object' ? result.action as ChatAction : null;
-      if (action?.tool) upsertAction(characterId, action);
-      const jobId = String(job.id || action?.command_id || '');
+      if (action?.tool) upsertAction(characterId, action, jobId);
       if (job.status === 'queued' || job.status === 'running' || action?.status === 'queued') {
         if (jobId) startPendingPoll(characterId, jobId);
         setChatStatus('Chat queued. Waiting for reply…');
+      } else if (job.status === 'failed') {
+        const failure = job.failure && typeof job.failure === 'object'
+          ? job.failure as JsonObject
+          : null;
+        setChatStatus(String(failure?.detail || 'Chat failed.'));
       } else {
         setChatStatus(action?.tool
           ? `${action.tool}: ${action.status}${action.reason ? ` · ${action.reason}` : ''}`
@@ -1038,36 +881,6 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
         <Section id="notes" title="Notes" populated={Boolean(sheet.notes?.length)}>
           <SheetList emptyMessage="No notes recorded." rows={entryRows(sheet.notes)} />
         </Section>
-        <Section id="visible-characters" title="Visible Characters" populated={Boolean(visibleRows.length)}>
-          <SheetList emptyMessage="No visible characters." rows={visibleRows} />
-        </Section>
-        <Section id="inventory" title="Inventory" populated={Boolean(inventoryRows.length)}>
-          <SheetList emptyMessage="No inventory items." rows={inventoryRows} />
-        </Section>
-        <div class="section">
-          <div class="section-title">Available Actions</div>
-          <div class="action-controls">
-            <input
-              id="action-filter"
-              onInput={(event): void => setActionFilter(event.currentTarget.value)}
-              placeholder="Search actions"
-              ref={actionFilterRef}
-              spellcheck={false}
-              type="text"
-              value={actionFilter}
-            />
-            <Button id="action-filter-clear" onClick={(): void => {
-              setActionFilter('');
-              requestAnimationFrame(() => actionFilterRef.current?.focus());
-            }}>Clear</Button>
-          </div>
-          <div id="actions" class={actionRows.length ? 'sheet-list' : 'sheet-empty'}>
-            <SheetList
-              emptyMessage={actionNeedle ? 'No matching actions.' : 'No actions available.'}
-              rows={actionRows}
-            />
-          </div>
-        </div>
         <div id="status-note">{statusNote}</div>
         </> : <div id="chat-pane">
           <div id="chat-tools">

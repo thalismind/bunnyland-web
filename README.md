@@ -64,8 +64,11 @@ its test container and ephemeral auth storage.
 
 `scripts/playwright-world-graph-generation` serves the current production build through an
 ephemeral HTTPS proxy, then authenticates and generates, polls, applies, and stream-verifies
-character, item, and room patches against a disposable server world. It uses the server's
-deterministic async world builder, so local and CI runs do not need external LLM credentials.
+character, item, and room patches against a disposable server world. The same flow loads a
+real character profile with credentials limited to `character:profile` and `character:chat`,
+verifies those credentials cannot access `world:play`, and completes a human-controller chat
+job without changing controllers. It uses the server's deterministic async world builder, so
+local and CI runs do not need external LLM credentials.
 
 ## Vite, TypeScript, and Preact
 

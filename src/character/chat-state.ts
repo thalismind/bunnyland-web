@@ -10,6 +10,7 @@ export interface ChatAction extends JsonObject {
 export interface StoredMessage {
   action?: ChatAction;
   command_id?: string;
+  job_id?: string;
   role: 'action' | 'character' | 'user';
   text: string;
 }

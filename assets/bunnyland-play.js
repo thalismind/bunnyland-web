@@ -763,6 +763,19 @@
     return parseCharacterList(await BunnylandApi.sendJson(base, '/play/characters'));
   }
 
+  async function fetchCharacterProfileList(base) {
+    return parseCharacterList(await BunnylandApi.sendJson(base, '/profile/characters'));
+  }
+
+  async function fetchCharacterProfile(base, characterId) {
+    return parseCharacterProjection(
+      await BunnylandApi.sendJson(
+        base,
+        `/profile/characters/${encodeURIComponent(characterId)}`
+      )
+    );
+  }
+
   async function fetchCharacterProjection(base, _characterId, control = null) {
     if (!control?.claimId) return null;
     return parseCharacterProjection(
@@ -1125,6 +1138,8 @@
     entityName,
     entityType,
     fetchCharacterList,
+    fetchCharacterProfile,
+    fetchCharacterProfileList,
     fetchCharacterRecentEvents,
     fetchCharacterProjection,
     fetchQueuedCommands,
