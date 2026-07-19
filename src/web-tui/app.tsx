@@ -2,7 +2,7 @@
 import { render } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
-import { ActionSections, ActivityRows, QueuedRows, type TuiActivityRow, type TuiActionRow } from './live-projections';
+import { ActionSections, ActivityRows, LiveQueuedRows, type TuiActivityRow, type TuiActionRow } from './live-projections';
 import { ExitList, InventoryList, MemberList } from './world-lists';
 
 type JsonObject = Record<string, any>;
@@ -75,7 +75,6 @@ export function WebTuiPage() {
   const baseRef = useRef('');
   const [filter, setFilter] = useState('');
   const [showIcons, setShowIcons] = useState(() => Boolean(play.iconPreference(ICON_PREF_KEY, true)));
-  const [tick, setTick] = useState(0);
   const [form, setForm] = useState<FormState | null>(null);
   const [claimFallback, setClaimFallback] = useState('suspend');
   const [claimController, setClaimController] = useState('');
@@ -83,9 +82,9 @@ export function WebTuiPage() {
   const apiInputRef = useRef<HTMLInputElement>(null);
   const claimDialogRef = useRef<HTMLDialogElement>(null);
   const lobbyTimerRef = useRef<number | null>(null);
-  const countdownTimerRef = useRef<number | null>(null);
   const liveRef = useRef<{ close(): void } | null>(null);
   const liveTokenRef = useRef(0);
+  const refreshTokenRef = useRef(0);
   const liveStateRef = useRef('fallback');
   const mountedRef = useRef(true);
   const activityKeyRef = useRef(0);
@@ -95,6 +94,9 @@ export function WebTuiPage() {
   const clientIdRef = useRef(String(play.persistentClientId(CLIENT_ID_KEY, 'web-tui')));
   const connectRef = useRef<(url: string) => void>(() => undefined);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const projectionHasTargetRef = useRef<(id: string) => boolean>(() => false);
+  const selectTargetRef = useRef<(id: string, writeHash?: boolean) => void>(() => undefined);
+  const submitFormRef = useRef<() => void>(() => undefined);
 
   const update = (next: Partial<Model> | ((current: Model) => Model)) => {
     const value = typeof next === 'function' ? next(modelRef.current) : { ...modelRef.current, ...next };
@@ -168,9 +170,11 @@ export function WebTuiPage() {
   const refresh = async () => {
     const current = modelRef.current;
     if (!current.connected || !baseRef.current) return;
+    const base = baseRef.current;
+    const token = ++refreshTokenRef.current;
     try {
-      const list = await play.fetchCharacterList(baseRef.current);
-      if (!mountedRef.current || !modelRef.current.connected) return;
+      const list = await play.fetchCharacterList(base);
+      if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || !modelRef.current.connected) return;
       const characters = list.characters ?? [];
       update({ characters });
       const playerId = modelRef.current.playerId;
@@ -179,17 +183,19 @@ export function WebTuiPage() {
         return;
       }
       if (playerId) {
-        const projection = await play.fetchCharacterProjection(baseRef.current, playerId, modelRef.current.control);
-        const queued = await play.fetchQueuedCommands(baseRef.current, playerId, modelRef.current.control);
-        if (!mountedRef.current || playerId !== modelRef.current.playerId) return;
+        const [projection, queued] = await Promise.all([
+          play.fetchCharacterProjection(base, playerId, modelRef.current.control),
+          play.fetchQueuedCommands(base, playerId, modelRef.current.control),
+        ]);
+        if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || playerId !== modelRef.current.playerId) return;
         update({
           control: play.syncClaimControl(modelRef.current.control, projection, playerId),
           projection,
           queued: queued?.commands ?? [],
           queueProjection: queued?.characterId === playerId ? queued : null,
         });
-        const events = await play.fetchCharacterRecentEvents(baseRef.current, playerId, modelRef.current.control);
-        if (!mountedRef.current || playerId !== modelRef.current.playerId) return;
+        const events = await play.fetchCharacterRecentEvents(base, playerId, modelRef.current.control);
+        if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || playerId !== modelRef.current.playerId) return;
         drainEvents(events.events ?? [], !modelRef.current.eventsPrimed);
         update({ eventsPrimed: true });
       }
@@ -197,6 +203,7 @@ export function WebTuiPage() {
         update({ status: { kind: 'live', text: `● Live · epoch ${modelRef.current.projection?.worldEpoch || list.epoch || 0}s` } });
       }
     } catch (error) {
+      if (token !== refreshTokenRef.current || base !== baseRef.current) return;
       update({ status: { kind: 'err', text: `⚠ ${message(error)}` } });
     }
   };
@@ -228,7 +235,7 @@ export function WebTuiPage() {
   };
 
   const disconnect = (syncUrl = true) => {
-    stopLive(); stopLobby();
+    refreshTokenRef.current += 1; stopLive(); stopLobby();
     if (syncUrl && baseRef.current) api.setServerInUrl('');
     baseRef.current = '';
     update({ ...initial, seenEventIds: new Set() });
@@ -266,6 +273,10 @@ export function WebTuiPage() {
     if (modelRef.current.connected) startLobby();
   }
 
+  projectionHasTargetRef.current = projectionHasTarget;
+  selectTargetRef.current = selectTarget;
+  submitFormRef.current = submitForm;
+
   useEffect(() => {
     mountedRef.current = true;
     globals.BunnylandUI.initClientMenu();
@@ -293,7 +304,6 @@ export function WebTuiPage() {
         ] },
       ],
     });
-    countdownTimerRef.current = window.setInterval(() => setTick(value => value + 1), 250);
     const facade = {
       get characters() { return modelRef.current.characters; },
       get control() { return modelRef.current.control; },
@@ -304,7 +314,7 @@ export function WebTuiPage() {
     const applyTargetHash = () => {
       const id = targetFromHash();
       if (!id) { pendingTargetRef.current = ''; update({ selectedId: '' }); return; }
-      if (projectionHasTarget(id)) selectTarget(id, false);
+      if (projectionHasTargetRef.current(id)) selectTargetRef.current(id, false);
       else { pendingTargetRef.current = id; update({ selectedId: '' }); }
     };
     window.addEventListener('hashchange', applyTargetHash);
@@ -312,8 +322,7 @@ export function WebTuiPage() {
     void api.applyConfigToInput({ connect: (server: string) => connectRef.current(server), isConnected: () => modelRef.current.connected });
     api.applyServerParam({ connect: (server: string) => connectRef.current(server) });
     return () => {
-      mountedRef.current = false; stopLive(); stopLobby();
-      if (countdownTimerRef.current !== null) window.clearInterval(countdownTimerRef.current);
+      mountedRef.current = false; refreshTokenRef.current += 1; stopLive(); stopLobby();
       window.removeEventListener('hashchange', applyTargetHash);
       window.removeEventListener('popstate', applyTargetHash);
       if (pageWindow.app === facade) delete pageWindow.app;
@@ -322,14 +331,14 @@ export function WebTuiPage() {
 
   useEffect(() => {
     const id = pendingTargetRef.current;
-    if (id && projectionHasTarget(id)) selectTarget(id, false);
+    if (id && projectionHasTargetRef.current(id)) selectTargetRef.current(id, false);
   }, [model.projection]);
 
   useLayoutEffect(() => {
     if (!form) return;
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setForm(null);
-      else if (event.key === 'Enter' && (event.target as HTMLElement).classList.contains('form-input')) submitForm();
+      else if (event.key === 'Enter' && (event.target as HTMLElement).classList.contains('form-input')) submitFormRef.current();
     };
     document.addEventListener('keydown', keydown);
     document.querySelector<HTMLElement>('#action-form-overlay .form-input')?.focus();
@@ -349,8 +358,6 @@ export function WebTuiPage() {
       target: play.actionArguments(action).some((argument: JsonObject) => argument.target_group), title: play.actionTitle(action),
     };
   }), [actions, model.playerId, model.projection, showIcons]);
-  const countdown = play.queuedCountdownSeconds(model.queueProjection) as number | null;
-  void tick;
 
   const openAction = (action: Action) => {
     const fields = play.actionFields(action, (group: string) => modelRef.current.projection?.targetGroups?.[group] ?? []) as FormField[];
@@ -502,7 +509,7 @@ export function WebTuiPage() {
           <button id="action-filter-clear" type="button" onClick={() => setFilter('')}>Clear</button><label class="icon-toggle" title="Show action and activity icons"><input id="show-action-icons" type="checkbox" checked={showIcons}
             onChange={event => { setShowIcons(event.currentTarget.checked); play.setIconPreference(ICON_PREF_KEY, event.currentTarget.checked); }} /> Icons</label></div>
       </div><div id="verbs"><ActionSections actions={actionRows} onAction={index => { const action = actions[index]; if (action) openAction(action); }} /></div>
-        <div id="queued"><QueuedRows countdown={countdown} rows={model.queued.map(command => ({ id: command.command_id || '', label: play.queuedCommandLabel(command, allActions) }))}
+        <div id="queued"><LiveQueuedRows countdownFor={() => play.queuedCountdownSeconds(model.queueProjection) as number | null} source={model.queueProjection} rows={model.queued.map(command => ({ id: command.command_id || '', label: play.queuedCommandLabel(command, allActions) }))}
           onCancel={async id => { try { await play.cancelQueuedCommand(baseRef.current, modelRef.current.playerId, id, modelRef.current.control); await refreshRef.current(); } catch (error) { update({ status: { kind: 'err', text: `⚠ ${message(error)}` } }); } }} /></div>
       </aside>
     </div>

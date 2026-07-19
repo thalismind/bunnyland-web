@@ -1,5 +1,5 @@
-import { fireEvent, render } from '@testing-library/preact';
-import { describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render } from '@testing-library/preact';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CompletionOptions,
@@ -8,9 +8,15 @@ import {
 import {
   ActionSections,
   ActivityRows,
+  LiveQueuedRows,
   QueuedRows,
   type TuiActionRow,
 } from '../src/web-tui/live-projections';
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe('Web TUI live projections', () => {
   it('keeps activity, action, and queue nodes stable through projection updates', () => {
@@ -55,6 +61,25 @@ describe('Web TUI live projections', () => {
     expect(queued.container.querySelector('#queued-title')).toBe(originalTitle);
     fireEvent.click(updatedQueue!);
     expect(onCancel).toHaveBeenCalledWith('command-1');
+  });
+
+  it('isolates countdown ticks and cleans up its timer', () => {
+    vi.useFakeTimers();
+    let countdown = 8;
+    const view = render(<LiveQueuedRows
+      countdownFor={() => countdown}
+      onCancel={vi.fn()}
+      rows={[{ id: 'command-1', label: 'Look' }]}
+      source="queue-1"
+    />);
+    const originalQueue = view.container.querySelector('[data-cancel-command="command-1"]');
+    countdown = 7;
+    act(() => vi.advanceTimersByTime(250));
+    expect(view.container.querySelector('#queued-title')?.textContent).toContain('7s');
+    expect(view.container.querySelector('[data-cancel-command="command-1"]')).toBe(originalQueue);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 });
 

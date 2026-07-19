@@ -11,15 +11,18 @@ type Dynamic = (...args: unknown[]) => unknown;
 
 export interface ToonRuntime {
   api: {
-    applyConfigToInput: Dynamic;
-    applyServerParam: Dynamic;
-    mediaUrl: Dynamic;
-    normalizeBase: Dynamic;
-    requestSceneImage: Dynamic;
-    setServerInUrl: Dynamic;
+    applyConfigToInput(options: { connect: (server: unknown) => void; isConnected: () => boolean }): Promise<unknown>;
+    applyServerParam(options: { connect: (server: unknown) => void }): void;
+    mediaUrl(base: string, path: unknown): string;
+    normalizeBase(server: unknown): string;
+    requestSceneImage(base: string, characterId: string, control: Control | null): Promise<Json>;
+    setServerInUrl(base: string): void;
   };
   play: Record<string, unknown>;
-  ui: { initClientMenu: Dynamic; initHelp: Dynamic };
+  ui: {
+    initClientMenu(): { close?: () => void } | void;
+    initHelp(options: { sections: unknown[]; title: string }): void;
+  };
 }
 
 interface CharacterSummary { id: string; name: string }
@@ -74,6 +77,9 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
     field.key, field.candidates?.some(candidate => candidate.value === initialTarget) ? initialTarget : '',
   ])));
   const [error, setError] = useState('');
+  const onCloseRef = useRef(onClose);
+  const submitRef = useRef<() => void>(() => undefined);
+  onCloseRef.current = onClose;
   const title = playCall<string>(runtime, 'actionTitle', action);
   const submit = (): void => {
     const payload: Json = {};
@@ -84,14 +90,15 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
     }
     onSubmit(payload);
   };
+  submitRef.current = submit;
   useLayoutEffect(() => {
     const keydown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
-      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) submit();
+      if (event.key === 'Escape') onCloseRef.current();
+      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) submitRef.current();
     };
     document.addEventListener('keydown', keydown);
     return () => document.removeEventListener('keydown', keydown);
-  });
+  }, []);
   return <div id="action-form-overlay" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div class="target-card">
       <div class="target-card-header">{title}</div>
@@ -110,6 +117,29 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
       <div class="target-card-footer"><Button class="af-cancel" onClick={onClose}>Cancel</Button><Button class="af-submit" onClick={submit}>Submit</Button></div>
     </div>
   </div>;
+}
+
+function QueuedCountdown({ projection, runtime }: {
+  projection: QueueProjection | null;
+  runtime: ToonRuntime;
+}) {
+  const runtimeRef = useRef(runtime);
+  runtimeRef.current = runtime;
+  const calculate = (): number | null => playCall<number | null>(
+    runtimeRef.current,
+    'queuedCountdownSeconds',
+    projection,
+  );
+  const calculateRef = useRef(calculate);
+  calculateRef.current = calculate;
+  const [countdown, setCountdown] = useState(calculate);
+  useEffect(() => {
+    const update = (): void => setCountdown(calculateRef.current());
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [projection]);
+  return <>{countdown == null ? '' : ` · next tick in ${countdown}s`}</>;
 }
 
 export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
@@ -132,7 +162,6 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const [eventImage, setEventImage] = useState('');
   const [lightbox, setLightbox] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [countdownRevision, setCountdownRevision] = useState(0);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimFallback, setClaimFallback] = useState('suspend');
   const [claimController, setClaimController] = useState('');
@@ -152,6 +181,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const primed = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
+  const refreshGeneration = useRef(0);
   const pendingTargetRef = useRef(targetFromHash());
 
   playerRef.current = playerId; projectionRef.current = projection; roomRef.current = roomProjection;
@@ -181,9 +211,10 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const refresh = useCallback(async (): Promise<void> => {
     const base = baseRef.current;
     if (!base) return;
+    const generation = ++refreshGeneration.current;
     try {
       const lobby = await playCall<Promise<{ characters: CharacterSummary[]; epoch: number }>>(runtime, 'fetchCharacterList', base);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current) return;
       setCharacterList(lobby.characters || []);
       const id = playerRef.current;
       if (!id) { setStatus(`● Live · epoch ${lobby.epoch || 0}s`); return; }
@@ -193,7 +224,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         playCall<Promise<QueueProjection>>(runtime, 'fetchQueuedCommands', base, id, currentControl),
         playCall<Promise<Json>>(runtime, 'fetchCharacterRecentEvents', base, id, currentControl),
       ]);
-      if (!mounted.current || playerRef.current !== id) return;
+      if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current || playerRef.current !== id) return;
       projectionRef.current = character;
       setProjection(character);
       const synced = playCall<Control>(runtime, 'syncClaimControl', currentControl, character, id);
@@ -204,6 +235,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const roomId = character.room?.id;
       if (roomId) {
         const room = await playCall<Promise<{ entities?: Entity[]; room?: Room }>>(runtime, 'fetchRoomProjection', base, roomId, id, synced);
+        if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current || playerRef.current !== id) return;
         roomRef.current = room;
         setRoomProjection(room);
       }
@@ -216,7 +248,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const latest = playCall<{ url?: string } | null>(runtime, 'latestImageCompletion', Array.isArray(recent.events) ? recent.events : [], { base, purpose: 'event' });
       if (latest?.url) setEventImage(latest.url);
       setStatus('● Live');
-    } catch (error) { if (mounted.current) setStatus(`⚠ ${errorMessage(error)}`); }
+    } catch (error) { if (mounted.current && generation === refreshGeneration.current && base === baseRef.current) setStatus(`⚠ ${errorMessage(error)}`); }
   }, [appendActivity, runtime]);
 
   const postCommand = useCallback(async (action: Json, payload: Json): Promise<boolean> => {
@@ -293,7 +325,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const requestImage = async (): Promise<void> => {
     if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before requesting an image.'); return; }
     try {
-      const result = await Promise.resolve(runtime.api.requestSceneImage(baseRef.current, playerId, controlRef.current)) as Json;
+      const result = await runtime.api.requestSceneImage(baseRef.current, playerId, controlRef.current);
       setStatus(playCall<string>(runtime, 'imageRequestMessage', result));
       if (result.url) setEventImage(String(runtime.api.mediaUrl(baseRef.current, result.url)));
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
@@ -313,14 +345,14 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     const connect = (server: unknown): void => {
       const base = String(runtime.api.normalizeBase(server) || '');
       if (!base) return;
+      refreshGeneration.current += 1;
       baseRef.current = base; setApiUrl(base); setConnected(true); setStatus('● Connected'); setLoading(false);
       runtime.api.setServerInUrl(base); void refresh();
     };
     runtime.api.applyServerParam({ connect });
-    void Promise.resolve(runtime.api.applyConfigToInput({ connect, isConnected: () => Boolean(baseRef.current) }));
+    void runtime.api.applyConfigToInput({ connect, isConnected: () => Boolean(baseRef.current) });
     const loadingTimer = window.setTimeout(() => setLoading(false), 1850);
     const poll = window.setInterval(() => { if (baseRef.current) void refresh(); }, 2000);
-    const countdown = window.setInterval(() => setCountdownRevision(value => value + 1), 250);
     const applyTargetHash = (): void => {
       const id = targetFromHash();
       if (!id) { pendingTargetRef.current = ''; selectTarget('', false); return; }
@@ -330,7 +362,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     window.addEventListener('hashchange', applyTargetHash);
     window.addEventListener('popstate', applyTargetHash);
     return () => {
-      mounted.current = false; window.clearTimeout(loadingTimer); window.clearInterval(poll); window.clearInterval(countdown);
+      mounted.current = false; refreshGeneration.current += 1; window.clearTimeout(loadingTimer); window.clearInterval(poll);
       window.removeEventListener('hashchange', applyTargetHash); window.removeEventListener('popstate', applyTargetHash);
     };
   }, [projectionHasTarget, refresh, runtime, selectTarget]);
@@ -385,8 +417,6 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     else void postCommand(action, {});
   };
   const commands = queueProjection?.commands || [];
-  const countdown = playCall<number | null>(runtime, 'queuedCountdownSeconds', queueProjection);
-  void countdownRevision;
   const room = roomProjection?.room;
   const rect = stageRef.current?.getBoundingClientRect();
   const members = roomProjection?.entities || room?.entities || [];
@@ -471,7 +501,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
             return <div class={`verb ready${available ? '' : ' unavailable'}`} data-tool={tool} key={tool} onClick={() => openAction(action)}><span class="verb-name">{showIcons && <span class="action-icon">{playCall<string>(runtime, 'actionIcon', action)}</span>}{playCall<string>(runtime, 'actionTitle', action)}</span><span class="verb-cost">{targeted && <span class="verb-note">⌖ target</span>}{cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}{!cost.action && !cost.focus && <span class="cost free">free</span>}{reason && <span class="verb-reason">{reason}</span>}</span></div>;
           })}</div></div>)}
           <div class="action-section-title">Inventory</div><div class="inventory-list">{playCall<Array<{ icon: string; id: string; kind: string; label: string }>>(runtime, 'inventoryEntries', projection).map(item => <Button class={`inventory-item${selectedId === item.id ? ' selected' : ''}`} key={item.id} onClick={() => selectTarget(selectedRef.current === item.id ? '' : item.id)}><span class="verb-name">{showIcons && item.icon} {item.label}</span><span class="inventory-item-kind">{item.kind}</span></Button>)}</div>
-          <div id="queued-title" class="action-section-title">Queued actions{countdown == null ? '' : ` · next tick in ${countdown}s`}</div><div class="queued-list">{commands.length ? commands.map(command => <Button class="queued-action" data-cancel-command={String(command.command_id || '')} key={String(command.command_id)} onClick={() => { void playCall<Promise<Json>>(runtime, 'cancelQueuedCommand', baseRef.current, playerId, command.command_id, controlRef.current).then(refresh); }}><div class="queued-action-head"><span class="queued-action-name">{playCall<string>(runtime, 'queuedCommandName', command, actions)}</span><span class="queued-action-lane">{String(command.lane || '')}</span></div><div class="queued-action-detail">{[playCall<string>(runtime, 'queuedCommandCost', command), playCall<string>(runtime, 'queuedCommandDetail', command)].filter(Boolean).join(' · ')}</div></Button>) : <div class="queued-empty">No queued actions.</div>}</div>
+          <div id="queued-title" class="action-section-title">Queued actions<QueuedCountdown projection={queueProjection} runtime={runtime} /></div><div class="queued-list">{commands.length ? commands.map(command => <Button class="queued-action" data-cancel-command={String(command.command_id || '')} key={String(command.command_id)} onClick={() => { void playCall<Promise<Json>>(runtime, 'cancelQueuedCommand', baseRef.current, playerId, command.command_id, controlRef.current).then(refresh); }}><div class="queued-action-head"><span class="queued-action-name">{playCall<string>(runtime, 'queuedCommandName', command, actions)}</span><span class="queued-action-lane">{String(command.lane || '')}</span></div><div class="queued-action-detail">{[playCall<string>(runtime, 'queuedCommandCost', command), playCall<string>(runtime, 'queuedCommandDetail', command)].filter(Boolean).join(' · ')}</div></Button>) : <div class="queued-empty">No queued actions.</div>}</div>
           <div class="action-section-title">Activity</div><div class="activity-list">{activityLines.length ? activityLines.map((line, index) => <div class={`activity-row ${line.kind ? `kind-${line.kind}` : ''}`} key={`${line.text}:${index}`}>{showIcons && line.icon} {line.text}</div>) : <div class="activity-empty">No recent activity.</div>}</div>
         </div>
       </div>{lightbox && <div id="image-lightbox" onClick={() => setLightbox(false)}><img src={eventImage} alt="Requested scene image" /></div>}

@@ -260,7 +260,6 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   }]);
   const [apiStatus, setApiStatus] = useState('○ Offline');
   const [statusKind, setStatusKind] = useState('');
-  const [coordinatorVersion, setCoordinatorVersion] = useState(0);
   const aliveRef = useRef(true);
   const apiBaseRef = useRef('');
   const connectedRef = useRef(false);
@@ -485,7 +484,6 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       write(`Could not claim ${chosen.name}.`, 'error');
       return;
     }
-    setCoordinatorVersion((value) => value + 1);
     await refreshRef.current();
     write(`You are now ${chosen.name}.`, 'ok');
   }, [claimPlayer, resolveCharacter, write]);
@@ -523,9 +521,13 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     services.setServerInUrl('');
   }, [dropPlayer, services]);
 
+  const controlSubscriptionKey = control
+    ? [control.claimId, control.controllerId, control.generation].join(':')
+    : '';
+
   useEffect(() => {
     if (!connected || !apiBase) return;
-    if (!playerId || !control) {
+    if (!playerId || !controlSubscriptionKey) {
       void refreshRef.current();
       const timer = window.setInterval(() => { void refreshRef.current(); }, LOBBY_POLL_INTERVAL_MS);
       return () => window.clearInterval(timer);
@@ -533,7 +535,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     const live = services.createPlayerLiveUpdates({
       base: apiBase,
       characterId: playerId,
-      control,
+      control: controlRef.current,
       refresh: () => refreshRef.current(),
       onState: (state) => {
         if (!aliveRef.current) return;
@@ -548,7 +550,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       },
     });
     return () => live.close();
-  }, [apiBase, connected, coordinatorVersion, playerId, services]);
+  }, [apiBase, connected, controlSubscriptionKey, playerId, services]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -622,13 +624,13 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     services.playerControl(controlRef.current, projectionRef.current, playerIdRef.current)
   );
 
-  const actions = (): ActionView[] => projectionRef.current?.actions || [];
-  const actionByName = (name: string): ActionView | undefined => actions().find((action) => (
+  const actions = useCallback((): ActionView[] => projectionRef.current?.actions || [], []);
+  const actionByName = useCallback((name: string): ActionView | undefined => actions().find((action) => (
     services.actionTool(action) === name || action.command_type === name || action.title === name
-  ));
-  const candidatesFor = (argument: ActionArgument): TargetOption[] => (
+  )), [actions, services]);
+  const candidatesFor = useCallback((argument: ActionArgument): TargetOption[] => (
     services.targetCandidates(projectionRef.current, argument)
-  );
+  ), [services]);
 
   const resolvePayload = (action: ActionView, rawArgs: Record<string, string>): {
     error?: string;
@@ -1008,9 +1010,9 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     const base = line.slice(0, line.length - current.length);
     return services.actionArguments(action).map((argument) => argument.key)
       .filter((key) => key && key.startsWith(current)).map((key) => `${base}${key}=`);
-  }, [services]);
+  }, [actionByName, actions, candidatesFor, services]);
 
-  const completions = useMemo(() => completionOptions(input).slice(0, 12), [completionOptions, input, projection, characters]);
+  const completions = useMemo(() => completionOptions(input).slice(0, 12), [completionOptions, input]);
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name)), [characters]);
   const player = characters.find((character) => character.id === playerId);
   const points = projection?.points || {};
@@ -1071,7 +1073,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         <label for="claim-timeout">Idle timeout minutes</label>
         <input type="number" id="claim-timeout" min="5" max="60" step="1" value="30" />
         <div class="dialog-actions">
-          <Button id="btn-dialog-claim" onClick={(): void => { void claimPlayer().then(() => setCoordinatorVersion((value) => value + 1)); }}>{control?.active === false ? 'Resume' : 'Claim'}</Button>
+          <Button id="btn-dialog-claim" onClick={(): void => { void claimPlayer(); }}>{control?.active === false ? 'Resume' : 'Claim'}</Button>
           <Button id="btn-dialog-save-fallback" onClick={(): void => { void updateClaimFallback(); }}>Save Idle</Button>
           <Button id="btn-dialog-release-controller" onClick={(): void => { void releaseController(); }}>Idle</Button>
           <Button id="btn-dialog-release-claim" onClick={(): void => { void releaseClaim(); }}>Release</Button>

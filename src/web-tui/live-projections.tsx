@@ -1,4 +1,4 @@
-import { useCallback } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 
 export interface TuiActivityRow {
   icon: string;
@@ -104,6 +104,24 @@ export function QueuedRows({ countdown, onCancel, rows }: {
       </button>
     )) : <div class="empty">No queued actions.</div>}
   </>;
+}
+
+export function LiveQueuedRows({ countdownFor, onCancel, rows, source }: {
+  countdownFor: () => number | null;
+  onCancel: (id: string) => void;
+  rows: readonly TuiQueuedRow[];
+  source: unknown;
+}) {
+  const countdownForRef = useRef(countdownFor);
+  countdownForRef.current = countdownFor;
+  const [countdown, setCountdown] = useState(() => countdownFor());
+  useEffect(() => {
+    const update = (): void => setCountdown(countdownForRef.current());
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [source]);
+  return <QueuedRows countdown={countdown} onCancel={onCancel} rows={rows} />;
 }
 
 export interface TuiLiveProjectionProps {

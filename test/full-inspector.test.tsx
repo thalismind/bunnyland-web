@@ -37,12 +37,13 @@ class FakeGraph {
 class FakeCanvas {
   canvas: HTMLCanvasElement;
   ds = { offset: [0, 0], scale: 1 };
+  onNodeSelected = () => undefined;
   selected_nodes: Record<string, FakeNode> = {};
   constructor(canvas: HTMLCanvasElement, graph: FakeGraph) { this.canvas = canvas; void graph; }
   getCanvasMenuOptions = () => null;
   getNodeMenuOptions = () => null;
   resize() {}
-  selectNode(node: FakeNode) { this.selected_nodes = { selected: node }; }
+  selectNode(node: FakeNode) { this.selected_nodes = { selected: node }; this.onNodeSelected(node); }
   setDirty() {}
   stopRendering() {}
 }

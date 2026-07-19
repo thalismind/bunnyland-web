@@ -1,27 +1,114 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { EventFeed, type InspectorEventItem } from './event-feed';
 import { SearchHits, type InspectorSearchHit } from './search-hits';
+import {
+  type GraphNode,
+  type LiteGraphCanvas,
+  type LiteGraphModel,
+  type LiteGraphRuntime,
+  WorldGraphController,
+} from './world-graph-controller';
 
 type View = 'map' | 'region' | 'social' | 'quest';
 type GenerationKind = 'room' | 'character' | 'item';
-type Entity = { id: string; components: Record<string, any>; relationships: Record<string, any[]> };
-type World = { entities: Record<string, Entity>; epoch: number; meta: Record<string, any> };
+type JsonPrimitive = boolean | number | string | null;
+type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+interface JsonObject { [key: string]: JsonValue | undefined }
+interface ComponentFields extends JsonObject {
+  biome?: string;
+  celsius?: number;
+  claimed?: boolean;
+  climate?: string;
+  color?: string;
+  completed?: boolean;
+  detail?: string;
+  direction?: string;
+  emoji?: string;
+  generator?: string;
+  icon?: string;
+  indoor?: boolean;
+  kind?: string;
+  label?: string;
+  mode?: string;
+  order?: number;
+  population?: number;
+  quest_id?: string;
+  seed?: string;
+  short?: string;
+  species?: string;
+  status?: string;
+  terrain?: string;
+}
+interface Relationship { edge?: ComponentFields; target: string }
+interface Entity {
+  components: Record<string, ComponentFields>;
+  id: string;
+  relationships: Record<string, Relationship[]>;
+}
+interface World { entities: Record<string, Entity>; epoch: number; meta: ComponentFields }
 type Crumb = { entityId: string; label: string };
 type Menu = { entityId: string; left: number; top: number } | null;
 type Status = { className: string; text: string };
 
+interface AdminRequestOptions {
+  body?: string;
+  getAuth?: () => string | null;
+  method?: string;
+  prompt?: boolean;
+  setAuth?: (auth: string) => void;
+}
+interface PatchOptions { selectEntityId?: string; status?: string }
+interface PatchResponse {
+  changed_entities?: Entity[];
+  deleted_entities?: string[];
+  world_epoch?: number;
+}
+interface GenerationResponse {
+  result?: { patch?: { operations?: JsonObject[] } };
+}
+interface AdminResponse extends GenerationResponse, PatchResponse {
+  paused?: boolean | null;
+  running?: boolean;
+}
+interface SearchFilter { key: string; value: string }
+interface SearchQuery { filters: SearchFilter[]; text: string }
+interface ControllerInfo { color: string; detail?: string; icon: string; label: string }
+interface ClientMenu { close?: () => void }
+interface ClientConfig { autoConnect?: boolean; serverUrl?: string }
+
 type LegacyWindow = {
-  BunnylandApi: any;
-  BunnylandEvents: any;
-  BunnylandUI: any;
-  BunnylandWorld: any;
-  LGraph: new () => any;
-  LGraphCanvas: new (canvas: HTMLCanvasElement, graph: any) => any;
-  LGraphNode: { prototype: any };
-  LiteGraph: any;
+  BunnylandApi: {
+    assertSameOriginBase(value: string): string;
+    getClientId(): string;
+    normalizeBase(value: unknown): string;
+    sendAdmin(base: string, path: string, options?: AdminRequestOptions): Promise<AdminResponse>;
+    serverFromUrl(): string;
+    socketUrl(base: string, path: string, auth: string | null): string;
+  };
+  BunnylandEvents: {
+    eventSummary(type: string, event: JsonObject, nameFor: (id: string) => string): string;
+    icon(type: string): string;
+  };
+  BunnylandUI: {
+    cloneJson<T extends JsonValue>(value: T): T;
+    initClientMenu(options?: { showOnFirstLoad?: boolean }): ClientMenu | void;
+    loadConfig(): Promise<ClientConfig>;
+  };
+  BunnylandWorld: {
+    controlInfo(entity: Entity, world: World): ControllerInfo | null;
+    controllerInfo(entity: Entity): ControllerInfo | null;
+    entityDisplayName(entity: Entity, options?: { maxFallback?: number }): string;
+    entityType(entity: Entity): string;
+    parseApiSnapshot(value: unknown): World;
+    parseEntitySearch(value: string): SearchQuery;
+    parseSnapshot(value: unknown): World;
+  };
+  LGraph: LiteGraphRuntime['LGraph'];
+  LGraphCanvas: LiteGraphRuntime['LGraphCanvas'];
+  LGraphNode: LiteGraphRuntime['LGraphNode'];
+  LiteGraph: LiteGraphRuntime['LiteGraph'];
   app?: InspectorFacade;
 };
 
@@ -30,27 +117,24 @@ export interface InspectorFacade {
   _apiBase: string | null;
   readonly _applyWorld: (world: World, options?: { resetView?: boolean }) => void;
   readonly _assignController: (entityId: string, controllerId: string) => Promise<void>;
-  readonly _cloneEntityOperations: (entityId: string, clientId?: string) => any[];
+  readonly _cloneEntityOperations: (entityId: string, clientId?: string) => JsonObject[];
   readonly _deleteEntity: (entityId: string) => Promise<void>;
   readonly _monitorRoom: (entityId: string) => Promise<void>;
-  readonly _nodeMap: Record<string, any>;
+  readonly _nodeMap: Record<string, GraphNode>;
   readonly _pushEntity: (entityId: string) => void;
-  _sendAdmin: (path: string, options?: any) => Promise<any>;
-  _sendPatch: (operations: any[], options?: any) => Promise<any>;
+  _sendAdmin: (path: string, options?: AdminRequestOptions) => Promise<AdminResponse>;
+  _sendPatch: (operations: JsonObject[], options?: PatchOptions) => Promise<PatchResponse | null>;
   readonly _setApiStatus: (className: string, text: string) => void;
   readonly _showContextMenu: (entityId: string, clientX: number, clientY: number) => void;
-  readonly lgcanvas: any;
-  readonly lgraph: any;
-  readonly loadSnapshot: (json: any) => void;
+  readonly lgcanvas: LiteGraphCanvas | null;
+  readonly lgraph: LiteGraphModel | null;
+  readonly loadSnapshot: (json: unknown) => void;
   readonly selectEntity: (entityId: string) => void;
   readonly setRootView: (view: View) => void;
   readonly world: World | null;
 }
 
 const legacy = (): LegacyWindow => window as unknown as LegacyWindow;
-const GRAPH_NODE_WIDTH = 240;
-const GRAPH_MIN_FIT_SCALE = 0.65;
-const GRAPH_WIDGET_HEIGHT = 24;
 const CONTAINMENT_EDGES = ['Contains', 'Holding', 'Wearing'];
 const SOCIAL_EDGES: Record<string, { color: string; label: string }> = {
   PartnerOf: { color: '#f38ba8', label: 'partner' },
@@ -123,7 +207,7 @@ function regionRows(entity: Entity): string[] {
   const terrain = compact(region.terrain, 16);
   const climate = compact(region.climate, 14);
   const terrainIcon = /mountain|hill|cliff|ridge/i.test(terrain) ? '⛰️' : /river|lake|sea|coast|water/i.test(terrain) ? '🌊' : /forest|garden|wood/i.test(terrain) ? '🌳' : /city|urban|street|road/i.test(terrain) ? '🏙️' : '🌐';
-  return [[region.population != null && `👥 ${population(region.population)}`, Number.isFinite(temp) && `🌡️ ${Math.round(temp)} C`].filter(Boolean).join(' · '), compact([climate && `🌦️ ${climate}`, terrain && `${terrainIcon} ${terrain}`].filter(Boolean).join(' · '), 28)].filter(Boolean);
+  return [[region.population != null && `👥 ${population(region.population)}`, typeof temp === 'number' && Number.isFinite(temp) && `🌡️ ${Math.round(temp)} C`].filter(Boolean).join(' · '), compact([climate && `🌦️ ${climate}`, terrain && `${terrainIcon} ${terrain}`].filter(Boolean).join(' · '), 28)].filter(Boolean);
 }
 function subtitle(entity: Entity): string {
   const c = entity.components;
@@ -142,11 +226,18 @@ function regionalEdges(world: World) {
   return Object.values(world.entities).flatMap((source) => (source.relationships.Contains || []).filter((rel) => rel.edge?.mode === 'region' && world.entities[rel.target]).map((rel) => ({ source: source.id, target: rel.target, edge: rel.edge || {} })));
 }
 function regionalLevel(entity: Entity, fallback: number): number { return entity.components.RoomComponent ? 9 : REGION_LEVELS[String(entity.components.RegionComponent?.kind || '').toLowerCase()] ?? fallback; }
-function compareRegions(world: World, a: string, b: string, edgeA: any = {}, edgeB: any = {}): number {
+function compareRegions(
+  world: World,
+  a: string,
+  b: string,
+  edgeA: ComponentFields = {},
+  edgeB: ComponentFields = {},
+): number {
   return (edgeA.order ?? 0) - (edgeB.order ?? 0) || regionalLevel(world.entities[a]!, 0) - regionalLevel(world.entities[b]!, 0) || entityName(world.entities[a]!).localeCompare(entityName(world.entities[b]!)) || a.localeCompare(b);
 }
 export function layoutRegions(world: World, ids: string[]): Record<string, [number, number]> {
-  const incoming: Record<string, number> = {}, kids: Record<string, any[]> = {};
+  const incoming: Record<string, number> = {};
+  const kids: Record<string, Array<{ edge: ComponentFields; id: string }>> = {};
   ids.forEach((id) => { incoming[id] = 0; kids[id] = []; });
   for (const rel of regionalEdges(world)) if (rel.source in incoming && rel.target in incoming) { incoming[rel.target]!++; kids[rel.source]!.push({ id: rel.target, edge: rel.edge }); }
   Object.keys(kids).forEach((id) => kids[id]!.sort((a, b) => compareRegions(world, a.id, b.id, a.edge, b.edge)));
@@ -171,7 +262,7 @@ export function layoutRooms(world: World, ids: string[]): Record<string, [number
   const minX = Math.min(...Object.values(positions).map(([x]) => x)), minY = Math.min(...Object.values(positions).map(([, y]) => y)); Object.values(positions).forEach((pos) => { pos[0] += 80 - minX; pos[1] += 60 - minY; }); return positions;
 }
 
-function Value({ value }: { value: any }) {
+function Value({ value }: { value: JsonValue | undefined }) {
   if (value == null) return <span class="val-null">null</span>;
   if (typeof value === 'boolean') return <span class={value ? 'val-bool-t' : 'val-bool-f'}>{String(value)}</span>;
   if (typeof value === 'number') return <span class="val-num">{value}</span>;
@@ -197,76 +288,88 @@ function parseDeepLink(): { entity: string | null; server: string; view: View | 
   return { server, view, entity: parts.slice(1).join('/') || null };
 }
 
-function registerNodes(): void {
-  const w = legacy(); if ((w as any).__bunnylandInspectorNodes) return; (w as any).__bunnylandInspectorNodes = true;
-  for (const [kind, style] of Object.entries(ENTITY_STYLE)) { function EntityNode(this: any) { this.addInput('←', ''); this.addOutput('→', ''); } (EntityNode as any).title = kind; (EntityNode as any).title_text_color = style.titleColor; EntityNode.prototype = Object.create(w.LGraphNode.prototype); EntityNode.prototype.constructor = EntityNode; w.LiteGraph.registerNodeType(`bunnyland/${kind}`, EntityNode); }
-}
-
 export function InspectorApp() {
   const canvasRef = useRef<HTMLCanvasElement>(null), wrapperRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<any>(null), graphCanvasRef = useRef<any>(null), nodeMapRef = useRef<Record<string, any>>({});
+  const graphControllerRef = useRef<WorldGraphController | null>(null);
   const worldRef = useRef<World | null>(null), viewRef = useRef<View>('map'), stackRef = useRef<Crumb[]>([]), selectedRef = useRef<string | null>(null), apiBaseRef = useRef<string | null>(null);
   const movedRef = useRef<Record<string, number>>({}), wsRef = useRef<WebSocket | null>(null), refreshRef = useRef<number | null>(null), authRef = useRef<string | null>(null), pendingRef = useRef<ReturnType<typeof parseDeepLink> | null>(null);
-  const sendAdminOverride = useRef<InspectorFacade['_sendAdmin'] | null>(null), sendPatchOverride = useRef<InspectorFacade['_sendPatch'] | null>(null), functionsRef = useRef<Record<string, any>>({});
+  const sendAdminOverride = useRef<InspectorFacade['_sendAdmin'] | null>(null), sendPatchOverride = useRef<InspectorFacade['_sendPatch'] | null>(null);
+  const pushRef = useRef<(entityId: string) => void>(() => undefined);
+  const disconnectRef = useRef<() => void>(() => undefined);
   const [world, setWorld] = useState<World | null>(null), [view, setView] = useState<View>('map'), [stack, setStack] = useState<Crumb[]>([]), [selectedId, setSelectedId] = useState<string | null>(null), [apiBase, setApiBase] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>({ className: '', text: '○ Offline' }), [runtime, setRuntime] = useState({ paused: null as boolean | null, running: false }), [events, setEvents] = useState<InspectorEventItem[]>([]), [showEvents, setShowEvents] = useState(false), [showParents, setShowParents] = useState(true);
-  const [search, setSearch] = useState(''), [hits, setHits] = useState<InspectorSearchHit[]>([]), [searchIndex, setSearchIndex] = useState(0), [searchOpen, setSearchOpen] = useState(false), [menu, setMenu] = useState<Menu>(null), [socialTypes, setSocialTypes] = useState<string[]>([]);
-  const [version, setVersion] = useState(0), eventSequence = useRef(0), showParentsRef = useRef(true), applyingHash = useRef(false);
-  const bump = () => setVersion((value) => value + 1); void version;
+  const [search, setSearch] = useState(''), [searchIndex, setSearchIndex] = useState(0), [searchOpen, setSearchOpen] = useState(false), [menu, setMenu] = useState<Menu>(null), [socialTypes, setSocialTypes] = useState<string[]>([]);
+  const eventSequence = useRef(0), showParentsRef = useRef(true), applyingHash = useRef(false);
 
   const syncUrl = useCallback(() => { if (applyingHash.current) return; const url = new URL(location.href); if (wsRef.current && apiBaseRef.current) url.searchParams.set('server', apiBaseRef.current); const focus = `${viewRef.current}${selectedRef.current ? `/${encodeURIComponent(selectedRef.current)}` : ''}`; url.hash = focus; history.replaceState(null, '', url); }, []);
   const setApiStatus = useCallback((className: string, text: string) => setStatus({ className, text }), []);
-  const fit = useCallback(() => { const graph = graphRef.current, canvas = graphCanvasRef.current; if (!graph || !canvas) return; const nodes = graph._nodes || []; if (!nodes.length) return; let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; for (const n of nodes) { minX = Math.min(minX, n.pos[0]); minY = Math.min(minY, n.pos[1] - 20); maxX = Math.max(maxX, n.pos[0] + n.size[0]); maxY = Math.max(maxY, n.pos[1] + n.size[1]); } const margin = 60, width = maxX - minX + 120, height = maxY - minY + 120; const scale = Math.max(GRAPH_MIN_FIT_SCALE, Math.min(1, canvas.canvas.width / width, canvas.canvas.height / height)); canvas.ds.scale = scale; canvas.ds.offset = [-minX + margin + (canvas.canvas.width / scale - width) / 2, -minY + margin + (canvas.canvas.height / scale - height) / 2]; canvas.setDirty(true, true); }, []);
-
   const rootLabel = () => viewRef.current === 'region' ? 'Regions' : viewRef.current === 'social' ? 'Social' : viewRef.current === 'quest' ? 'Quests' : 'Room Map';
   const noteSelection = useCallback((id: string) => { if (!worldRef.current?.entities[id]) return; selectedRef.current = id; setSelectedId(id); syncUrl(); }, [syncUrl]);
-  const selectEntity = useCallback((id: string) => { if (!worldRef.current?.entities[id]) return; noteSelection(id); const node = nodeMapRef.current[id]; if (node) graphCanvasRef.current?.selectNode(node, false); }, [noteSelection]);
-
-  const reconcile = useCallback((specs: Array<{ entity: Entity; extra?: string[] | string; pos: [number, number]; enter?: () => void }>, edges: Array<[string, string]>, reset: boolean) => {
-    const graph = graphRef.current, canvas = graphCanvasRef.current; if (!graph || !canvas) return;
-    const oldScale = canvas.ds.scale, oldOffset = [...canvas.ds.offset], prior = nodeMapRef.current;
-    if (reset) { graph.clear(); nodeMapRef.current = {}; } else {
-      const wanted = new Set(specs.map(({ entity }) => entity.id));
-      Object.entries(prior).forEach(([id, node]) => { if (!wanted.has(id)) { graph.remove?.(node); delete prior[id]; } else { node.disconnectOutput?.(0); node.disconnectInput?.(0); } });
-    }
-    for (const spec of specs) {
-      const entity = spec.entity, type = entityType(entity), style = entityStyle(entity); let node = nodeMapRef.current[entity.id]; const previousPos = node?.pos ? [...node.pos] : null;
-      if (!node) { node = legacy().LiteGraph.createNode(`bunnyland/${type}`); graph.add(node); nodeMapRef.current[entity.id] = node; }
-      node.widgets = []; node.title = `${entityIcon(entity)} ${entityName(entity)}`; node.color = style.color; node.bgcolor = style.bgcolor; node.entityId = entity.id; node.onSelected = () => noteSelection(entity.id);
-      const rows = [subtitle(entity), ...(Array.isArray(spec.extra) ? spec.extra : spec.extra ? [spec.extra] : [])].filter(Boolean); for (const row of rows) { const widget = node.addWidget('text', '', row, () => {}); widget.type = 'label'; widget.draw = function(ctx: CanvasRenderingContext2D, _node: any, width: number, y: number, height: number) { ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bl-text').trim(); ctx.font = '12px "Courier New", monospace'; ctx.fillText(this.value, 10, y + height * .7, width - 18); }; }
-      if (spec.enter) node.addWidget('button', type === 'room' ? '🚪 Enter Room →' : '↳ Enter →', null, spec.enter); node.size = [GRAPH_NODE_WIDTH, 38 + rows.length * GRAPH_WIDGET_HEIGHT + (spec.enter ? 26 : 0)]; node.pos = !reset && previousPos ? previousPos : spec.pos;
-    }
-    for (const [from, to] of edges) nodeMapRef.current[from]?.connect(0, nodeMapRef.current[to], 0);
-    if (reset) fit(); else { canvas.ds.scale = oldScale; canvas.ds.offset = oldOffset; const selected = selectedRef.current && nodeMapRef.current[selectedRef.current]; if (selected) canvas.selectNode(selected, false); canvas.setDirty(true, true); }
-  }, [fit, noteSelection]);
+  const selectEntity = useCallback((id: string) => { if (!worldRef.current?.entities[id]) return; noteSelection(id); graphControllerRef.current?.selectEntity(id); }, [noteSelection]);
 
   const renderGraph = useCallback((reset = true) => {
-    const current = worldRef.current; if (!current) return; const specs: any[] = [], edges: Array<[string, string]> = []; setSocialTypes([]);
+    const current = worldRef.current;
+    if (!current) return;
+    const specs: Array<{
+      entity: Entity;
+      enter?: () => void;
+      extra?: string[] | string;
+      pos: [number, number];
+    }> = [];
+    const edges: Array<[string, string]> = [];
+    setSocialTypes([]);
     if (stackRef.current.length) {
       const id = stackRef.current.at(-1)!.entityId, entity = current.entities[id]; if (!entity) return; specs.push({ entity, pos: [300, 40] });
-      for (const rel of children(entity, current)) { const child = current.entities[rel.target]!; specs.push({ entity: child, pos: [80 + specs.length * 256, entityType(child) === 'character' ? 220 : 360], enter: children(child, current).length ? () => functionsRef.current.push(rel.target) : undefined }); edges.push([id, rel.target]); }
+      for (const rel of children(entity, current)) { const child = current.entities[rel.target]!; const canEnter = children(child, current).length > 0; specs.push({ entity: child, pos: [80 + specs.length * 256, entityType(child) === 'character' ? 220 : 360], ...(canEnter ? { enter: () => pushRef.current(rel.target) } : {}) }); edges.push([id, rel.target]); }
     } else if (viewRef.current === 'region') {
-      const ids = [...new Set([...Object.values(current.entities).filter((e) => e.components.RegionComponent).map((e) => e.id), ...regionalEdges(current).flatMap((edge) => [edge.source, edge.target])])]; const pos = layoutRegions(current, ids); ids.forEach((id) => specs.push({ entity: current.entities[id]!, pos: pos[id], extra: regionRows(current.entities[id]!), enter: entityType(current.entities[id]!) === 'room' ? () => functionsRef.current.push(id) : undefined })); regionalEdges(current).forEach((edge) => edges.push([edge.source, edge.target]));
+      const ids = [...new Set([...Object.values(current.entities).filter((e) => e.components.RegionComponent).map((e) => e.id), ...regionalEdges(current).flatMap((edge) => [edge.source, edge.target])])]; const pos = layoutRegions(current, ids); ids.forEach((id) => { const entity = current.entities[id]!; specs.push({ entity, pos: pos[id]!, extra: regionRows(entity), ...(entityType(entity) === 'room' ? { enter: () => pushRef.current(id) } : {}) }); }); regionalEdges(current).forEach((edge) => edges.push([edge.source, edge.target]));
     } else if (viewRef.current === 'social') {
       const chars = Object.values(current.entities).filter((e) => e.components.CharacterComponent), present = new Set<string>(), radius = Math.max(200, chars.length * 70); chars.forEach((entity, index) => specs.push({ entity, pos: [520 + radius * Math.cos(index / Math.max(1, chars.length) * Math.PI * 2 - Math.PI / 2) - 120, 360 + radius * Math.sin(index / Math.max(1, chars.length) * Math.PI * 2 - Math.PI / 2)] })); chars.forEach((e) => Object.keys(SOCIAL_EDGES).forEach((type) => (e.relationships[type] || []).forEach((rel) => { if (current.entities[rel.target]?.components.CharacterComponent) { edges.push([e.id, rel.target]); present.add(type); } }))); setSocialTypes([...present]);
     } else if (viewRef.current === 'quest') {
-      const all = Object.values(current.entities), quests = all.filter((e) => e.components.QuestComponent); quests.forEach((quest, col) => { specs.push({ entity: quest, pos: [40 + col * 250, 40] }); const qid = quest.components.QuestComponent.quest_id; all.filter((e) => e.components.QuestObjectiveComponent?.quest_id === qid || e.components.QuestRewardComponent?.quest_id === qid).forEach((child, row) => { specs.push({ entity: child, pos: [40 + col * 250, 200 + row * 110] }); edges.push([quest.id, child.id]); }); });
+      const all = Object.values(current.entities), quests = all.filter((e) => e.components.QuestComponent); quests.forEach((quest, col) => { specs.push({ entity: quest, pos: [40 + col * 250, 40] }); const qid = quest.components.QuestComponent?.quest_id; all.filter((e) => e.components.QuestObjectiveComponent?.quest_id === qid || e.components.QuestRewardComponent?.quest_id === qid).forEach((child, row) => { specs.push({ entity: child, pos: [40 + col * 250, 200 + row * 110] }); edges.push([quest.id, child.id]); }); });
     } else {
-      const rooms = Object.values(current.entities).filter((e) => e.components.RoomComponent), pos = layoutRooms(current, rooms.map((e) => e.id)); rooms.forEach((entity) => specs.push({ entity, pos: pos[entity.id], extra: `🐰 ${(entity.relationships.Contains || []).filter((rel) => current.entities[rel.target]?.components.CharacterComponent).length}`, enter: () => functionsRef.current.push(entity.id) })); const linked = new Set<string>(); rooms.forEach((room) => (room.relationships.ExitTo || []).forEach((rel) => { const key = [room.id, rel.target].sort().join('|'); if (!linked.has(key)) { linked.add(key); edges.push([room.id, rel.target]); } }));
+      const rooms = Object.values(current.entities).filter((e) => e.components.RoomComponent), pos = layoutRooms(current, rooms.map((e) => e.id)); rooms.forEach((entity) => specs.push({ entity, pos: pos[entity.id]!, extra: `🐰 ${(entity.relationships.Contains || []).filter((rel) => current.entities[rel.target]?.components.CharacterComponent).length}`, enter: () => pushRef.current(entity.id) })); const linked = new Set<string>(); rooms.forEach((room) => (room.relationships.ExitTo || []).forEach((rel) => { const key = [room.id, rel.target].sort().join('|'); if (!linked.has(key)) { linked.add(key); edges.push([room.id, rel.target]); } }));
     }
-    reconcile(specs, edges, reset);
-  }, [reconcile]);
+    graphControllerRef.current?.reconcile(specs.map(({ entity, enter, extra, pos }) => {
+      const style = entityStyle(entity);
+      return {
+        backgroundColor: style.bgcolor,
+        color: style.color,
+        id: entity.id,
+        ...(enter ? { onEnter: enter } : {}),
+        position: pos,
+        rows: [subtitle(entity), ...(Array.isArray(extra) ? extra : extra ? [extra] : [])].filter(Boolean),
+        title: `${entityIcon(entity)} ${entityName(entity)}`,
+        type: entityType(entity),
+      };
+    }), edges, reset);
+  }, []);
 
-  const applyWorld = useCallback((next: World, options: { resetView?: boolean } = {}) => { const reset = options.resetView ?? true; worldRef.current = next; setWorld(next); if (pendingRef.current) { const nav = pendingRef.current; pendingRef.current = null; if (nav.view) { viewRef.current = nav.view; setView(nav.view); } stackRef.current = []; setStack([]); renderGraph(true); if (nav.entity) selectEntity(nav.entity); return; } if (reset) { stackRef.current = []; setStack([]); renderGraph(true); } else renderGraph(false); bump(); }, [renderGraph, selectEntity]);
-  const loadSnapshot = useCallback((json: any) => { functionsRef.current.disconnect(); movedRef.current = {}; setEvents([]); applyWorld(legacy().BunnylandWorld.parseSnapshot(json), { resetView: true }); }, [applyWorld]);
+  const applyWorld = useCallback((next: World, options: { resetView?: boolean } = {}) => { const reset = options.resetView ?? true; worldRef.current = next; setWorld(next); if (pendingRef.current) { const nav = pendingRef.current; pendingRef.current = null; if (nav.view) { viewRef.current = nav.view; setView(nav.view); } stackRef.current = []; setStack([]); renderGraph(true); if (nav.entity) selectEntity(nav.entity); return; } if (reset) { stackRef.current = []; setStack([]); renderGraph(true); } else renderGraph(false); }, [renderGraph, selectEntity]);
+  const loadSnapshot = useCallback((json: unknown) => { disconnectRef.current(); movedRef.current = {}; setEvents([]); applyWorld(legacy().BunnylandWorld.parseSnapshot(json), { resetView: true }); }, [applyWorld]);
   const setRootView = useCallback((next: View) => { viewRef.current = next; setView(next); for (const item of ['map', 'region', 'social', 'quest']) document.getElementById(`btn-view-${item}`)?.classList.toggle('active', item === next); selectedRef.current = null; setSelectedId(null); stackRef.current = []; setStack([]); renderGraph(true); syncUrl(); }, [renderGraph, syncUrl]);
   const push = useCallback((id: string) => { const entity = worldRef.current?.entities[id]; if (!entity) return; stackRef.current = [...stackRef.current, { entityId: id, label: entityName(entity) }]; setStack(stackRef.current); renderGraph(true); }, [renderGraph]);
 
-  const defaultSendAdmin = useCallback(async (path: string, options: any = {}) => { if (!apiBaseRef.current) throw new Error('Connect to a live server first'); return legacy().BunnylandApi.sendAdmin(apiBaseRef.current, path, { ...options, getAuth: () => authRef.current, setAuth: (auth: string) => { authRef.current = auth; } }); }, []);
-  const sendAdmin = useCallback((path: string, options?: any) => (sendAdminOverride.current || defaultSendAdmin)(path, options), [defaultSendAdmin]);
-  const mergePatch = useCallback((data: any) => { const current = worldRef.current; if (!current) return; for (const id of data.deleted_entities || []) delete current.entities[id]; for (const item of data.changed_entities || []) current.entities[item.id] = legacy().BunnylandWorld.parseApiSnapshot({ entities: [item] }).entities[item.id]; if (data.world_epoch != null) current.epoch = data.world_epoch; applyWorld(current, { resetView: false }); }, [applyWorld]);
-  const defaultSendPatch = useCallback(async (operations: any[], options: any = {}) => { if (!operations.length) return null; const data = await sendAdmin('/admin/world', { method: 'PATCH', body: JSON.stringify({ operations }), prompt: true }); mergePatch(data); setApiStatus('live', options.status || 'Patch applied'); if (options.selectEntityId) selectEntity(options.selectEntityId); return data; }, [mergePatch, selectEntity, sendAdmin, setApiStatus]);
-  const sendPatch = useCallback((operations: any[], options?: any) => (sendPatchOverride.current || defaultSendPatch)(operations, options), [defaultSendPatch]);
+  const defaultSendAdmin = useCallback(async (path: string, options: AdminRequestOptions = {}) => { if (!apiBaseRef.current) throw new Error('Connect to a live server first'); return legacy().BunnylandApi.sendAdmin(apiBaseRef.current, path, { ...options, getAuth: () => authRef.current, setAuth: (auth: string) => { authRef.current = auth; } }); }, []);
+  const sendAdmin = useCallback((path: string, options?: AdminRequestOptions) => (sendAdminOverride.current || defaultSendAdmin)(path, options), [defaultSendAdmin]);
+  const mergePatch = useCallback((data: PatchResponse) => {
+    const current = worldRef.current;
+    if (!current) return;
+    const entities = { ...current.entities };
+    for (const id of data.deleted_entities || []) delete entities[id];
+    for (const item of data.changed_entities || []) {
+      const parsed = legacy().BunnylandWorld.parseApiSnapshot({ entities: [item] });
+      const entity = parsed.entities[item.id];
+      if (entity) entities[item.id] = entity;
+    }
+    applyWorld({
+      ...current,
+      entities,
+      epoch: data.world_epoch ?? current.epoch,
+    }, { resetView: false });
+  }, [applyWorld]);
+  const defaultSendPatch = useCallback(async (operations: JsonObject[], options: PatchOptions = {}) => { if (!operations.length) return null; const data = await sendAdmin('/admin/world', { method: 'PATCH', body: JSON.stringify({ operations }), prompt: true }); mergePatch(data); setApiStatus('live', options.status || 'Patch applied'); if (options.selectEntityId) selectEntity(options.selectEntityId); return data; }, [mergePatch, selectEntity, sendAdmin, setApiStatus]);
+  const sendPatch = useCallback((operations: JsonObject[], options?: PatchOptions) => (sendPatchOverride.current || defaultSendPatch)(operations, options), [defaultSendPatch]);
   const generateEntity = useCallback(async (kind: GenerationKind, targetId: string, direction = '') => {
     const theme = prompt(`Prompt / theme for the new ${kind}`); if (theme == null) return;
     const targetKey = kind === 'room' ? 'door_entity_id' : kind === 'character' ? 'room_entity_id' : 'container_entity_id';
@@ -278,7 +381,7 @@ export function InspectorApp() {
       if (!Array.isArray(operations) || !operations.length) throw new Error(`generation returned no ${kind} patch`);
       const before = new Set(Object.keys(worldRef.current?.entities || {}));
       const result = await sendPatch(operations, { status: `● ${kind[0]!.toUpperCase()}${kind.slice(1)} generated` });
-      const created = result?.changed_entities?.find((item: any) => item?.id && !before.has(item.id)); if (created?.id) selectEntity(created.id);
+      const created = result?.changed_entities?.find((item) => item.id && !before.has(item.id)); if (created?.id) selectEntity(created.id);
     } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); }
   }, [selectEntity, sendAdmin, sendPatch, setApiStatus]);
   const generateRoom = useCallback(() => {
@@ -292,49 +395,89 @@ export function InspectorApp() {
   }, [generateEntity, setApiStatus]);
   const assign = useCallback(async (entityId: string, controllerId: string) => { try { const data = await sendAdmin(`/admin/characters/${encodeURIComponent(entityId)}/controller`, { method: 'PUT', body: JSON.stringify({ controller_id: controllerId }), prompt: true }); mergePatch(data); setApiStatus('live', '● Controller assigned'); } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); } }, [mergePatch, sendAdmin, setApiStatus]);
   const monitor = useCallback(async (entityId: string) => { const entity = worldRef.current?.entities[entityId]; if (!entity?.components.RoomComponent || entity.components.DiscordRoomFeedComponent) return; const raw = prompt('Discord channel ID for room activity'); if (raw == null) return; if (!/^\d+$/.test(raw.trim())) { setApiStatus('error', '⚠ Discord channel ID must be a number'); return; } await sendPatch([{ op: 'add_component', entity_id: entityId, component: { type: 'DiscordRoomFeedComponent', fields: { channel_id: Number(raw.trim()) } } }], { status: '● Room monitoring enabled', selectEntityId: entityId }); }, [sendPatch, setApiStatus]);
-  const cloneOps = useCallback((entityId: string, clientId = `clone:${entityId}:${Date.now()}`) => { const current = worldRef.current, entity = current?.entities[entityId]; if (!entity || !current) throw new Error('Entity no longer exists'); const operations: any[] = [{ op: 'add_entity', client_id: clientId, components: Object.entries(entity.components).map(([type, fields]) => ({ type, fields: legacy().BunnylandUI.cloneJson(fields || {}) })) }]; Object.values(current.entities).forEach((source) => Object.entries(source.relationships).forEach(([type, rels]) => { if (CONTAINMENT_EDGES.includes(type)) rels.forEach((rel) => { if (rel.target === entityId) operations.push({ op: 'set_edge', source_id: source.id, target_id: clientId, edge: { type, fields: legacy().BunnylandUI.cloneJson(rel.edge || {}) } }); }); })); return operations; }, []);
+  const cloneOps = useCallback((entityId: string, clientId = `clone:${entityId}:${Date.now()}`) => { const current = worldRef.current, entity = current?.entities[entityId]; if (!entity || !current) throw new Error('Entity no longer exists'); const operations: JsonObject[] = [{ op: 'add_entity', client_id: clientId, components: Object.entries(entity.components).map(([type, fields]) => ({ type, fields: legacy().BunnylandUI.cloneJson(fields || {}) })) }]; Object.values(current.entities).forEach((source) => Object.entries(source.relationships).forEach(([type, rels]) => { if (CONTAINMENT_EDGES.includes(type)) rels.forEach((rel) => { if (rel.target === entityId) operations.push({ op: 'set_edge', source_id: source.id, target_id: clientId, edge: { type, fields: legacy().BunnylandUI.cloneJson(rel.edge || {}) } }); }); })); return operations; }, []);
   const remove = useCallback(async (id: string) => { if (worldRef.current?.entities[id] && confirm(`Delete ${id}? Incoming edges will also be removed.`)) await sendPatch([{ op: 'delete_entity', entity_id: id }], { status: '● Entity removed' }); }, [sendPatch]);
   const showMenu = useCallback((entityId: string, x: number, y: number) => { if (!worldRef.current?.entities[entityId]) return; const rect = wrapperRef.current?.getBoundingClientRect(); setMenu({ entityId, left: Math.max(8, x - (rect?.left || 0)), top: Math.max(8, y - (rect?.top || 0)) }); }, []);
   const disconnect = useCallback(() => { if (refreshRef.current != null) clearTimeout(refreshRef.current); const ws = wsRef.current; wsRef.current = null; ws?.close(); setStatus({ className: '', text: '○ Offline' }); setRuntime({ paused: null, running: false }); syncUrl(); }, [syncUrl]);
 
   const connect = useCallback(async (url: string) => { disconnect(); apiBaseRef.current = legacy().BunnylandApi.normalizeBase(url); setApiBase(apiBaseRef.current); try { await sendAdmin('/admin/world', { method: 'GET', prompt: true }); } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); return; } const ws = new WebSocket(legacy().BunnylandApi.socketUrl(apiBaseRef.current, '/admin/world/stream', authRef.current)); wsRef.current = ws; ws.onopen = () => { ws.send(JSON.stringify({ type: 'authenticate', data: { client_id: legacy().BunnylandApi.getClientId() } })); setApiStatus('live', '● Connected'); syncUrl(); }; ws.onmessage = (event) => { const msg = JSON.parse(event.data); if (msg.type === 'snapshot') applyWorld(legacy().BunnylandWorld.parseApiSnapshot(msg.data), { resetView: !worldRef.current }); else if (msg.type === 'event') { const data = msg.data, ev = data.event || {}, type = data.event_type || 'Event'; if (type === 'ActorMovedEvent' && ev.actor_id != null) movedRef.current[String(ev.actor_id)] = ev.world_epoch ?? worldRef.current?.epoch ?? 0; const actor = ev.actor_id == null ? null : String(ev.actor_id); const item: InspectorEventItem = { key: `event:${++eventSequence.current}`, type, epoch: ev.world_epoch != null ? `${ev.world_epoch}s` : '', icon: legacy().BunnylandEvents.icon(type), summary: legacy().BunnylandEvents.eventSummary(type, ev, (id: string) => worldRef.current?.entities[id] ? entityName(worldRef.current.entities[id]!) : id), ...(actor ? { actorId: actor, actorName: worldRef.current?.entities[actor] ? entityName(worldRef.current.entities[actor]!) : actor } : {}) }; setEvents((items) => [...items.slice(-249), item]); refreshRef.current = window.setTimeout(async () => { const data = await sendAdmin('/admin/world/snapshot', { method: 'GET', prompt: false }); applyWorld(legacy().BunnylandWorld.parseApiSnapshot(data), { resetView: false }); }, 400); } }; ws.onclose = () => { if (wsRef.current === ws) disconnect(); }; ws.onerror = () => setApiStatus('error', '⚠ Connection failed'); }, [applyWorld, disconnect, sendAdmin, setApiStatus, syncUrl]);
 
-  functionsRef.current = { applyWorld, assign, cloneOps, connect, disconnect, generateEntity, generateRoom, loadSnapshot, monitor, push, remove, renderGraph, selectEntity, sendAdmin, sendPatch, setApiStatus, setRootView, showMenu };
+  pushRef.current = push;
+  disconnectRef.current = disconnect;
 
-  useLayoutEffect(() => { registerNodes(); const canvas = canvasRef.current!, graph = new (legacy().LGraph)(), graphCanvas = new (legacy().LGraphCanvas)(canvas, graph); graphRef.current = graph; graphCanvasRef.current = graphCanvas; graphCanvas.render_shadows = false; graphCanvas.getCanvasMenuOptions = () => null; graphCanvas.getNodeMenuOptions = () => null; graphCanvas.onNodeSelected = (node: any) => node?.entityId && noteSelection(node.entityId); legacy().LiteGraph.NODE_WIDGET_HEIGHT = GRAPH_WIDGET_HEIGHT; const resize = () => { if (!wrapperRef.current) return; canvas.width = wrapperRef.current.clientWidth; canvas.height = wrapperRef.current.clientHeight; graphCanvas.resize(); }; resize(); window.addEventListener('resize', resize); return () => { window.removeEventListener('resize', resize); graphCanvas.stopRendering?.(); graphCanvasRef.current = null; graphRef.current = null; }; }, [noteSelection]);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const wrapper = wrapperRef.current;
+    if (!canvas || !wrapper) return;
+    const runtime = legacy();
+    const controller = new WorldGraphController({
+      canvas,
+      onSelectionChange: noteSelection,
+      runtime,
+      wrapper,
+    }, ENTITY_STYLE);
+    graphControllerRef.current = controller;
+    return () => {
+      controller.destroy();
+      if (graphControllerRef.current === controller) graphControllerRef.current = null;
+    };
+  }, [noteSelection]);
 
   useLayoutEffect(() => { const facade = {} as InspectorFacade; Object.defineProperties(facade, {
     _apiBase: { configurable: true, get: () => apiBaseRef.current, set: (value: string | null) => { apiBaseRef.current = value; setApiBase(value); } },
     _sendAdmin: { configurable: true, get: () => sendAdminOverride.current || defaultSendAdmin, set: (value: InspectorFacade['_sendAdmin']) => { sendAdminOverride.current = value; } },
     _sendPatch: { configurable: true, get: () => sendPatchOverride.current || defaultSendPatch, set: (value: InspectorFacade['_sendPatch']) => { sendPatchOverride.current = value; } },
-    lgraph: { configurable: true, get: () => graphRef.current }, lgcanvas: { configurable: true, get: () => graphCanvasRef.current }, _nodeMap: { configurable: true, get: () => nodeMapRef.current }, world: { configurable: true, get: () => worldRef.current },
+    lgraph: { configurable: true, get: () => graphControllerRef.current?.graph ?? null }, lgcanvas: { configurable: true, get: () => graphControllerRef.current?.canvas ?? null }, _nodeMap: { configurable: true, get: () => graphControllerRef.current?.nodes ?? {} }, world: { configurable: true, get: () => worldRef.current },
     loadSnapshot: { configurable: true, value: loadSnapshot }, selectEntity: { configurable: true, value: selectEntity }, setRootView: { configurable: true, value: setRootView },
     _applyWorld: { configurable: true, value: applyWorld }, _assignController: { configurable: true, value: assign }, _cloneEntityOperations: { configurable: true, value: cloneOps }, _deleteEntity: { configurable: true, value: remove }, _monitorRoom: { configurable: true, value: monitor }, _pushEntity: { configurable: true, value: push }, _setApiStatus: { configurable: true, value: setApiStatus }, _showContextMenu: { configurable: true, value: showMenu },
   }); legacy().app = facade;
     return () => { if (legacy().app === facade) delete legacy().app; disconnect(); };
   }, [applyWorld, assign, cloneOps, defaultSendAdmin, defaultSendPatch, disconnect, loadSnapshot, monitor, push, remove, selectEntity, setApiStatus, setRootView, showMenu]);
 
-  useEffect(() => { const clientMenu = legacy().BunnylandUI.initClientMenu({ showOnFirstLoad: true }); const nav = parseDeepLink(); pendingRef.current = nav.view || nav.entity ? nav : null; void legacy().BunnylandUI.loadConfig().then((config: any) => { const server = nav.server || (typeof config?.serverUrl === 'string' ? config.serverUrl : ''); if (server) { apiBaseRef.current = server; setApiBase(server); } if (nav.server || config?.autoConnect && server) void connect(server); }); const onHash = () => { const next = parseDeepLink(); applyingHash.current = true; try { if (next.view && next.view !== viewRef.current) { viewRef.current = next.view; setView(next.view); stackRef.current = []; setStack([]); renderGraph(false); } selectedRef.current = next.entity; setSelectedId(next.entity); if (next.entity) selectEntity(next.entity); } finally { applyingHash.current = false; } }; window.addEventListener('hashchange', onHash); return () => { window.removeEventListener('hashchange', onHash); clientMenu?.close?.(); }; }, [connect, renderGraph, selectEntity]);
+  useEffect(() => { const clientMenu = legacy().BunnylandUI.initClientMenu({ showOnFirstLoad: true }); const nav = parseDeepLink(); pendingRef.current = nav.view || nav.entity ? nav : null; void legacy().BunnylandUI.loadConfig().then((config) => { const server = nav.server || (typeof config?.serverUrl === 'string' ? config.serverUrl : ''); if (server) { apiBaseRef.current = server; setApiBase(server); } if (nav.server || config?.autoConnect && server) void connect(server); }); const onHash = () => { const next = parseDeepLink(); applyingHash.current = true; try { if (next.view && next.view !== viewRef.current) { viewRef.current = next.view; setView(next.view); stackRef.current = []; setStack([]); renderGraph(false); } selectedRef.current = next.entity; setSelectedId(next.entity); if (next.entity) selectEntity(next.entity); } finally { applyingHash.current = false; } }; window.addEventListener('hashchange', onHash); return () => { window.removeEventListener('hashchange', onHash); clientMenu?.close?.(); }; }, [connect, renderGraph, selectEntity]);
 
-  useEffect(() => { const parsed = legacy().BunnylandWorld.parseEntitySearch(search); if (!world || (!parsed.text && !parsed.filters.length)) { setHits([]); setSearchOpen(false); return; } const next = Object.values(world.entities).filter((entity) => { const name = entityName(entity), type = entityType(entity), components = Object.keys(entity.components); const hay = `${name} ${entity.id} ${type} ${components.join(' ')}`.toLowerCase(); return (!parsed.text || hay.includes(parsed.text)) && parsed.filters.every(({ key, value }: any) => key === 'type' ? type.includes(value) : (key === 'component' || key === 'has') ? components.some((c) => c.toLowerCase().includes(value)) : hay.includes(value)); }).slice(0, 15).map((entity) => ({ id: entity.id, name: entityName(entity), type: entityType(entity), icon: entityIcon(entity) })).sort((a, b) => a.name.localeCompare(b.name)); setHits(next); setSearchIndex(0); setSearchOpen(true); }, [search, world]);
+  const hits = useMemo<InspectorSearchHit[]>(() => {
+    const parsed = legacy().BunnylandWorld.parseEntitySearch(search);
+    if (!world || (!parsed.text && !parsed.filters.length)) return [];
+    return Object.values(world.entities).filter((entity) => {
+      const name = entityName(entity), type = entityType(entity), components = Object.keys(entity.components);
+      const hay = `${name} ${entity.id} ${type} ${components.join(' ')}`.toLowerCase();
+      return (!parsed.text || hay.includes(parsed.text)) && parsed.filters.every(({ key, value }) => key === 'type' ? type.includes(value) : (key === 'component' || key === 'has') ? components.some((component) => component.toLowerCase().includes(value)) : hay.includes(value));
+    }).slice(0, 15).map((entity) => ({ id: entity.id, name: entityName(entity), type: entityType(entity), icon: entityIcon(entity) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [search, world]);
+  useEffect(() => { setSearchIndex(0); setSearchOpen(hits.length > 0); }, [hits]);
 
   const selected = selectedId && world?.entities[selectedId] || null, controllers = useMemo(() => world ? Object.values(world.entities).map((entity) => { const info = legacy().BunnylandWorld.controllerInfo(entity); return info ? { id: entity.id, label: `${info.icon} ${info.label}${info.detail ? ` · ${info.detail}` : ''} (${entity.id})` } : null; }).filter(Boolean) as Array<{ id: string; label: string }> : [], [world]);
   const pickSearch = (id: string) => { setSearch(''); setSearchOpen(false); selectEntity(id); };
-  const onCanvasContext = (event: MouseEvent) => { const canvas = graphCanvasRef.current, graph = graphRef.current; if (!canvas || !graph) return; const rect = canvas.canvas.getBoundingClientRect(), x = (event.clientX - rect.left) / canvas.ds.scale - canvas.ds.offset[0], y = (event.clientY - rect.top) / canvas.ds.scale - canvas.ds.offset[1]; const node = [...graph._nodes].reverse().find((item: any) => item.entityId && x >= item.pos[0] && x <= item.pos[0] + item.size[0] && y >= item.pos[1] - 20 && y <= item.pos[1] + item.size[1]); if (node) { event.preventDefault(); selectEntity(node.entityId); showMenu(node.entityId, event.clientX, event.clientY); } };
+  const onCanvasContext = (event: MouseEvent) => { const entityId = graphControllerRef.current?.entityAt(event.clientX, event.clientY); if (entityId) { event.preventDefault(); selectEntity(entityId); showMenu(entityId, event.clientX, event.clientY); } };
   const worldInfo = world ? [world.meta.seed && `seed: ${world.meta.seed}`, world.meta.generator && `gen: ${world.meta.generator}`, `epoch: ${world.epoch}s`, `entities: ${Object.keys(world.entities).length}`].filter(Boolean).join(' · ') : '';
   const runtimeText = !wsRef.current ? 'runtime: offline' : runtime.paused == null ? 'runtime: locked' : runtime.paused ? 'runtime: paused' : runtime.running ? 'runtime: playing' : 'runtime: stopped';
   const canGenerateRoom = Boolean(apiBase && world && Object.values(world.entities).some((entity) => entity.components.DoorComponent));
   return <>
     <div id="toolbar"><div class="toolbar-row" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt=""/> Bunnyland World Graph</span><span class="toolbar-sep">|</span><label for="file-input">Snapshot:</label><input type="file" id="file-input" accept=".json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then((text) => loadSnapshot(JSON.parse(text))); }}/><span class="toolbar-sep">|</span><label for="api-url">Server:</label><input type="text" id="api-url" value={apiBase || '/api/v1/'} spellcheck={false} onInput={(event) => { apiBaseRef.current = event.currentTarget.value; setApiBase(event.currentTarget.value); }}/><button id="btn-connect" onClick={() => wsRef.current ? disconnect() : void connect(apiBase || '/api/v1/')}>{wsRef.current ? 'Disconnect' : 'Connect Live'}</button><span id="api-status" class={status.className}>{status.text}</span><button id="btn-toggle-runtime" disabled={!wsRef.current}>⏯</button><span id="runtime-status">{runtimeText}</span><button id="btn-back" disabled={!stack.length} onClick={() => { stackRef.current = stackRef.current.slice(0, -1); setStack(stackRef.current); renderGraph(true); }}>← Back</button><span id="search-box"><input type="text" id="search-input" value={search} placeholder="🔍 find, type:, component:" spellcheck={false} autocomplete="off" onInput={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'ArrowDown') setSearchIndex(Math.min(hits.length - 1, searchIndex + 1)); else if (event.key === 'ArrowUp') setSearchIndex(Math.max(0, searchIndex - 1)); else if (event.key === 'Enter' && hits[searchIndex]) pickSearch(hits[searchIndex]!.id); else if (event.key === 'Escape') setSearchOpen(false); }}/><div id="search-results" class={searchOpen ? '' : 'hidden'}><SearchHits hits={hits} activeIndex={searchIndex} onPick={pickSearch}/></div></span><button id="btn-client-menu" class="client-menu-button" type="button">Menu</button></div>
-    <div class="toolbar-row" id="toolbar-row2"><span id="view-switch">{(['map', 'region', 'social', 'quest'] as View[]).map((item) => <button id={`btn-view-${item}`} class={view === item ? 'active' : ''} onClick={() => setRootView(item)}>{item === 'map' ? '🗺 Map' : item === 'region' ? '🌐 Regions' : item === 'social' ? '👥 Social' : '📜 Quests'}</button>)}</span><button id="btn-generate-room" disabled={!canGenerateRoom} title={!apiBase ? 'Connect to a live server to generate rooms' : !canGenerateRoom ? 'Add a door before generating a room' : 'Generate a room through an existing door'} onClick={generateRoom}>✨ Add Room</button><label id="parents-toggle"><input type="checkbox" id="toggle-parents" checked={showParents} onChange={(event) => { showParentsRef.current = event.currentTarget.checked; setShowParents(event.currentTarget.checked); renderGraph(true); }}/> parent nodes</label><label id="events-toggle"><input type="checkbox" id="toggle-events" checked={showEvents} onChange={(event) => setShowEvents(event.currentTarget.checked)}/> events</label><span class="toolbar-sep">|</span><span id="breadcrumb">{stack.length > 0 ? <button class="crumb" data-inspector-root onClick={() => setRootView(view)}>{rootLabel()}</button> : <span class="crumb-current">{rootLabel()}</span>}{stack.map((crumb, index) => <span key={crumb.entityId}> › {index === stack.length - 1 ? <span class="crumb-current">{crumb.label}</span> : <button class="crumb" data-inspector-depth={index} onClick={() => { stackRef.current = stackRef.current.slice(0, index + 1); setStack(stackRef.current); renderGraph(true); }}>{crumb.label}</button>}</span>)}</span><span id="world-info">{worldInfo}</span></div></div>
-    <div id="main" class="app-split"><div id="graph-wrapper" ref={wrapperRef} onContextMenu={onCanvasContext} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer?.files[0]; if (file) void file.text().then((text) => loadSnapshot(JSON.parse(text))); }}><canvas id="graph-canvas" ref={canvasRef}/><div id="social-legend" class={view === 'social' ? '' : 'hidden'}>{socialTypes.length ? <><div class="leg-title">Relationships</div>{socialTypes.map((type) => <span class="leg-item"><span class="leg-swatch" style={{ background: SOCIAL_EDGES[type]!.color }}/>{SOCIAL_EDGES[type]!.label}</span>)}</> : <div class="leg-title">No relationships in this world</div>}</div>{menu && <ContextMenu entity={world?.entities[menu.entityId] || null} apiBase={apiBase} controllers={controllers} left={menu.left} top={menu.top} onClose={() => setMenu(null)} onAssign={assign} onClone={(id: string) => void sendPatch(cloneOps(id), { status: '● Entity cloned' })} onDelete={remove} onGenerate={generateEntity} onMonitor={monitor}/>}<div id="drop-overlay" class={world ? 'hidden' : ''}><div class="title">🐰 Bunnyland World Graph</div><div>Load a world snapshot JSON to begin</div><div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div></div></div><div id="sidebar"><div id="inspector"><EntityInspector apiBase={apiBase} entity={selected} moved={Boolean(selectedId && movedRef.current[selectedId] != null && world && world.epoch - movedRef.current[selectedId]! <= 60)} onSelect={selectEntity} world={world}/></div><div id="event-panel" class={showEvents ? '' : 'hidden'}><div id="event-panel-header"><span class="ev-title">⚡ Events</span><span id="event-count">{events.length ? `(${events.length})` : ''}</span><button id="event-clear" onClick={() => setEvents([])}>clear</button></div><div id="event-list"><EventFeed events={events}/></div></div></div></div>
+    <div class="toolbar-row" id="toolbar-row2"><span id="view-switch">{(['map', 'region', 'social', 'quest'] as View[]).map((item) => <button id={`btn-view-${item}`} class={view === item ? 'active' : ''} key={item} onClick={() => setRootView(item)}>{item === 'map' ? '🗺 Map' : item === 'region' ? '🌐 Regions' : item === 'social' ? '👥 Social' : '📜 Quests'}</button>)}</span><button id="btn-generate-room" disabled={!canGenerateRoom} title={!apiBase ? 'Connect to a live server to generate rooms' : !canGenerateRoom ? 'Add a door before generating a room' : 'Generate a room through an existing door'} onClick={generateRoom}>✨ Add Room</button><label id="parents-toggle"><input type="checkbox" id="toggle-parents" checked={showParents} onChange={(event) => { showParentsRef.current = event.currentTarget.checked; setShowParents(event.currentTarget.checked); renderGraph(true); }}/> parent nodes</label><label id="events-toggle"><input type="checkbox" id="toggle-events" checked={showEvents} onChange={(event) => setShowEvents(event.currentTarget.checked)}/> events</label><span class="toolbar-sep">|</span><span id="breadcrumb">{stack.length > 0 ? <button class="crumb" data-inspector-root onClick={() => setRootView(view)}>{rootLabel()}</button> : <span class="crumb-current">{rootLabel()}</span>}{stack.map((crumb, index) => <span key={crumb.entityId}> › {index === stack.length - 1 ? <span class="crumb-current">{crumb.label}</span> : <button class="crumb" data-inspector-depth={index} onClick={() => { stackRef.current = stackRef.current.slice(0, index + 1); setStack(stackRef.current); renderGraph(true); }}>{crumb.label}</button>}</span>)}</span><span id="world-info">{worldInfo}</span></div></div>
+    <div id="main" class="app-split"><div id="graph-wrapper" ref={wrapperRef} onContextMenu={onCanvasContext} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer?.files[0]; if (file) void file.text().then((text) => loadSnapshot(JSON.parse(text))); }}><canvas id="graph-canvas" ref={canvasRef}/><div id="social-legend" class={view === 'social' ? '' : 'hidden'}>{socialTypes.length ? <><div class="leg-title">Relationships</div>{socialTypes.map((type) => <span class="leg-item" key={type}><span class="leg-swatch" style={{ background: SOCIAL_EDGES[type]!.color }}/>{SOCIAL_EDGES[type]!.label}</span>)}</> : <div class="leg-title">No relationships in this world</div>}</div>{menu && <ContextMenu entity={world?.entities[menu.entityId] || null} apiBase={apiBase} controllers={controllers} left={menu.left} top={menu.top} onClose={() => setMenu(null)} onAssign={assign} onClone={(id: string) => void sendPatch(cloneOps(id), { status: '● Entity cloned' })} onDelete={remove} onGenerate={generateEntity} onMonitor={monitor}/>}<div id="drop-overlay" class={world ? 'hidden' : ''}><div class="title">🐰 Bunnyland World Graph</div><div>Load a world snapshot JSON to begin</div><div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div></div></div><div id="sidebar"><div id="inspector"><EntityInspector apiBase={apiBase} entity={selected} moved={Boolean(selectedId && movedRef.current[selectedId] != null && world && world.epoch - movedRef.current[selectedId]! <= 60)} onSelect={selectEntity} world={world}/></div><div id="event-panel" class={showEvents ? '' : 'hidden'}><div id="event-panel-header"><span class="ev-title">⚡ Events</span><span id="event-count">{events.length ? `(${events.length})` : ''}</span><button id="event-clear" onClick={() => setEvents([])}>clear</button></div><div id="event-list"><EventFeed events={events}/></div></div></div></div>
   </>;
 }
 
-function ContextMenu({ apiBase, controllers, entity, left, onAssign, onClone, onClose, onDelete, onGenerate, onMonitor, top }: any) {
+interface ContextMenuProps {
+  apiBase: string | null;
+  controllers: Array<{ id: string; label: string }>;
+  entity: Entity | null;
+  left: number;
+  onAssign: (entityId: string, controllerId: string) => Promise<void>;
+  onClone: (entityId: string) => void;
+  onClose: () => void;
+  onDelete: (entityId: string) => Promise<void>;
+  onGenerate: (kind: GenerationKind, targetId: string) => Promise<void>;
+  onMonitor: (entityId: string) => Promise<void>;
+  top: number;
+}
+
+function ContextMenu({ apiBase, controllers, entity, left, onAssign, onClone, onClose, onDelete, onGenerate, onMonitor, top }: ContextMenuProps) {
   const [controller, setController] = useState(entity?.relationships.ControlledBy?.[0]?.target || controllers[0]?.id || ''); if (!entity) return null;
   const editor = new URL('world-editor.html', location.href); if (apiBase) editor.searchParams.set('server', apiBase); editor.hash = encodeURIComponent(entity.id);
-  return <div id="graph-context-menu" style={{ left, top }} onMouseLeave={onClose}><div class="graph-menu-title">{entityName(entity)}</div><button type="button" class="graph-menu-item" data-menu-action="edit" onClick={() => { location.href = editor.toString(); }}>Edit in World Editor</button>{entity.components.RoomComponent && <><div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="generate-character" disabled={!apiBase} onClick={() => onGenerate('character', entity.id)}>✨ Add Character</button><button type="button" class="graph-menu-item" data-menu-action="generate-item" disabled={!apiBase} onClick={() => onGenerate('item', entity.id)}>✨ Add Item</button></>}<div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="monitor-room" disabled={!apiBase || !entity.components.RoomComponent || entity.components.DiscordRoomFeedComponent} onClick={() => onMonitor(entity.id)}>Monitor Room</button><select class="graph-menu-select" data-controller-select disabled={!apiBase || !entity.components.CharacterComponent || !controllers.length} value={controller} onChange={(event) => setController(event.currentTarget.value)}>{controllers.length ? controllers.map((option: any) => <option value={option.id}>{option.label}</option>) : <option value="">No controllers</option>}</select><button type="button" class="graph-menu-item" data-menu-action="assign" disabled={!apiBase || !controller} onClick={() => onAssign(entity.id, controller)}>Assign Controller</button><button type="button" class="graph-menu-item" data-menu-action="delete" disabled={!apiBase} onClick={() => onDelete(entity.id)}>Remove from World</button><button type="button" class="graph-menu-item" data-menu-action="clone" disabled={!apiBase} onClick={() => onClone(entity.id)}>Clone Entity</button></div>;
+  return <div id="graph-context-menu" style={{ left, top }} onMouseLeave={onClose}><div class="graph-menu-title">{entityName(entity)}</div><button type="button" class="graph-menu-item" data-menu-action="edit" onClick={() => { location.href = editor.toString(); }}>Edit in World Editor</button>{Boolean(entity.components.RoomComponent) && <><div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="generate-character" disabled={!apiBase} onClick={() => { void onGenerate('character', entity.id); }}>✨ Add Character</button><button type="button" class="graph-menu-item" data-menu-action="generate-item" disabled={!apiBase} onClick={() => { void onGenerate('item', entity.id); }}>✨ Add Item</button></>}<div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="monitor-room" disabled={!apiBase || !entity.components.RoomComponent || Boolean(entity.components.DiscordRoomFeedComponent)} onClick={() => { void onMonitor(entity.id); }}>Monitor Room</button><select class="graph-menu-select" data-controller-select disabled={!apiBase || !entity.components.CharacterComponent || !controllers.length} value={controller} onChange={(event) => setController(event.currentTarget.value)}>{controllers.length ? controllers.map((option) => <option key={option.id} value={option.id}>{option.label}</option>) : <option value="">No controllers</option>}</select><button type="button" class="graph-menu-item" data-menu-action="assign" disabled={!apiBase || !controller} onClick={() => { void onAssign(entity.id, controller); }}>Assign Controller</button><button type="button" class="graph-menu-item" data-menu-action="delete" disabled={!apiBase} onClick={() => { void onDelete(entity.id); }}>Remove from World</button><button type="button" class="graph-menu-item" data-menu-action="clone" disabled={!apiBase} onClick={() => onClone(entity.id)}>Clone Entity</button></div>;
 }
 
 const root = document.getElementById('app');

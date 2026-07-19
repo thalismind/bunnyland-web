@@ -1,7 +1,41 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import html from 'eslint-plugin-html';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
+
+const bunnylandPlugin = {
+  rules: {
+    'jsx-key': {
+      meta: {
+        messages: { missing: 'Mapped JSX elements must have a stable key.' },
+        schema: [],
+        type: 'problem',
+      },
+      create(context) {
+        const jsxRoot = (body) => body.type === 'JSXElement' || body.type === 'JSXFragment'
+          ? body
+          : null;
+        return {
+          "CallExpression[callee.type='MemberExpression'][callee.property.name='map']"(node) {
+            const callback = node.arguments[0];
+            if (!callback || callback.type !== 'ArrowFunctionExpression') return;
+            const root = jsxRoot(callback.body);
+            if (!root) return;
+            if (root.type === 'JSXFragment') {
+              context.report({ node: root, messageId: 'missing' });
+              return;
+            }
+            const keyed = root.openingElement.attributes.some((attribute) => (
+              attribute.type === 'JSXAttribute' && attribute.name.name === 'key'
+            ));
+            if (!keyed) context.report({ node: root, messageId: 'missing' });
+          },
+        };
+      },
+    },
+  },
+};
 
 const browserGlobals = {
   ...globals.browser,
@@ -63,6 +97,20 @@ export default [
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       globals: globals.browser,
+    },
+    plugins: {
+      bunnyland: bunnylandPlugin,
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      'bunnyland/jsx-key': 'error',
+      '@typescript-eslint/no-restricted-types': ['error', {
+        types: {
+          object: 'Use a named interface, a specific record, or unknown at external boundaries.',
+        },
+      }],
+      'react-hooks/exhaustive-deps': 'error',
+      'react-hooks/rules-of-hooks': 'error',
     },
   },
 ];

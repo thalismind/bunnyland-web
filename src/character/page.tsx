@@ -353,7 +353,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
   const [chatStatus, setChatStatus] = useState('Select a claimed character to start chatting.');
   const [chatDraft, setChatDraft] = useState('');
   const [chatClientId, setChatClientId] = useState('');
-  const [historyRevision, setHistoryRevision] = useState(0);
+  const [, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
   const [coordinatorVersion, setCoordinatorVersion] = useState(0);
   const [, forceRender] = useState(0);
@@ -793,12 +793,9 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       };
     });
   const uploadDisabled = !connected || !apiBase || !selectedId || Boolean(uploadingPurpose);
-  const selectedChatState = useMemo(
-    () => selectedId && chatClientId
-      ? loadChatState(chatClientId, selectedId)
-      : { summary: '', messages: [] },
-    [chatClientId, historyRevision, selectedId],
-  );
+  const selectedChatState = selectedId && chatClientId
+    ? loadChatState(chatClientId, selectedId)
+    : { summary: '', messages: [] };
   const hasChatHistory = Boolean(selectedChatState.summary || selectedChatState.messages.length);
   const transcriptItems = useMemo<TranscriptItem[]>(() => {
     const occurrences = new Map<string, number>();

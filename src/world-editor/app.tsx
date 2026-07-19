@@ -96,7 +96,9 @@ function SearchDropdown({ disabled = false, dropdownId, id, options, placeholder
   disabled?: boolean; dropdownId: string; id: string; options: { label: string; value: string }[]; placeholder: string; value?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null); const serialized = JSON.stringify(options);
-  useLayoutEffect(() => { if (ref.current) ui.bindSearchDropdown(ref.current, { options, value }); }, [serialized, value]);
+  const optionsRef = useRef(options), serializedRef = useRef(serialized);
+  if (serializedRef.current !== serialized) { serializedRef.current = serialized; optionsRef.current = options; }
+  useLayoutEffect(() => { if (ref.current) ui.bindSearchDropdown(ref.current, { options: optionsRef.current, value }); }, [serialized, value]);
   const selected = options.find(option => option.value === value);
   return <span class="search-dropdown" id={dropdownId} ref={ref}>
     <input class="search-dropdown-input" type="text" defaultValue={selected?.label ?? ''} placeholder={placeholder} spellcheck={false} autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" disabled={disabled}
@@ -232,7 +234,7 @@ export function WorldEditorPage() {
   };
   const applyPending = () => { const id = pendingRef.current; if (id && worldRef.current.entities[id]) selectEntity(id, true, false); };
   const inspectorHref = (id: string) => { const url = new URL('inspector.html', location.href); const base = liveBaseRef.current || api.normalizeBase(apiUrl); if (base) url.searchParams.set('server', base); else url.searchParams.delete('server'); url.hash = id ? `map/${encodeURIComponent(id)}` : ''; return url.toString(); };
-  const exported = useMemo(() => worldApi.exportWorld(worldRef.current), [revision]);
+  const exported = worldApi.exportWorld(worldRef.current);
   const jsonText = useMemo(() => JSON.stringify(exported, null, 2), [exported]);
   const problems = useMemo(() => validateWorld(exported), [exported]);
   const hasInvalid = (entity: Entity) => Object.values(entity.relationships || {}).some((edges: any) => (edges || []).some((edge: any) => edge.target && !world.entities[edge.target]));
@@ -277,6 +279,10 @@ export function WorldEditorPage() {
 
   useEffect(() => {
     mountedRef.current = true; ui.initClientMenu();
+    const revisePage = () => { if (mountedRef.current) setRevision(value => value + 1); };
+    const syncUrlPage = (push = false) => { const url = new URL(location.href); url.hash = selectedRef.current ? encodeURIComponent(selectedRef.current) : ''; history[push ? 'pushState' : 'replaceState'](null, '', url); };
+    const selectEntityPage = (id: string, sync = true, push = true) => { if (id && worldRef.current.entities[id]) { selectedRef.current = id; pendingRef.current = ''; } else if (!id) selectedRef.current = ''; if (sync) syncUrlPage(push); revisePage(); };
+    const applyPendingPage = () => { const id = pendingRef.current; if (id && worldRef.current.entities[id]) selectEntityPage(id, true, false); };
     const facade: Facade = {
       get libraryFragments() { return fragmentsRef.current; }, set libraryFragments(value) { fragmentsRef.current = value; },
       get selectedId() { return selectedRef.current; }, set selectedId(value) { selectedRef.current = value; },
@@ -285,9 +291,9 @@ export function WorldEditorPage() {
       _renderAll: revise, _renderEntities: revise, _renderJson: revise, _renderLibraryControls: revise,
     };
     pageWindow.app = facade;
-    const onLocation = () => { const id = parseFocusHash(); if (!id) selectEntity('', false); else if (worldRef.current.entities[id]) selectEntity(id, false); else { pendingRef.current = id; selectedRef.current = ''; revise(); } };
+    const onLocation = () => { const id = parseFocusHash(); if (!id) selectEntityPage('', false); else if (worldRef.current.entities[id]) selectEntityPage(id, false); else { pendingRef.current = id; selectedRef.current = ''; revisePage(); } };
     window.addEventListener('hashchange', onLocation); window.addEventListener('popstate', onLocation);
-    void (async () => { const cfg = await ui.loadConfig(); const server = api.serverFromUrl() || (typeof cfg?.serverUrl === 'string' ? cfg.serverUrl : ''); if (server) setApiUrl(server); if (api.serverFromUrl() || (cfg?.autoConnect && server)) { const base = api.normalizeBase(server); liveBaseRef.current = base; setApiUrl(server); await fetchSnapshotWith(base); } else applyPending(); })();
+    void (async () => { const cfg = await ui.loadConfig(); const server = api.serverFromUrl() || (typeof cfg?.serverUrl === 'string' ? cfg.serverUrl : ''); if (server) setApiUrl(server); if (api.serverFromUrl() || (cfg?.autoConnect && server)) { const base = api.normalizeBase(server); liveBaseRef.current = base; setApiUrl(server); await fetchSnapshotWith(base); } else applyPendingPage(); })();
     async function fetchSnapshotWith(base: string) {
       try {
         worldRef.current = worldApi.parseWorld(await api.sendAdmin(base, '/admin/world/snapshot', { method: 'GET', prompt: true, getAuth: () => authRef.current, setAuth: (auth: any) => { authRef.current = auth; } }));
@@ -295,10 +301,11 @@ export function WorldEditorPage() {
         try { const data = await api.sendAdmin(base, '/admin/world/runtime', { method: 'GET', prompt: true, getAuth: () => authRef.current, setAuth: (auth: any) => { authRef.current = auth; } }); setRuntime({ paused: data.paused == null ? null : Boolean(data.paused), running: Boolean(data.running) }); } catch { setRuntime({ paused: null, running: false }); }
         try { schemaRef.current = await api.sendJson(base, '/play/catalog'); } catch { schemaRef.current = null; }
         try { const data = await api.sendJson(base, '/play/catalog'); const content = data.content || {}; fragmentsRef.current = normalizeFragments(content, content.library_id || 'server'); } catch { fragmentsRef.current = []; }
-        applyPending(); syncUrl(); revise(); setStatus({ kind: 'ok', text: 'Server snapshot loaded · live patches enabled' });
+        applyPendingPage(); syncUrlPage(); revisePage(); setStatus({ kind: 'ok', text: 'Server snapshot loaded · live patches enabled' });
       } catch (error) { setStatus({ kind: 'err', text: `Server error: ${errorMessage(error)}` }); }
     }
-    return () => { mountedRef.current = false; Object.values(timersRef.current).forEach(timer => window.clearTimeout(timer)); window.removeEventListener('hashchange', onLocation); window.removeEventListener('popstate', onLocation); if (pageWindow.app === facade) delete pageWindow.app; };
+    const timers = timersRef.current;
+    return () => { mountedRef.current = false; Object.values(timers).forEach(timer => window.clearTimeout(timer)); window.removeEventListener('hashchange', onLocation); window.removeEventListener('popstate', onLocation); if (pageWindow.app === facade) delete pageWindow.app; };
   }, []);
 
   const updateComponent = (type: string, fields: Json) => { const entity = worldRef.current.entities[selectedRef.current]; if (!entity) return; entity.components[type] = fields; revise(); debouncePatch(`component:${entity.id}:${type}`, [{ op: 'set_component', entity_id: entity.id, component: { type, fields } }]); };
