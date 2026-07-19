@@ -52,6 +52,14 @@ tokens unless a graph node palette or entity palette requires a deliberate excep
 - Use cards only for repeated records, modal content, or tool-specific framed records
   such as action blocks in the script editor.
 - On small screens, preserve access to the primary workflow before secondary metadata.
+- Full-screen tools keep `body`, `#app`, and the outer work surface bounded to the dynamic
+  viewport height. The document does not scroll; pane bodies or a deliberate stacked-pane
+  grid own overflow. Document pages such as the welcome screen are the exception.
+- At phone widths, wrap toolbars and use one-column Grid or vertical Flexbox layouts with
+  `minmax()` and `clamp()` sizing. Keep controls within the viewport and keep every pane
+  reachable without adding JavaScript resize state.
+- Canvas and dense editor tools follow the same chrome, spacing, and stacking language,
+  but may retain desktop-oriented interaction mechanics inside their bounded work surface.
 
 ## Controls
 

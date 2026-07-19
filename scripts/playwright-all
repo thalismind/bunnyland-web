@@ -92,6 +92,7 @@ run_regression web-tui scripts/playwright-web-tui
 run_regression web-repl scripts/playwright-web-repl
 run_regression event-stream scripts/playwright-event-stream
 run_regression trace-analyzer scripts/playwright-trace-analyzer
+run_regression responsive scripts/playwright-responsive
 
 if [[ "${BUNNYLAND_PLAYWRIGHT_COVERAGE:-0}" == "1" ]]; then
   python3 scripts/playwright_coverage.py "${BUNNYLAND_PLAYWRIGHT_COVERAGE_DIR}"

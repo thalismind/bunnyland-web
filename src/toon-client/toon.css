@@ -73,4 +73,3 @@
 .loading-card { width: 280px; padding: 14px 16px; border: 1px solid var(--bl-border-control); border-radius: var(--bl-radius-lg); color: var(--bl-text); background: var(--bl-bg); text-align: center; }
 .loading-title { margin-bottom: 10px; font-size: 22px; }
 .loading-bunny { color: var(--bl-text-soft); font-size: 18px; line-height: 1.05; white-space: pre; }
-@media (max-width: 760px) { #main { flex-direction: column; } #actions { width: 100%; max-height: 42vh; border-top: 1px solid var(--bl-border); border-left: 0; } .toolbar-row { flex-wrap: wrap; } }

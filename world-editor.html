@@ -2,10 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bunnyland World Editor</title>
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="assets/bunnyland-ui.css">
   <link rel="stylesheet" href="assets/bunnyland-themes.css">
+  <link rel="stylesheet" href="assets/bunnyland-responsive.css">
   <style>
     #api-url { width: 220px; }
     #fragment-dropdown { width: 230px; }
@@ -172,9 +174,10 @@
       #preview-pane { display: none; }
       .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+
   </style>
 </head>
-<body>
+<body class="bl-tool-page bl-page-world-editor">
 <div id="app"></div>
 <script src="assets/bunnyland-ui.js?v=20260718-formal-v1"></script>
 <script src="assets/bunnyland-api.js?v=20260718-formal-v1"></script>

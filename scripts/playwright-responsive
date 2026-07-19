@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Responsive shell and pane regressions for the Vite web clients."""
+
+from pathlib import Path
+import os
+import shutil
+
+from playwright.sync_api import sync_playwright
+
+from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
+
+
+BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_WEB_SCREENSHOT_DIR", "/tmp"))
+FULL_SCREEN_PAGES = (
+    "behavior-editor.html",
+    "character-memory.html",
+    "character.html",
+    "event-stream.html",
+    "inspector.html",
+    "script-editor.html",
+    "toon-client.html",
+    "trace-analyzer.html",
+    "web-repl.html",
+    "web-tui.html",
+    "world-editor.html",
+    "world-generator.html",
+)
+STACKS = {
+    "behavior-editor.html": ("#library-pane", "#editor-pane", "#preview-pane"),
+    "character-memory.html": ("#characters-pane", "#documents-pane", "#editor-pane"),
+    "script-editor.html": ("#library-pane", "#editor-pane", "#preview-pane"),
+    "world-generator.html": ("#main > .pane:nth-child(1)", "#main > .pane:nth-child(2)", "#entity-pane"),
+    "world-editor.html": ("#main > .pane:nth-child(1)", "#main > .pane:nth-child(2)", "#preview-pane"),
+}
+LANDSCAPE_PAGES = ("character.html", "toon-client.html", "web-repl.html", "web-tui.html")
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def assert_shell(page, name: str) -> None:
+    page.locator("#app").wait_for()
+    layout = page.evaluate(
+        """
+        () => {
+          const app = document.querySelector('#app');
+          const toolbar = document.querySelector('#toolbar, .bl-toolbar');
+          const panes = [...document.querySelectorAll('.pane, #sidebar, #identity-pane, #details-pane, #actions-pane, #side-pane')]
+            .filter((pane) => getComputedStyle(pane).display !== 'none')
+            .map((pane) => {
+              const rect = pane.getBoundingClientRect();
+              return { id: pane.id, left: rect.left, right: rect.right, width: rect.width };
+            });
+          return {
+            appHeight: app.getBoundingClientRect().height,
+            viewportHeight: innerHeight,
+            viewportWidth: innerWidth,
+            scrollWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+            toolbarWidth: toolbar?.getBoundingClientRect().width || 0,
+            toolbarRows: [...document.querySelectorAll('#toolbar > .toolbar-row, .bl-toolbar > .toolbar-row')]
+              .map((row) => {
+                const rect = row.getBoundingClientRect();
+                const contentBottom = Math.max(rect.top, ...[...row.children].map((child) => child.getBoundingClientRect().bottom));
+                return { top: rect.top, bottom: rect.bottom, contentBottom };
+              }),
+            panes,
+          };
+        }
+        """
+    )
+    if abs(layout["appHeight"] - layout["viewportHeight"]) > 1:
+        raise AssertionError(f"{name} app does not fill the viewport: {layout!r}")
+    if layout["scrollWidth"] > layout["viewportWidth"] + 1:
+        raise AssertionError(f"{name} has document-level horizontal overflow: {layout!r}")
+    if layout["toolbarWidth"] > layout["viewportWidth"] + 1:
+        raise AssertionError(f"{name} toolbar exceeds the viewport: {layout!r}")
+    for index, row in enumerate(layout["toolbarRows"]):
+        if row["contentBottom"] > row["bottom"] + 1:
+            raise AssertionError(f"{name} toolbar content escapes its row: {layout!r}")
+        if index and layout["toolbarRows"][index - 1]["bottom"] > row["top"] + 1:
+            raise AssertionError(f"{name} toolbar rows overlap: {layout!r}")
+    for pane in layout["panes"]:
+        if pane["width"] > layout["viewportWidth"] + 1 or pane["left"] < -1 or pane["right"] > layout["viewportWidth"] + 1:
+            raise AssertionError(f"{name} pane exceeds the viewport: {pane!r}")
+
+
+def assert_stack(page, name: str, selectors: tuple[str, ...]) -> None:
+    boxes = []
+    for selector in selectors:
+        locator = page.locator(selector)
+        locator.wait_for(state="visible")
+        box = locator.bounding_box()
+        if box is None:
+            raise AssertionError(f"{name} pane is not measurable: {selector}")
+        boxes.append(box)
+    if any(boxes[index]["y"] >= boxes[index + 1]["y"] for index in range(len(boxes) - 1)):
+        raise AssertionError(f"{name} panes are not vertically stacked: {boxes!r}")
+    overflow = page.locator("#main").evaluate("node => getComputedStyle(node).overflowY")
+    if overflow != "auto":
+        raise AssertionError(f"{name} stacked work surface is not scrollable: {overflow!r}")
+
+
+def main() -> None:
+    ensure_web_server(BASE_URL)
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        coverage = PlaywrightCoverage("responsive")
+        browser = launch_browser(playwright)
+        portrait = browser.new_context(viewport={"width": 390, "height": 760}, device_scale_factor=1, is_mobile=True, has_touch=True)
+        page = portrait.new_page()
+        coverage.start_page(page)
+        page.route("https://cdn.jsdelivr.net/**", lambda route: route.fulfill(status=200, body=""))
+
+        for name in FULL_SCREEN_PAGES:
+            page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
+            assert_shell(page, name)
+            if name in STACKS:
+                assert_stack(page, name, STACKS[name])
+            if name in {"character.html", "toon-client.html", "world-editor.html"}:
+                page.screenshot(path=str(SCREENSHOT_DIR / f"bunnyland-responsive-{name[:-5]}.png"))
+
+        page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
+        welcome = page.evaluate("() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth, minHeight: document.querySelector('#app').getBoundingClientRect().height, viewportHeight: innerHeight })")
+        if welcome["width"] > welcome["viewport"] + 1 or welcome["minHeight"] < welcome["viewportHeight"]:
+            raise AssertionError(f"welcome page is not responsive: {welcome!r}")
+        page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-responsive-welcome.png"), full_page=True)
+        coverage.close_page(page)
+        portrait.close()
+
+        landscape = browser.new_context(viewport={"width": 844, "height": 390}, device_scale_factor=1, is_mobile=True, has_touch=True)
+        page = landscape.new_page()
+        coverage.start_page(page)
+        for name in LANDSCAPE_PAGES:
+            page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
+            assert_shell(page, name)
+        coverage.close_page(page)
+        landscape.close()
+        coverage.close_browser(browser)
+
+    print("responsive=ok")
+
+
+if __name__ == "__main__":
+    main()

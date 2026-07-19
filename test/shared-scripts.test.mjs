@@ -511,6 +511,38 @@ test('browser pages use the current shared API helper cache key', () => {
   }
 });
 
+test('every Vite page declares a mobile viewport', () => {
+  const pages = fs.readdirSync('.')
+    .filter((name) => name.endsWith('.html'))
+    .sort();
+
+  assert.ok(pages.length > 0);
+  for (const page of pages) {
+    const html = fs.readFileSync(page, 'utf8');
+    assert.match(
+      html,
+      /<meta name="viewport" content="width=device-width, initial-scale=1">/,
+      `${page} must opt into the device viewport`,
+    );
+  }
+});
+
+test('styled Vite pages load the consolidated responsive tool stylesheet', () => {
+  const redirects = new Set(['character-chat.html', 'character-sheet.html']);
+  const pages = fs.readdirSync('.')
+    .filter((name) => name.endsWith('.html') && !redirects.has(name))
+    .sort();
+
+  for (const page of pages) {
+    const html = fs.readFileSync(page, 'utf8');
+    assert.match(
+      html,
+      /<link rel="stylesheet" href="assets\/bunnyland-responsive\.css">/,
+      `${page} must load the consolidated responsive styles`,
+    );
+  }
+});
+
 test('browser pages use the current shared UI helper cache key', () => {
   const pages = [
     'behavior-editor.html',
