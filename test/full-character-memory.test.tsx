@@ -8,7 +8,10 @@ import {
   type MemoryDocument,
 } from '../src/character-memory/app';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const DOCUMENT: MemoryDocument = {
   document: 'Berries grow north.',
@@ -77,6 +80,31 @@ describe('full Character Memory page', () => {
     expect(updated).toBe(editor);
     expect(updated.value).toBe('A focused draft.');
     expect(document.activeElement).toBe(editor);
+  });
+
+  it('does not steal focus when a new-document user moves to metadata', async () => {
+    let scheduledFocus: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      scheduledFocus = callback;
+      return 1;
+    });
+    const sendAdmin = vi.fn(async (_base: string, path: string) => {
+      if (path.endsWith('/memory/collections')) return {
+        characters: [{
+          character_id: 'character:hazel', name: 'Hazel', private_collection: 'memory-hazel',
+        }],
+      };
+      return { documents: [DOCUMENT] };
+    });
+    const view = render(<CharacterMemoryPage services={services(sendAdmin)} />);
+    await openDocument(view);
+    const newButton = view.container.querySelector('#btn-new-document') as HTMLButtonElement;
+    newButton.focus();
+    fireEvent.click(newButton);
+    const metadata = view.container.querySelector('#metadata-json') as HTMLTextAreaElement;
+    metadata.focus();
+    scheduledFocus?.(0);
+    expect(document.activeElement).toBe(metadata);
   });
 
   it('patches the selected document through the admin API', async () => {

@@ -356,12 +356,15 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
 
   const newDocument = (): void => {
     if (!collection || (changed && !window.confirm('Discard unsaved changes?'))) return;
-    const document = { document: '', id: '', metadata: { source: 'admin', tags: [] } };
-    setSelectedDocument(document);
+    const activeAtSchedule = document.activeElement;
+    const draftDocument = { document: '', id: '', metadata: { source: 'admin', tags: [] } };
+    setSelectedDocument(draftDocument);
     setCreatingDocument(true);
-    setDraft(draftFor(document));
+    setDraft(draftFor(draftDocument));
     setEditorNotice('');
-    requestAnimationFrame(() => documentTextRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (document.activeElement === activeAtSchedule) documentTextRef.current?.focus();
+    });
   };
 
   const saveDocument = async (): Promise<void> => {
