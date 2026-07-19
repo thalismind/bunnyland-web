@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Playwright regression tests for the Bunnyland character memory admin page."""
 
-from pathlib import Path
 import json
 import os
 import shlex
@@ -14,6 +13,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import asdict, dataclass
+from email.message import Message
+from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -31,6 +33,32 @@ SERVER_IMAGE = os.environ.get(
 )
 SERVER_CONTAINER_NAME: str | None = None
 TOKEN_DATA_DIR: Path | None = None
+
+
+@dataclass(frozen=True)
+class ClaimCreateRequest:
+    character_id: str
+    label: str
+    fallback_controller: str
+    timeout_seconds: int
+
+
+@dataclass(frozen=True)
+class CommandCostRequest:
+    focus: int
+
+
+@dataclass(frozen=True)
+class ClaimCommandRequest:
+    command_type: str
+    payload: dict
+    cost: CommandCostRequest
+    lane: str
+    on_insufficient_points: str
+    id: str
+
+
+RequestBody = ClaimCreateRequest | ClaimCommandRequest
 
 
 def _runtime_works(command: list[str]) -> bool:
@@ -78,15 +106,36 @@ def api_request(
     path: str,
     *,
     method: str = "GET",
-    body: dict | None = None,
+    body: RequestBody | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> dict:
+    response, _headers = api_request_with_headers(
+        api_url,
+        path,
+        method=method,
+        body=body,
+        extra_headers=extra_headers,
+    )
+    return response
+
+
+def api_request_with_headers(
+    api_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    body: RequestBody | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[dict, Message]:
     data = None
-    headers = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    headers = {
+        "Authorization": f"Bearer {ADMIN_TOKEN}",
+        "X-Bunnyland-Client-Id": "character-memory-playwright",
+    }
     if extra_headers:
         headers.update(extra_headers)
     if body is not None:
-        data = json.dumps(body).encode("utf-8")
+        data = json.dumps(asdict(body)).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
         f"{api_url}{path}",
@@ -95,7 +144,8 @@ def api_request(
         method=method,
     )
     with urllib.request.urlopen(request, timeout=5) as response:
-        return json.loads(response.read().decode("utf-8"))
+        payload = response.read()
+        return (json.loads(payload.decode("utf-8")) if payload else {}), response.headers
 
 
 def api_get(api_url: str, path: str) -> dict:
@@ -109,12 +159,12 @@ def wait_for_api(api_url: str, proc: subprocess.Popen | None, timeout: float = 4
         if proc is not None and proc.poll() is not None:
             raise RuntimeError(f"character memory API exited early with code {proc.returncode}")
         try:
-            api_get(api_url, "/public/health")
+            api_get(api_url, "/v1/public/health")
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
             last_error = exc
             time.sleep(0.5)
-    raise RuntimeError(f"timed out waiting for {api_url}/public/health: {last_error}")
+    raise RuntimeError(f"timed out waiting for {api_url}/v1/public/health: {last_error}")
 
 
 def start_memory_api() -> tuple[str, subprocess.Popen | None]:
@@ -233,7 +283,7 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
 
 
 def select_memory_character(api_url: str) -> dict:
-    body = api_get(api_url, "/admin/memory/characters")
+    body = api_get(api_url, "/v1/admin/memory/collections")
     for character in body.get("characters", []):
         collection = character.get("private_collection") or ""
         if collection:
@@ -246,18 +296,21 @@ def select_memory_character(api_url: str) -> dict:
 
 
 def claim_character(api_url: str, character_id: str) -> dict:
-    return api_request(
+    body, headers = api_request_with_headers(
         api_url,
-        "/play/world/controllers/web/claim",
+        "/v1/play/claims",
         method="POST",
-        body={
-            "character_id": character_id,
-            "client_id": "character-memory-playwright",
-            "label": "character-memory-test",
-            "fallback_controller": "suspend",
-            "timeout_seconds": 300,
-        },
+        body=ClaimCreateRequest(
+            character_id=character_id,
+            label="character-memory-test",
+            fallback_controller="suspend",
+            timeout_seconds=300,
+        ),
     )
+    secret = headers.get("X-Bunnyland-Claim-Secret")
+    if not secret:
+        raise RuntimeError("claim response omitted X-Bunnyland-Claim-Secret")
+    return {**body, "claim_secret": secret}
 
 
 def seed_memory_note(api_url: str, character: dict) -> str:
@@ -265,29 +318,25 @@ def seed_memory_note(api_url: str, character: dict) -> str:
     command_id = "character-memory-note"
     response = api_request(
         api_url,
-        "/play/world/commands",
+        f"/v1/play/claims/{claim['id']}/commands",
         method="POST",
-        body={
-            "character_id": character["id"],
-            "controller_id": claim["controller_id"],
-            "controller_generation": claim["controller_generation"],
-            "claim_id": claim["claim_id"],
-            "command_type": "take-note",
-            "payload": {"text": "Berries grow north.", "tags": ["forage"]},
-            "cost": {"focus": 1},
-            "lane": "focus",
-            "on_insufficient_points": "deny",
-            "command_id": command_id,
-        },
+        body=ClaimCommandRequest(
+            command_type="take-note",
+            payload={"text": "Berries grow north.", "tags": ["forage"]},
+            cost=CommandCostRequest(focus=1),
+            lane="focus",
+            on_insufficient_points="deny",
+            id=command_id,
+        ),
         extra_headers={"X-Bunnyland-Claim-Secret": claim["claim_secret"]},
     )
-    if not response.get("queued"):
+    if response.get("status") != "queued":
         raise RuntimeError(f"take-note was rejected: {response!r}")
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         documents = api_get(
             api_url,
-            f"/admin/memory/collections/{character['collection']}/documents",
+            f"/v1/admin/memory/collections/{character['collection']}/documents",
         ).get("documents", [])
         for document in documents:
             if document.get("document") == "Berries grow north.":
@@ -324,7 +373,7 @@ def fresh_page(browser, coverage: PlaywrightCoverage, api_url: str):
 
     page.route("**/api-memory/**", proxy_api)
     page.goto(
-        f"{BASE_URL}/character-memory.html?server=%2Fapi-memory",
+        f"{BASE_URL}/character-memory.html?server=%2Fapi-memory%2Fv1",
         wait_until="networkidle",
     )
     return page
@@ -357,7 +406,10 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     assert_(not page.locator("#btn-save-document").is_disabled(), "save stayed disabled")
     page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
-    saved = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    saved = api_get(
+        api_url,
+        f"/v1/admin/memory/collections/{character['collection']}/documents",
+    )
     saved_document = next(doc for doc in saved["documents"] if doc["id"] == document_id)
     assert_(saved_document["document"] == "Berries grow north by the old basin.",
             f"document was not patched: {saved!r}")
@@ -383,7 +435,10 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     ):
         page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
-    created = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    created = api_get(
+        api_url,
+        f"/v1/admin/memory/collections/{character['collection']}/documents",
+    )
     created_document = next(
         doc for doc in created["documents"] if doc["document"] == "The pantry latch sticks."
     )
@@ -398,7 +453,10 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     page.locator(f'.document-row[data-document="{document_id}"]').click()
     page.locator("#btn-delete-document").click()
     expect(page.locator("#document-list")).to_contain_text("No matching documents.")
-    after_delete = api_get(api_url, f"/admin/memory/collections/{character['collection']}/documents")
+    after_delete = api_get(
+        api_url,
+        f"/v1/admin/memory/collections/{character['collection']}/documents",
+    )
     assert_(all(doc["id"] != document_id for doc in after_delete["documents"]),
             f"document was not deleted: {after_delete!r}")
     assert_(all(doc["id"] != created_document["id"] for doc in after_delete["documents"]),
