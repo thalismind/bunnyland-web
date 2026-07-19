@@ -574,7 +574,7 @@ test('browser pages use the current shared UI helper cache key', () => {
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-ui\.js\?v=20260718-formal-v1/,
+      /assets\/bunnyland-ui\.js\?v=20260719-world-graph/,
       `${page} must load the current shared UI helper`,
     );
   }
