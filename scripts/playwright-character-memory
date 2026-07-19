@@ -435,13 +435,26 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
     ):
         page.locator("#btn-save-document").click()
     expect(page.locator("#editor-status")).to_have_text("Ready.")
-    created = api_get(
-        api_url,
-        f"/v1/admin/memory/collections/{character['collection']}/documents",
-    )
-    created_document = next(
-        doc for doc in created["documents"] if doc["document"] == "The pantry latch sticks."
-    )
+    deadline = time.monotonic() + 5
+    created: dict = {}
+    created_document = None
+    while time.monotonic() < deadline:
+        created = api_get(
+            api_url,
+            f"/v1/admin/memory/collections/{character['collection']}/documents",
+        )
+        created_document = next(
+            (
+                doc
+                for doc in created["documents"]
+                if doc["document"] == "The pantry latch sticks."
+            ),
+            None,
+        )
+        if created_document is not None:
+            break
+        time.sleep(0.1)
+    assert_(created_document is not None, f"new document was not persisted: {created!r}")
     assert_(created_document["metadata"] == {
         "source": "admin",
         "created_at_epoch": 7,
