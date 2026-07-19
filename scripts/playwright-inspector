@@ -532,6 +532,7 @@ def main() -> None:
             raise AssertionError(f"monitor room sent unexpected patch: {monitor_result!r}")
         if monitor_result["calls"][0]["options"].get("status") != "● Room monitoring enabled":
             raise AssertionError(f"monitor room used unexpected status: {monitor_result!r}")
+        page.mouse.move(0, 0)
         page.evaluate(
             """
             () => {
@@ -558,6 +559,7 @@ def main() -> None:
         page.evaluate("window.__promptResponses = ['a night courier']")
         page.locator('[data-menu-action="generate-character"]').dispatch_event("click")
         page.wait_for_function("window.__generationCalls.length === 2")
+        page.mouse.move(0, 0)
         page.evaluate("window.app._showContextMenu('room', 100, 100); window.__promptResponses = ['a brass key']")
         page.locator('[data-menu-action="generate-item"]').dispatch_event("click")
         page.wait_for_function("window.__generationCalls.length === 4")
