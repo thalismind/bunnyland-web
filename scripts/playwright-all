@@ -93,6 +93,7 @@ run_regression web-repl scripts/playwright-web-repl
 run_regression event-stream scripts/playwright-event-stream
 run_regression trace-analyzer scripts/playwright-trace-analyzer
 run_regression responsive scripts/playwright-responsive
+run_regression world-graph-generation env BUNNYLAND_WORLD_GRAPH_NO_BUILD=1 scripts/playwright-world-graph-generation
 run_regression release-multiclient scripts/playwright-release-multiclient
 
 if [[ "${BUNNYLAND_PLAYWRIGHT_COVERAGE:-0}" == "1" ]]; then

@@ -1,0 +1,502 @@
+#!/usr/bin/env python3
+"""Real-server World Graph generation and patch regression.
+
+The regression owns an ephemeral Bunnyland server and HTTPS nginx proxy so the browser
+exercises production same-origin authentication, HTTP, and WebSocket behavior. The server
+uses the deterministic async world builder; no external LLM credentials or persistent world
+are involved.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_container import container_cli, stop_container
+from playwright_coverage import PlaywrightCoverage
+
+
+WEB_REPO = Path(__file__).resolve().parents[1]
+ARTIFACT_DIR = Path(
+    os.environ.get("BUNNYLAND_WORLD_GRAPH_ARTIFACT_DIR", "artifacts/world-graph-generation")
+)
+SERVER_IMAGE = os.environ.get(
+    "BUNNYLAND_WORLD_GRAPH_SERVER_IMAGE",
+    "ghcr.io/thalismind/bunnyland-server:main",
+)
+PROXY_IMAGE = os.environ.get("BUNNYLAND_WORLD_GRAPH_PROXY_IMAGE", "nginx:1.27-bookworm")
+USERNAME = "world-graph-playwright"
+PASSWORD = "world-graph-playwright-fixture-only"
+SERVER_LOG = ARTIFACT_DIR / "server.log"
+PROXY_LOG = ARTIFACT_DIR / "proxy.log"
+SCREENSHOT = ARTIFACT_DIR / "world-graph-generation.png"
+
+RUNTIME: list[str] | None = None
+NETWORK_NAME: str | None = None
+SERVER_CONTAINER_NAME: str | None = None
+PROXY_CONTAINER_NAME: str | None = None
+FIXTURE_DIR: Path | None = None
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def url_ok(url: str) -> bool:
+    context = ssl._create_unverified_context() if url.startswith("https://") else None
+    try:
+        with urllib.request.urlopen(url, timeout=2, context=context) as response:
+            return 200 <= response.status < 400
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        return False
+
+
+def wait_for_url(url: str, proc: subprocess.Popen | None, timeout: float = 90.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc is not None and proc.poll() is not None:
+            raise RuntimeError(f"container serving {url} exited with code {proc.returncode}")
+        if url_ok(url):
+            return
+        time.sleep(0.25)
+    raise RuntimeError(f"timed out waiting for {url}")
+
+
+def launch_attached(command: list[str], log_path: Path) -> subprocess.Popen:
+    log = log_path.open("w", encoding="utf-8")
+    try:
+        return subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+    finally:
+        log.close()
+
+
+def prepare_fixture(runtime: list[str]) -> Path:
+    global FIXTURE_DIR
+    FIXTURE_DIR = Path(tempfile.mkdtemp(prefix="bunnyland-world-graph-"))
+    FIXTURE_DIR.chmod(0o700)
+
+    password_hash = subprocess.run(
+        [*runtime, "run", "--rm", "-i", SERVER_IMAGE, "auth", "hash-password", "--password-stdin"],
+        input=f"{PASSWORD}\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    users_file = FIXTURE_DIR / "auth-users.yml"
+    users_file.write_text(
+        "users:\n"
+        f"  {USERNAME}:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    enabled: true\n"
+        "    scopes: [world:admin]\n",
+        encoding="utf-8",
+    )
+    users_file.chmod(0o600)
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise RuntimeError("openssl is required to create the disposable HTTPS certificate")
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(FIXTURE_DIR / "key.pem"),
+            "-out",
+            str(FIXTURE_DIR / "cert.pem"),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return FIXTURE_DIR
+
+
+def build_web() -> None:
+    if os.environ.get("BUNNYLAND_WORLD_GRAPH_NO_BUILD") == "1":
+        if not (WEB_REPO / "dist" / "inspector.html").is_file():
+            raise RuntimeError("BUNNYLAND_WORLD_GRAPH_NO_BUILD=1 but dist/inspector.html is missing")
+        return
+    subprocess.run(["npm", "run", "build"], cwd=WEB_REPO, check=True)
+
+
+def start_stack() -> tuple[str, subprocess.Popen, subprocess.Popen]:
+    global RUNTIME, NETWORK_NAME, SERVER_CONTAINER_NAME, PROXY_CONTAINER_NAME
+    build_web()
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    SERVER_LOG.unlink(missing_ok=True)
+    PROXY_LOG.unlink(missing_ok=True)
+    runtime = container_cli()
+    RUNTIME = runtime
+    subprocess.run([*runtime, "pull", SERVER_IMAGE], check=True)
+    subprocess.run([*runtime, "pull", PROXY_IMAGE], check=True)
+
+    server_port = free_port()
+    web_port = free_port()
+    NETWORK_NAME = f"bunnyland-world-graph-{server_port}"
+    SERVER_CONTAINER_NAME = f"bunnyland-world-graph-api-{server_port}"
+    PROXY_CONTAINER_NAME = f"bunnyland-world-graph-web-{web_port}"
+    subprocess.run([*runtime, "network", "create", NETWORK_NAME], check=True)
+    fixture = prepare_fixture(runtime)
+
+    server_proc = launch_attached(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "--name",
+            SERVER_CONTAINER_NAME,
+            "--network",
+            NETWORK_NAME,
+            "-p",
+            f"127.0.0.1:{server_port}:8765",
+            "-v",
+            f"{(fixture / 'auth-users.yml').resolve()}:/auth-users.yml:ro",
+            SERVER_IMAGE,
+            "serve",
+            "--generator",
+            os.environ.get("BUNNYLAND_WORLD_GRAPH_GENERATOR", "waiting-room"),
+            "--seed",
+            os.environ.get("BUNNYLAND_WORLD_GRAPH_SEED", "world graph generation playwright"),
+            "--ticks",
+            "0",
+            "--tick-seconds",
+            "60",
+            "--api-host",
+            "0.0.0.0",
+            "--api-port",
+            "8765",
+            "--auth-users-file",
+            "/auth-users.yml",
+            "--token-db",
+            "/tmp/auth-tokens.sqlite3",
+            "--claim-timeout-seconds",
+            "0",
+            "--forwarded-allow-ips",
+            "*",
+        ],
+        SERVER_LOG,
+    )
+    wait_for_url(f"http://127.0.0.1:{server_port}/v1/public/health", server_proc)
+
+    proxy_proc = launch_attached(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "--name",
+            PROXY_CONTAINER_NAME,
+            "--network",
+            NETWORK_NAME,
+            "-p",
+            f"127.0.0.1:{web_port}:443",
+            "-v",
+            f"{(WEB_REPO / 'dist').resolve()}:/usr/share/nginx/html:ro",
+            "-v",
+            f"{(WEB_REPO / 'scripts/playwright_world_graph_nginx.conf.template').resolve()}:/etc/nginx/templates/default.conf.template:ro",
+            "-v",
+            f"{fixture.resolve()}:/certs:ro",
+            "-e",
+            f"BUNNYLAND_API_UPSTREAM=http://{SERVER_CONTAINER_NAME}:8765",
+            PROXY_IMAGE,
+        ],
+        PROXY_LOG,
+    )
+    base_url = f"https://127.0.0.1:{web_port}"
+    wait_for_url(f"{base_url}/inspector.html", proxy_proc)
+    wait_for_url(f"{base_url}/api/v1/public/health", proxy_proc)
+    return base_url, server_proc, proxy_proc
+
+
+def cleanup_stack(server_proc: subprocess.Popen | None, proxy_proc: subprocess.Popen | None) -> None:
+    global FIXTURE_DIR
+    if RUNTIME and PROXY_CONTAINER_NAME:
+        stop_container(RUNTIME, PROXY_CONTAINER_NAME, proxy_proc)
+    if RUNTIME and SERVER_CONTAINER_NAME:
+        stop_container(RUNTIME, SERVER_CONTAINER_NAME, server_proc)
+    if RUNTIME and NETWORK_NAME:
+        subprocess.run(
+            [*RUNTIME, "network", "rm", NETWORK_NAME],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if FIXTURE_DIR:
+        shutil.rmtree(FIXTURE_DIR)
+        FIXTURE_DIR = None
+
+
+def launch_browser(playwright):
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    kwargs: dict[str, Any] = {"headless": True}
+    if chrome:
+        kwargs["executable_path"] = chrome
+        kwargs["args"] = ["--no-sandbox"]
+    return playwright.chromium.launch(**kwargs)
+
+
+def identity_name(entity: dict[str, Any]) -> str:
+    return str(entity.get("components", {}).get("IdentityComponent", {}).get("name") or "")
+
+
+def entity_named(world: dict[str, Any], name: str) -> dict[str, Any] | None:
+    return next((entity for entity in world.get("entities", {}).values() if identity_name(entity) == name), None)
+
+
+def install_fixture_door(page, room_id: str) -> str:
+    result = page.evaluate(
+        """async (roomId) => window.app._sendPatch([
+          {
+            op: 'add_entity',
+            client_id: '$playwright_door',
+            components: [
+              { type: 'IdentityComponent', fields: { name: 'east door', kind: 'door', tags: [] } },
+              { type: 'DoorComponent', fields: { open: false, open_on_use: false } },
+            ],
+          },
+          {
+            op: 'set_edge',
+            source_id: roomId,
+            target_id: '$playwright_door',
+            edge: {
+              type: 'Contains',
+              fields: { mode: 'room_content', visible: true, discovered: true, order: 0 },
+            },
+          },
+        ], { status: 'Fixture door installed' })""",
+        room_id,
+    )
+    doors = [
+        entity
+        for entity in result.get("changed_entities", [])
+        if entity.get("components", {}).get("DoorComponent") is not None
+    ]
+    if len(doors) != 1:
+        raise AssertionError(f"fixture patch did not create one door: {result!r}")
+    page.wait_for_function("() => !document.getElementById('btn-generate-room')?.disabled")
+    return str(doors[0]["id"])
+
+
+def generate_and_assert(page, *, action, kind: str, expected_name: str) -> dict[str, Any]:
+    before_stream_count = page.evaluate("window.__worldStreamMessages.length")
+    with page.expect_response(
+        lambda response: response.request.method == "POST"
+        and response.url.endswith("/api/v1/admin/world/generation-jobs"),
+        timeout=30000,
+    ) as generation_response, page.expect_response(
+        lambda response: response.request.method == "PATCH"
+        and response.url.endswith("/api/v1/admin/world"),
+        timeout=30000,
+    ) as patch_response:
+        action()
+
+    job = generation_response.value.json()
+    if generation_response.value.status != 202 or job.get("kind") != kind:
+        raise AssertionError(f"unexpected {kind} generation response: {job!r}")
+    if job.get("status") != "succeeded":
+        raise AssertionError(f"{kind} generation job did not succeed: {job!r}")
+    operations = job.get("result", {}).get("patch", {}).get("operations")
+    if not isinstance(operations, list) or not operations:
+        raise AssertionError(f"{kind} generation returned no preview patch: {job!r}")
+
+    client_id = page.evaluate("BunnylandApi.getClientId()")
+    origin = page.evaluate("location.origin")
+    polled = page.context.request.get(
+        f"{origin}/api/v1/admin/world/generation-jobs/{job['id']}",
+        headers={"X-Bunnyland-Client-Id": client_id},
+    )
+    if not polled.ok or polled.json().get("id") != job["id"]:
+        raise AssertionError(f"could not poll {kind} generation job: {polled.status} {polled.text()}")
+
+    patch = patch_response.value.json()
+    if patch_response.value.status != 200:
+        raise AssertionError(f"{kind} patch was not applied: {patch!r}")
+    changed_ids = {entity.get("id") for entity in patch.get("changed_entities", [])}
+    if not changed_ids:
+        raise AssertionError(f"{kind} patch changed no entities: {patch!r}")
+
+    page.wait_for_function(
+        "([count, ids]) => window.__worldStreamMessages.slice(count).some((message) => "
+        "message.type === 'patch' && ids.some((id) => message.data?.changed_entities?.includes(id)))",
+        arg=[before_stream_count, list(changed_ids)],
+        timeout=10000,
+    )
+    page.wait_for_function(
+        "(name) => Object.values(window.app?.world?.entities || {}).some((entity) => "
+        "entity.components?.IdentityComponent?.name === name || entity.components?.RoomComponent?.title === name)",
+        arg=expected_name,
+        timeout=10000,
+    )
+    return {"job": job, "patch": patch}
+
+
+def main() -> None:
+    server_proc = None
+    proxy_proc = None
+    try:
+        base_url, server_proc, proxy_proc = start_stack()
+        with sync_playwright() as playwright:
+            coverage = PlaywrightCoverage("world-graph-generation")
+            browser = launch_browser(playwright)
+            context = browser.new_context(
+                ignore_https_errors=True,
+                viewport={"width": 1440, "height": 900},
+            )
+            page = context.new_page()
+            coverage.start_page(page)
+            page.add_init_script(
+                f"""
+                window.__worldStreamMessages = [];
+                window.__promptCalls = [];
+                const NativeWebSocket = window.WebSocket;
+                window.WebSocket = class extends NativeWebSocket {{
+                  constructor(...args) {{
+                    super(...args);
+                    this.addEventListener('message', (event) => {{
+                      try {{ window.__worldStreamMessages.push(JSON.parse(event.data)); }} catch (_error) {{}}
+                    }});
+                  }}
+                }};
+                window.prompt = (message, fallback = '') => {{
+                  const text = String(message || '');
+                  window.__promptCalls.push(text);
+                  if (text === 'Bunnyland username') return {json.dumps(USERNAME)};
+                  if (text === 'Bunnyland password') return {json.dumps(PASSWORD)};
+                  if (text.includes('new character')) return 'Playwright Cartographer';
+                  if (text.includes('new item')) return 'playwright sun coin';
+                  if (text.startsWith('Door entity ID')) {{
+                    const door = Object.values(window.app?.world?.entities || {{}})
+                      .find((entity) => entity.components?.DoorComponent);
+                    return door?.id || fallback;
+                  }}
+                  if (text.startsWith('Direction from the door')) return 'east';
+                  if (text.includes('new room')) return 'Playwright Moonlit Annex';
+                  return fallback;
+                }};
+                """
+            )
+            page.goto(
+                f"{base_url}/inspector.html?server=%2Fapi%2Fv1#map",
+                wait_until="domcontentloaded",
+            )
+            page.wait_for_function(
+                "() => window.app?.world && Object.keys(window.app.world.entities || {}).length > 0",
+                timeout=30000,
+            )
+            page.wait_for_function(
+                "() => window.__worldStreamMessages.some((message) => message.type === 'snapshot')",
+                timeout=10000,
+            )
+            expect(page.locator("#api-status")).to_contain_text("Connected", timeout=10000)
+            page.keyboard.press("Escape")
+
+            room_id = page.evaluate(
+                "() => Object.values(window.app.world.entities).find((entity) => "
+                "entity.components?.RoomComponent)?.id || ''"
+            )
+            if not room_id:
+                raise AssertionError("fixture world has no room for graph generation")
+            install_fixture_door(page, room_id)
+
+            def room_action(selector: str):
+                def click() -> None:
+                    page.evaluate("(id) => window.app._showContextMenu(id, 100, 100)", room_id)
+                    page.locator(selector).click()
+
+                return click
+
+            character = generate_and_assert(
+                page,
+                action=room_action('[data-menu-action="generate-character"]'),
+                kind="character",
+                expected_name="Playwright Cartographer",
+            )
+            item = generate_and_assert(
+                page,
+                action=room_action('[data-menu-action="generate-item"]'),
+                kind="item",
+                expected_name="playwright sun coin",
+            )
+            room = generate_and_assert(
+                page,
+                action=lambda: page.locator("#btn-generate-room").click(),
+                kind="room",
+                expected_name="Playwright Moonlit Annex",
+            )
+
+            world = page.evaluate("window.app.world")
+            if entity_named(world, "Playwright Cartographer") is None:
+                raise AssertionError("applied character is absent from the World Graph")
+            if entity_named(world, "playwright sun coin") is None:
+                raise AssertionError("applied item is absent from the World Graph")
+            if not any(
+                entity.get("components", {}).get("RoomComponent", {}).get("title")
+                == "Playwright Moonlit Annex"
+                for entity in world.get("entities", {}).values()
+            ):
+                raise AssertionError("applied room is absent from the World Graph")
+
+            prompts = page.evaluate("window.__promptCalls")
+            if prompts[:2] != ["Bunnyland username", "Bunnyland password"]:
+                raise AssertionError(f"World Graph did not authenticate through the real server: {prompts!r}")
+            stream_patch_count = page.evaluate(
+                "window.__worldStreamMessages.filter((message) => message.type === 'patch').length"
+            )
+            page.screenshot(path=str(SCREENSHOT), full_page=True)
+            coverage.close_browser(browser)
+
+        print(
+            json.dumps(
+                {
+                    "world_graph_generation": "ok",
+                    "server_image": SERVER_IMAGE,
+                    "jobs": [character["job"]["id"], item["job"]["id"], room["job"]["id"]],
+                    "stream_patch_count": stream_patch_count,
+                    "artifacts": str(ARTIFACT_DIR),
+                },
+                indent=2,
+            )
+        )
+    finally:
+        cleanup_stack(server_proc, proxy_proc)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        for label, path in (("server", SERVER_LOG), ("proxy", PROXY_LOG)):
+            if path.exists():
+                print(f"\n--- Bunnyland {label} log: {path} ---", file=sys.stderr)
+                print(path.read_text(encoding="utf-8", errors="replace")[-8000:], file=sys.stderr)
+        raise

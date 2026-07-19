@@ -49,6 +49,7 @@ Reusable browser checks live in [`scripts/`](scripts/):
 ```bash
 scripts/playwright-all
 scripts/playwright-all --coverage  # writes artifacts/playwright-coverage/
+scripts/playwright-world-graph-generation  # disposable real-server generation and patch flow
 ```
 
 The aggregate runner starts `serve.sh` automatically. Set `BUNNYLAND_WEB_BASE_URL` and
@@ -60,6 +61,11 @@ Live-API regressions also pull and start their declared Bunnyland server image. 
 Docker in CI and `sudo nerdctl` locally, with nerdctl and Podman fallbacks; set
 `BUNNYLAND_CONTAINER_CLI` to select a specific working CLI. Each script owns and removes
 its test container and ephemeral auth storage.
+
+`scripts/playwright-world-graph-generation` serves the current production build through an
+ephemeral HTTPS proxy, then authenticates and generates, polls, applies, and stream-verifies
+character, item, and room patches against a disposable server world. It uses the server's
+deterministic async world builder, so local and CI runs do not need external LLM credentials.
 
 ## Vite, TypeScript, and Preact
 
