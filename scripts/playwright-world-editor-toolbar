@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
@@ -102,7 +103,7 @@ def main() -> None:
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=json.dumps({"character_chat": False, "character_sheets": False}),
+                body=json.dumps({"character_chat": True, "character_sheets": True}),
             ),
         )
         page.goto(f"{BASE_URL}/index.html", wait_until="networkidle")
@@ -110,6 +111,8 @@ def main() -> None:
             raise AssertionError(f"anonymous welcome page prompted for player credentials: {welcome_dialogs!r}")
         if not welcome_api_requests:
             raise AssertionError(f"welcome page did not request public features: {welcome_api_requests!r}")
+        if not any(urlparse(url).path == "/api/v1/public/features" for url in welcome_api_requests):
+            raise AssertionError(f"welcome page did not use the versioned API root: {welcome_api_requests!r}")
         if not page.locator("h1").text_content() or "Hungry Courier" not in page.locator("h1").text_content():
             raise AssertionError("welcome page headline did not render")
         if page.locator('a[href^="toon-client.html?"]').count() < 1:
@@ -132,10 +135,10 @@ def main() -> None:
         )
         if not section_order:
             raise AssertionError("character section should follow the terminal section")
-        if page.locator('#character-card.feature-disabled').count() != 1:
-            raise AssertionError("character profile card should be disabled without character features")
-        if page.locator('#character-link[aria-disabled="true"][tabindex="-1"]').count() != 1:
-            raise AssertionError("character profile link should be readonly when disabled")
+        if page.locator('#character-card.feature-disabled').count() != 0:
+            raise AssertionError("character profile card should be enabled with character features")
+        if page.locator('#character-link[aria-disabled="false"]').count() != 1:
+            raise AssertionError("character profile link should be enabled with character features")
         welcome_layout = page.evaluate(
             """
             () => {

@@ -1,5 +1,5 @@
 {
-  "serverUrl": "/api/",
+  "serverUrl": "/api/v1/",
   "autoConnect": true,
   "playerAuthRequired": ${BUNNYLAND_PLAYER_AUTH_REQUIRED},
   "discordUrl": "${BUNNYLAND_DISCORD_URL}",

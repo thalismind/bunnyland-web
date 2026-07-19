@@ -60,6 +60,17 @@ function loadBrowserAssets(files) {
   return context;
 }
 
+test('container config defaults every web client to the versioned API root', () => {
+  const template = fs.readFileSync('docker/config.json.template', 'utf8')
+    .replace('${BUNNYLAND_PLAYER_AUTH_REQUIRED}', 'false')
+    .replace('${BUNNYLAND_DISCORD_URL}', '')
+    .replace('${BUNNYLAND_WEB_THEME}', '')
+    .replace('${BUNNYLAND_WEB_REPLACE_THEMES}', 'false')
+    .replace('${BUNNYLAND_WEB_THEMES}', '[]');
+
+  assert.equal(JSON.parse(template).serverUrl, '/api/v1/');
+});
+
 class MapStorage {
   constructor() {
     this.items = new Map();

@@ -20,10 +20,10 @@ similar to Chrome's memory snapshot tools.
 
 3. Open the URL, then use the file picker (or drag-and-drop) to load your `.json` file.
    Or **Connect Live** to a running `bunnyland serve` API. Every client defaults the
-   **Server** field to the same-origin `/api/` (which is what the deployed reverse proxy
-   serves). For local `serve.sh` (a plain static server with no proxy), point it at your
-   running server instead — set the field to `http://localhost:8765` or open with
-   `?server=http://localhost:8765`.
+   **Server** field to the same-origin `/api/v1/` (under the deployed reverse proxy's
+   `/api/` namespace). For local `serve.sh` (a plain static server with no proxy), point
+   it at your running server instead — set the field to `http://localhost:8765` or open
+   with `?server=http://localhost:8765`.
 
 4. Open `/script-editor.html` to build external scripting JSON against a loaded world
    snapshot's entity/component library.
@@ -134,7 +134,7 @@ deploy-specific settings:
 
 ```json
 {
-  "serverUrl": "/api/",
+  "serverUrl": "/api/v1/",
   "autoConnect": false,
   "theme": "",
   "themes": []
