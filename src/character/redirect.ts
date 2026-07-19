@@ -8,7 +8,9 @@ export function legacyCharacterUrl(href: string, view: CharacterView): string {
   return url.href;
 }
 
-const view = document.documentElement.dataset.characterView;
-if (view === 'chat' || view === 'sheet') {
-  location.replace(legacyCharacterUrl(location.href, view));
+if (typeof document !== 'undefined' && typeof location !== 'undefined') {
+  const view = document.documentElement.dataset.characterView;
+  if (view === 'chat' || view === 'sheet') {
+    location.replace(legacyCharacterUrl(location.href, view));
+  }
 }
