@@ -132,10 +132,67 @@ def main() -> None:
             if name in {"character.html", "toon-client.html", "world-editor.html"}:
                 page.screenshot(path=str(SCREENSHOT_DIR / f"bunnyland-responsive-{name[:-5]}.png"))
 
-        page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
-        welcome = page.evaluate("() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth, minHeight: document.querySelector('#app').getBoundingClientRect().height, viewportHeight: innerHeight })")
-        if welcome["width"] > welcome["viewport"] + 1 or welcome["minHeight"] < welcome["viewportHeight"]:
+        page.set_viewport_size({"width": 320, "height": 760})
+        page.goto(
+            f"{BASE_URL}/index.html?server=%2Fapi%2Fv1%2Fsandboxes%2Fmobile-regression-with-a-long-name",
+            wait_until="domcontentloaded",
+        )
+        welcome = page.evaluate("""
+          () => ({
+            width: document.documentElement.scrollWidth,
+            viewport: innerWidth,
+            screenWidth: screen.width,
+            minHeight: document.querySelector('#app').getBoundingClientRect().height,
+            viewportHeight: innerHeight,
+            commands: ['cmd-tui', 'cmd-repl'].map((id) => {
+              const command = document.getElementById(id).closest('.cmd');
+              const rect = command.getBoundingClientRect();
+              const children = [...command.children].map((child) => child.getBoundingClientRect());
+              return {
+                id,
+                left: rect.left,
+                right: rect.right,
+                width: rect.width,
+                clientWidth: command.clientWidth,
+                scrollWidth: command.scrollWidth,
+                childLeft: Math.min(...children.map((child) => child.left)),
+                childRight: Math.max(...children.map((child) => child.right)),
+              };
+            }),
+            cards: [...document.querySelectorAll('[aria-labelledby="terminal-title"] .info-card')].map((card) => {
+              const rect = card.getBoundingClientRect();
+              return {
+                title: card.querySelector('h3').textContent,
+                left: rect.left,
+                right: rect.right,
+                clientWidth: card.clientWidth,
+                scrollWidth: card.scrollWidth,
+              };
+            }),
+          })
+        """)
+        if (
+            welcome["viewport"] > welcome["screenWidth"] + 1
+            or welcome["width"] > welcome["screenWidth"] + 1
+            or welcome["minHeight"] < welcome["viewportHeight"]
+        ):
             raise AssertionError(f"welcome page is not responsive: {welcome!r}")
+        for command in welcome["commands"]:
+            if (
+                command["left"] < -1
+                or command["right"] > welcome["screenWidth"] + 1
+                or command["scrollWidth"] > command["clientWidth"] + 1
+                or command["childLeft"] < command["left"] - 1
+                or command["childRight"] > command["right"] + 1
+            ):
+                raise AssertionError(f"welcome command block overflows on mobile: {command!r}")
+        for card in welcome["cards"]:
+            if (
+                card["left"] < -1
+                or card["right"] > welcome["screenWidth"] + 1
+                or card["scrollWidth"] > card["clientWidth"] + 1
+            ):
+                raise AssertionError(f"welcome info card overflows on mobile: {card!r}")
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-responsive-welcome.png"), full_page=True)
         coverage.close_page(page)
         portrait.close()
