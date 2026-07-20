@@ -179,7 +179,13 @@ def install_routes(page, posted: list[dict]) -> None:
     }))
     deleted: list[str] = []
     fallback_updates: list[dict] = []
-    claim_state = {"expired": False, "methods": []}
+    claim_state = {
+        "character_requests": 0,
+        "event_requests": 0,
+        "expired": False,
+        "methods": [],
+        "projection_requests": 0,
+    }
     page.exposed_deleted_commands = deleted
     page.exposed_fallback_updates = fallback_updates
     page.exposed_claim_state = claim_state
@@ -227,6 +233,7 @@ def install_routes(page, posted: list[dict]) -> None:
         )
 
     def projection_handler(route):
+        claim_state["projection_requests"] += 1
         if claim_state["expired"]:
             route.fulfill(
                 status=404,
@@ -235,6 +242,10 @@ def install_routes(page, posted: list[dict]) -> None:
             )
             return
         route.fulfill(status=200, content_type="application/json", body=json.dumps(projection))
+
+    def character_list_handler(route):
+        claim_state["character_requests"] += 1
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(CHARACTER_LIST))
 
     def scene_image_handler(route):
         assert_claim(route)
@@ -246,10 +257,11 @@ def install_routes(page, posted: list[dict]) -> None:
 
     def recent_events_handler(route):
         assert_claim(route)
+        claim_state["event_requests"] += 1
         route.fulfill(status=200, content_type="application/json", body=json.dumps(EVENTS))
 
     projection = {**CHARACTER_PROJECTION, **QUEUED}
-    page.route("**/play/characters", json_route(CHARACTER_LIST))
+    page.route("**/play/characters", character_list_handler)
     page.route("**/play/claims/**", claim_handler)
     page.route("**/play/claims/**/projection", projection_handler)
     page.route("**/play/claims/**/events**", recent_events_handler)
@@ -431,6 +443,7 @@ def submit_unavailable(page, posted: list[dict]) -> None:
 def expire_and_reclaim(page) -> None:
     state = page.exposed_claim_state
     state["expired"] = True
+    projection_requests = state["projection_requests"]
     page.evaluate("() => window.app.refresh()")
     expect(page.locator("#api-status")).to_contain_text("Claim expired")
     expect(page.locator("#btn-release-character")).to_contain_text("Claim")
@@ -441,6 +454,8 @@ def expire_and_reclaim(page) -> None:
     )
     if stored is not None:
         raise AssertionError(f"expired claim remained in local storage: {stored!r}")
+    if state["projection_requests"] != projection_requests + 1:
+        raise AssertionError(f"one refresh made duplicate projection requests: {state!r}")
 
     state["expired"] = False
     page.locator("#btn-release-character").click()
@@ -452,6 +467,24 @@ def expire_and_reclaim(page) -> None:
     )
     if not state["methods"] or state["methods"][-1] != "POST":
         raise AssertionError(f"expired claim was not replaced with a fresh POST: {state!r}")
+
+
+def assert_refresh_single_flight(page) -> None:
+    state = page.exposed_claim_state
+    before = {
+        "character_requests": state["character_requests"],
+        "event_requests": state["event_requests"],
+        "projection_requests": state["projection_requests"],
+    }
+    page.evaluate("() => Promise.all([window.app.refresh(), window.app.refresh(), window.app.refresh()])")
+    after = {
+        "character_requests": state["character_requests"],
+        "event_requests": state["event_requests"],
+        "projection_requests": state["projection_requests"],
+    }
+    expected = {key: value + 1 for key, value in before.items()}
+    if after != expected:
+        raise AssertionError(f"concurrent refreshes were not single-flight: before={before!r} after={after!r}")
 
 
 def narrate_event(page) -> None:
@@ -503,6 +536,7 @@ def main() -> None:
         install_routes(page, posted)
 
         connect_and_select(page)
+        assert_refresh_single_flight(page)
         use_image_and_sheet_buttons(page)
         filter_actions(page)
         preselect_selected_target(page)

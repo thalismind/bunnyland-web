@@ -430,6 +430,36 @@
     return error instanceof BunnylandApi.ApiError && error.status === 404;
   }
 
+  const claimProjectionRequests = new Map();
+
+  async function fetchClaimProjectionData(base, control) {
+    const normalizedBase = BunnylandApi.assertSameOriginBase(base);
+    const key = `${normalizedBase}\0${control.claimId}\0${control.claimSecret || ''}`;
+    const pending = claimProjectionRequests.get(key);
+    if (pending) return pending;
+    const request = BunnylandApi.sendJson(
+      normalizedBase,
+      `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
+      { headers: BunnylandApi.claimHeaders(control) },
+    );
+    claimProjectionRequests.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (claimProjectionRequests.get(key) === request) claimProjectionRequests.delete(key);
+    }
+  }
+
+  async function fetchClaimProjection(base, _characterId, control = null) {
+    if (!control?.claimId) return { character: null, queued: null, room: null };
+    const data = await fetchClaimProjectionData(base, control);
+    return {
+      character: parseCharacterProjection(data),
+      queued: parseQueuedCommands(data),
+      room: parseRoomProjection(data),
+    };
+  }
+
   function allTargets(projection) {
     const targets = [];
     const seen = new Set();
@@ -781,36 +811,15 @@
   }
 
   async function fetchCharacterProjection(base, _characterId, control = null) {
-    if (!control?.claimId) return null;
-    return parseCharacterProjection(
-      await BunnylandApi.sendJson(
-        base,
-        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
-        { headers: BunnylandApi.claimHeaders(control) }
-      )
-    );
+    return (await fetchClaimProjection(base, _characterId, control)).character;
   }
 
   async function fetchRoomProjection(base, _roomId, _characterId, control = null) {
-    if (!control?.claimId) return null;
-    return parseRoomProjection(
-      await BunnylandApi.sendJson(
-        base,
-        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
-        { headers: BunnylandApi.claimHeaders(control) }
-      )
-    );
+    return (await fetchClaimProjection(base, _characterId, control)).room;
   }
 
   async function fetchQueuedCommands(base, _characterId, control = null) {
-    if (!control?.claimId) return null;
-    return parseQueuedCommands(
-      await BunnylandApi.sendJson(
-        base,
-        `/play/claims/${encodeURIComponent(control.claimId)}/projection`,
-        { headers: BunnylandApi.claimHeaders(control) }
-      )
-    );
+    return (await fetchClaimProjection(base, _characterId, control)).queued;
   }
 
   async function cancelQueuedCommand(base, _characterId, commandId, control) {
@@ -1156,6 +1165,7 @@
     fetchCharacterProfile,
     fetchCharacterProfileList,
     fetchCharacterRecentEvents,
+    fetchClaimProjection,
     fetchCharacterProjection,
     fetchQueuedCommands,
     fetchRecentEvents,

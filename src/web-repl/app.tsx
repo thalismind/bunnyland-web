@@ -104,15 +104,12 @@ export interface WebReplServices {
     seenIds: Set<string>;
   }) => { lines: NarratedLine[]; seenIds: Set<string> };
   fetchCharacterList: (base: string) => Promise<{ characters: CharacterSummary[]; epoch: number }>;
-  fetchCharacterProjection: (
+  fetchClaimProjection: (
     base: string, characterId: string, control: ControlClaim | null,
-  ) => Promise<CharacterProjection | null>;
+  ) => Promise<{ character: CharacterProjection | null; queued: QueuedProjection | null }>;
   fetchCharacterRecentEvents: (
     base: string, characterId: string, control: ControlClaim | null,
   ) => Promise<{ events?: unknown[] }>;
-  fetchQueuedCommands: (
-    base: string, characterId: string, control: ControlClaim | null,
-  ) => Promise<QueuedProjection | null>;
   formatPoints: (value: unknown) => string;
   iconPreference: (key: string, fallback: boolean) => boolean;
   imageAffordance: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
@@ -277,6 +274,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   const liveStateRef = useRef('fallback');
   const refreshRef = useRef<(options?: { announce?: boolean }) => Promise<void>>(async () => undefined);
   const requestGeneration = useRef(0);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef(0);
   const logSequence = useRef(1);
@@ -362,7 +360,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     }
   }, [nameFor, services, write, writeParts]);
 
-  const refresh = useCallback(async ({ announce = false }: { announce?: boolean } = {}): Promise<void> => {
+  const refreshOnce = useCallback(async ({ announce = false }: { announce?: boolean } = {}): Promise<void> => {
     const base = apiBaseRef.current;
     if (!base) return;
     const generation = ++requestGeneration.current;
@@ -385,7 +383,8 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         controlRef.current = null;
       } else if (selected && controlRef.current) {
         claimRequest = true;
-        const nextProjection = await services.fetchCharacterProjection(base, selected, controlRef.current);
+        const bundle = await services.fetchClaimProjection(base, selected, controlRef.current);
+        const nextProjection = bundle.character;
         if (!aliveRef.current || generation !== requestGeneration.current || selected !== playerIdRef.current) return;
         const accepted = nextProjection?.characterId === selected ? nextProjection : null;
         setProjection(accepted);
@@ -393,7 +392,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         const synced = services.syncClaimControl(controlRef.current, accepted, selected);
         setControl(synced);
         controlRef.current = synced;
-        const queued = await services.fetchQueuedCommands(base, selected, synced);
+        const queued = bundle.queued;
         if (!aliveRef.current || generation !== requestGeneration.current || selected !== playerIdRef.current) return;
         const acceptedQueue = queued?.characterId === selected ? queued : null;
         setQueuedCommands(acceptedQueue?.commands || []);
@@ -436,6 +435,16 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       if (announce) write(`Connection failed: ${errorMessage(error)}`, 'error');
     }
   }, [drainEvents, services, write]);
+  const refresh = useCallback((options: { announce?: boolean } = {}): Promise<void> => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const request = refreshOnce(options);
+    refreshPromiseRef.current = request;
+    const clear = (): void => {
+      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
+    };
+    void request.then(clear, clear);
+    return request;
+  }, [refreshOnce]);
   refreshRef.current = refresh;
 
   const claimPlayer = useCallback(async (): Promise<ControlClaim | null> => {
@@ -465,6 +474,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
 
   const dropPlayer = useCallback((syncHash = true): void => {
     requestGeneration.current += 1;
+    refreshPromiseRef.current = null;
     playerIdRef.current = '';
     projectionRef.current = null;
     queueProjectionRef.current = null;

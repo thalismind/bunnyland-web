@@ -87,6 +87,7 @@ export function WebTuiPage() {
   const liveRef = useRef<{ close(): void } | null>(null);
   const liveTokenRef = useRef(0);
   const refreshTokenRef = useRef(0);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const liveStateRef = useRef('fallback');
   const mountedRef = useRef(true);
   const activityKeyRef = useRef(0);
@@ -169,7 +170,7 @@ export function WebTuiPage() {
     });
   };
 
-  const refresh = async () => {
+  const refreshOnce = async () => {
     const current = modelRef.current;
     if (!current.connected || !baseRef.current) return;
     const base = baseRef.current;
@@ -187,10 +188,9 @@ export function WebTuiPage() {
       }
       if (playerId && modelRef.current.control) {
         claimRequest = true;
-        const [projection, queued] = await Promise.all([
-          play.fetchCharacterProjection(base, playerId, modelRef.current.control),
-          play.fetchQueuedCommands(base, playerId, modelRef.current.control),
-        ]);
+        const { character: projection, queued } = await play.fetchClaimProjection(
+          base, playerId, modelRef.current.control,
+        );
         if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || playerId !== modelRef.current.playerId) return;
         update({
           control: play.syncClaimControl(modelRef.current.control, projection, playerId),
@@ -222,6 +222,16 @@ export function WebTuiPage() {
       update({ status: { kind: 'err', text: `⚠ ${message(error)}` } });
     }
   };
+  const refresh = () => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const request = refreshOnce();
+    refreshPromiseRef.current = request;
+    const clear = () => {
+      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
+    };
+    void request.then(clear, clear);
+    return request;
+  };
   refreshRef.current = refresh;
 
   const startLobby = () => {
@@ -250,7 +260,7 @@ export function WebTuiPage() {
   };
 
   const disconnect = (syncUrl = true) => {
-    refreshTokenRef.current += 1; stopLive(); stopLobby();
+    refreshTokenRef.current += 1; refreshPromiseRef.current = null; stopLive(); stopLobby();
     if (syncUrl && baseRef.current) api.setServerInUrl('');
     baseRef.current = '';
     update({ ...initial, seenEventIds: new Set() });
@@ -280,9 +290,13 @@ export function WebTuiPage() {
     update({ control: null, playerId: id, projection: null, queued: [], queueProjection: null, selectedId: '' });
     const control = await claimPlayer(id);
     if (!mountedRef.current || id !== modelRef.current.playerId) return;
+    refreshTokenRef.current += 1;
+    refreshPromiseRef.current = null;
     update({ control }); startLive(); await refreshRef.current();
   };
   function dropPlayer() {
+    refreshTokenRef.current += 1;
+    refreshPromiseRef.current = null;
     stopLive();
     update({ control: null, playerId: '', projection: null, queued: [], queueProjection: null, selectedId: '' });
     if (modelRef.current.connected) startLobby();

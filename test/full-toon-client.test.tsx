@@ -27,10 +27,12 @@ function harness() {
     iconPreference: () => true,
     setIconPreference: () => undefined,
     fetchCharacterList: async () => { fetches += 1; return { characters: [{ id: CHARACTER, name: 'Bun' }], epoch: 5 }; },
-    fetchCharacterProjection: vi.fn(async () => projection),
-    fetchQueuedCommands: async () => ({ characterId: CHARACTER, commands: [] }),
+    fetchClaimProjection: vi.fn(async () => ({
+      character: projection,
+      queued: { characterId: CHARACTER, commands: [] },
+      room: { room: { id: 'room:1', name: 'Parlor', entities: [{ id: CHARACTER, name: 'Bun', sprite: { position: { x: 20, y: 20 } } }, { id: OTHER, name: 'Marlow', sprite: { position: { x: 40, y: 40 } } }], exits: [] } },
+    })),
     fetchCharacterRecentEvents: async () => ({ events: [] }),
-    fetchRoomProjection: async () => ({ room: { id: 'room:1', name: 'Parlor', entities: [{ id: CHARACTER, name: 'Bun', sprite: { position: { x: 20, y: 20 } } }, { id: OTHER, name: 'Marlow', sprite: { position: { x: 40, y: 40 } } }], exits: [] } }),
     drainNarratedEvents: (_messages, options) => ({ lines: [], seenIds: (options as { seenIds: Set<string> }).seenIds }),
     latestImageCompletion: () => null,
     isClaimNotFoundError: error => (error as { status?: number })?.status === 404,
@@ -92,9 +94,29 @@ function harness() {
 afterEach(() => {
   cleanup();
   history.replaceState(null, '', location.pathname);
+  vi.restoreAllMocks();
 });
 
 describe('ToonPage', () => {
+  it('leaves claimed refresh scheduling to the live update coordinator', async () => {
+    const setInterval = vi.spyOn(window, 'setInterval');
+    const test = harness();
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
+    const pagePoll = setInterval.mock.calls.find(([, delay]) => delay === 2000)?.[0] as (() => void) | undefined;
+    expect(pagePoll).toBeTruthy();
+    const before = test.fetches();
+
+    pagePoll?.();
+    await Promise.resolve();
+
+    expect(test.fetches()).toBe(before);
+  });
+
   it('delegates its read-only facade and deletes it on unmount', async () => {
     const test = harness();
     const view = render(<ToonPage runtime={test.runtime} />);
@@ -142,10 +164,20 @@ describe('ToonPage', () => {
     await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
-    vi.mocked(test.runtime.play.fetchCharacterProjection as (...args: unknown[]) => Promise<unknown>)
-      .mockRejectedValueOnce(Object.assign(new Error('claim does not exist'), { status: 404 }));
+    let rejectProjection: (reason: unknown) => void = () => undefined;
+    const fetchClaimProjection = vi.mocked(
+      test.runtime.play.fetchClaimProjection as (...args: unknown[]) => Promise<unknown>,
+    );
+    fetchClaimProjection.mockImplementationOnce(
+      () => new Promise((_, reject) => { rejectProjection = reject; }),
+    );
+    const calls = fetchClaimProjection.mock.calls.length;
 
-    await (window as unknown as { app: { _refresh(): Promise<void> } }).app._refresh();
+    const first = (window as unknown as { app: { _refresh(): Promise<void> } }).app._refresh();
+    const second = (window as unknown as { app: { _refresh(): Promise<void> } }).app._refresh();
+    await waitFor(() => expect(fetchClaimProjection).toHaveBeenCalledTimes(calls + 1));
+    rejectProjection(Object.assign(new Error('claim does not exist'), { status: 404 }));
+    await Promise.all([first, second]);
 
     await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Claim'));
     expect(test.clearClaimControl).toHaveBeenCalledWith('bunnyland.toon.clientId', CHARACTER);

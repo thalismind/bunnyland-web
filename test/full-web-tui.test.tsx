@@ -24,7 +24,7 @@ const projection = {
 };
 const closeLive = vi.fn();
 const fetchCharacterList = vi.fn(async () => ({ characters: [character], epoch: 7 }));
-const fetchCharacterProjection = vi.fn(async () => projection);
+const fetchClaimProjection = vi.fn(async () => ({ character: projection, queued: { characterId: character.id, commands: [] } }));
 const submitCommand = vi.fn(async () => ({ queued: true }));
 
 const play = {
@@ -52,9 +52,8 @@ const play = {
   })),
   entityIcon: vi.fn(() => '🐇'),
   fetchCharacterList,
-  fetchCharacterProjection,
+  fetchClaimProjection,
   fetchCharacterRecentEvents: vi.fn(async () => ({ events: [] })),
-  fetchQueuedCommands: vi.fn(async () => ({ characterId: character.id, commands: [] })),
   filterActions: vi.fn((values: unknown[]) => values),
   formatPoints: vi.fn((value: number) => String(value ?? 0)),
   iconPreference: vi.fn(() => true),
@@ -103,7 +102,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.history.replaceState(null, '', '/web-tui.html');
   fetchCharacterList.mockResolvedValue({ characters: [character], epoch: 7 });
-  fetchCharacterProjection.mockResolvedValue(projection);
+  fetchClaimProjection.mockResolvedValue({ character: projection, queued: { characterId: character.id, commands: [] } });
 });
 
 afterEach(() => {
@@ -179,9 +178,15 @@ describe('WebTuiPage', () => {
   it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
     const view = render(<WebTuiPage />);
     await connectAndSelect(view.container);
-    fetchCharacterProjection.mockRejectedValueOnce(Object.assign(new Error('claim does not exist'), { status: 404 }));
+    let rejectProjection: (reason: unknown) => void = () => undefined;
+    fetchClaimProjection.mockImplementationOnce(() => new Promise((_, reject) => { rejectProjection = reject; }));
+    const calls = fetchClaimProjection.mock.calls.length;
 
-    await (window as unknown as { app: TestFacade }).app.refresh();
+    const first = (window as unknown as { app: TestFacade }).app.refresh();
+    const second = (window as unknown as { app: TestFacade }).app.refresh();
+    await waitFor(() => expect(fetchClaimProjection).toHaveBeenCalledTimes(calls + 1));
+    rejectProjection(Object.assign(new Error('claim does not exist'), { status: 404 }));
+    await Promise.all([first, second]);
 
     await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Claim'));
     expect(play.clearClaimControl).toHaveBeenCalledWith('bunnyland.webTui.clientId', character.id);

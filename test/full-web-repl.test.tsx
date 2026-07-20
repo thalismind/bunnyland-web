@@ -97,9 +97,8 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
       characters: [{ id: 'character:one', kind: 'character', name: 'Hazel', suspended: false }],
       epoch: 12,
     })),
-    fetchCharacterProjection: vi.fn(async () => projection()),
+    fetchClaimProjection: vi.fn(async () => ({ character: projection(), queued: QUEUE })),
     fetchCharacterRecentEvents: vi.fn(async () => ({ events: [] })),
-    fetchQueuedCommands: vi.fn(async () => QUEUE),
     formatPoints: (value) => String(Number(value || 0)),
     iconPreference: () => true,
     imageAffordance: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
@@ -199,11 +198,17 @@ describe('full Web REPL page', () => {
     const runtime = services();
     const view = render(<WebReplPage services={runtime.service} />);
     await selectPlayer(view);
-    vi.mocked(runtime.service.fetchCharacterProjection).mockRejectedValueOnce(
-      Object.assign(new Error('claim does not exist'), { status: 404 }),
+    let rejectProjection: (reason: unknown) => void = () => undefined;
+    vi.mocked(runtime.service.fetchClaimProjection).mockImplementationOnce(
+      () => new Promise((_, reject) => { rejectProjection = reject; }),
     );
+    const calls = vi.mocked(runtime.service.fetchClaimProjection).mock.calls.length;
 
-    await facade()?.refresh();
+    const first = facade()?.refresh();
+    const second = facade()?.refresh();
+    await waitFor(() => expect(runtime.service.fetchClaimProjection).toHaveBeenCalledTimes(calls + 1));
+    rejectProjection(Object.assign(new Error('claim does not exist'), { status: 404 }));
+    await Promise.all([first, second]);
 
     await waitFor(() => expect(facade()?.control).toBeNull());
     expect(runtime.service.clearClaimControl).toHaveBeenCalledWith(

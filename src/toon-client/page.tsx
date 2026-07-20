@@ -183,6 +183,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   const refreshGeneration = useRef(0);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
   const pendingTargetRef = useRef(targetFromHash());
 
   playerRef.current = playerId; projectionRef.current = projection; roomRef.current = roomProjection;
@@ -209,7 +210,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
 
   const playerInView = useCallback(() => Boolean(playerRef.current && projectionRef.current?.room?.id && roomRef.current?.room?.id === projectionRef.current.room.id), []);
   const appendActivity = useCallback((line: Activity) => setActivityLines(current => [...current, line].slice(-8)), []);
-  const refresh = useCallback(async (): Promise<void> => {
+  const refreshOnce = useCallback(async (): Promise<void> => {
     const base = baseRef.current;
     if (!base) return;
     const generation = ++refreshGeneration.current;
@@ -223,12 +224,16 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const currentControl = controlRef.current;
       if (!currentControl) return;
       claimRequest = true;
-      const [character, queued, recent] = await Promise.all([
-        playCall<Promise<Projection>>(runtime, 'fetchCharacterProjection', base, id, currentControl),
-        playCall<Promise<QueueProjection>>(runtime, 'fetchQueuedCommands', base, id, currentControl),
+      const [bundle, recent] = await Promise.all([
+        playCall<Promise<{ character: Projection | null; queued: QueueProjection | null; room: { entities?: Entity[]; room?: Room } | null }>>(
+          runtime, 'fetchClaimProjection', base, id, currentControl,
+        ),
         playCall<Promise<Json>>(runtime, 'fetchCharacterRecentEvents', base, id, currentControl),
       ]);
       if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current || playerRef.current !== id) return;
+      const character = bundle.character;
+      if (!character) return;
+      const queued = bundle.queued;
       projectionRef.current = character;
       setProjection(character);
       const synced = playCall<Control>(runtime, 'syncClaimControl', currentControl, character, id);
@@ -237,12 +242,9 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       queueRef.current = queued;
       setQueueProjection(queued);
       const roomId = character.room?.id;
-      if (roomId) {
-        const room = await playCall<Promise<{ entities?: Entity[]; room?: Room }>>(runtime, 'fetchRoomProjection', base, roomId, id, synced);
-        if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current || playerRef.current !== id) return;
-        roomRef.current = room;
-        setRoomProjection(room);
-      }
+      const room = roomId ? bundle.room : null;
+      roomRef.current = room;
+      setRoomProjection(room);
       const drained = playCall<{ lines: Activity[]; seenIds: Set<string> }>(runtime, 'drainNarratedEvents', Array.isArray(recent.events) ? recent.events : [], {
         seenIds: seenIds.current, playerId: id, roomOf: () => character.room?.id || null, nameFor: () => null,
       });
@@ -267,6 +269,16 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       setStatus(`⚠ ${errorMessage(error)}`);
     }
   }, [appendActivity, runtime]);
+  const refresh = useCallback((): Promise<void> => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const request = refreshOnce();
+    refreshPromiseRef.current = request;
+    const clear = (): void => {
+      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
+    };
+    void request.then(clear, clear);
+    return request;
+  }, [refreshOnce]);
 
   const postCommand = useCallback(async (action: Json, payload: Json): Promise<boolean> => {
     const currentControl = playCall<Control | null>(runtime, 'playerControl', controlRef.current, projectionRef.current, playerRef.current);
@@ -300,6 +312,8 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   }, [refresh, runtime]);
 
   const selectPlayer = (id: string): void => {
+    refreshGeneration.current += 1;
+    refreshPromiseRef.current = null;
     playerRef.current = id;
     setPlayerId(id); setProjection(null); setRoomProjection(null); setQueueProjection(null);
     setControl(null); setSelectedId(''); setLocalPos(null); setActivityLines([]); primed.current = false; seenIds.current = new Set();
@@ -362,14 +376,16 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     const connect = (server: unknown): void => {
       const base = String(runtime.api.normalizeBase(server) || '');
       if (!base) return;
-      refreshGeneration.current += 1;
+      refreshGeneration.current += 1; refreshPromiseRef.current = null;
       baseRef.current = base; setApiUrl(base); setConnected(true); setStatus('● Connected'); setLoading(false);
       runtime.api.setServerInUrl(base); void refresh();
     };
     runtime.api.applyServerParam({ connect });
     void runtime.api.applyConfigToInput({ connect, isConnected: () => Boolean(baseRef.current) });
     const loadingTimer = window.setTimeout(() => setLoading(false), 1850);
-    const poll = window.setInterval(() => { if (baseRef.current) void refresh(); }, 2000);
+    const poll = window.setInterval(() => {
+      if (baseRef.current && (!playerRef.current || !controlRef.current)) void refresh();
+    }, 2000);
     const applyTargetHash = (): void => {
       const id = targetFromHash();
       if (!id) { pendingTargetRef.current = ''; selectTarget('', false); return; }
