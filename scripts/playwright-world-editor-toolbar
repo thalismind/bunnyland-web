@@ -65,7 +65,7 @@ def main() -> None:
         boxes = page.evaluate(
             """
             () => {
-              const ids = ['toolbar-row1', 'toolbar-row2', 'toolbar-row3'];
+              const ids = ['toolbar-row1', 'toolbar-row2', 'toolbar-row3', 'toolbar-row4'];
               return Object.fromEntries(ids.map((id) => {
                 const rect = document.getElementById(id).getBoundingClientRect();
                 return [id, { top: rect.top, bottom: rect.bottom, height: rect.height }];
@@ -77,6 +77,8 @@ def main() -> None:
             raise AssertionError("toolbar row 1 overlaps row 2")
         if boxes["toolbar-row2"]["bottom"] > boxes["toolbar-row3"]["top"]:
             raise AssertionError("toolbar row 2 overlaps row 3")
+        if boxes["toolbar-row3"]["bottom"] > boxes["toolbar-row4"]["top"]:
+            raise AssertionError("toolbar row 3 overlaps row 4")
         if boxes["toolbar-row3"]["height"] < 20:
             raise AssertionError("toolbar row 3 is unexpectedly collapsed")
 

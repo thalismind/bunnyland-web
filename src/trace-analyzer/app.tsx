@@ -79,6 +79,7 @@ const traceGlobals = globalThis as typeof globalThis & {
     normalizeBase(base: string): string;
     serverFromUrl(): string;
   };
+  BunnylandUI?: { initClientMenu?(): { close?: () => void } | void };
   BunnylandTrace: TraceHelpers;
 };
 
@@ -183,6 +184,11 @@ export function TraceAnalyzerPage() {
   const tempoAbortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    const menu = traceGlobals.BunnylandUI?.initClientMenu?.();
+    return () => menu?.close?.();
+  }, []);
 
   const setTraces = (next: Trace[]) => { tracesRef.current = next; setTracesState(next); };
   const setSelectedTrace = (next: string) => { selectedTraceRef.current = next; setSelectedTraceIdState(next); };
@@ -368,9 +374,10 @@ export function TraceAnalyzerPage() {
   }));
 
   return <>
-    <div id="toolbar"><div class="toolbar-row">
+    <div id="toolbar"><div class="toolbar-row toolbar-heading" id="toolbar-row1">
       <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Trace Analyzer</span>
-      <span class="toolbar-sep">|</span><label for="trace-file">File:</label>
+      <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+    </div><div class="toolbar-row" id="toolbar-row2"><label for="trace-file">File:</label>
       <input id="trace-file" type="file" accept=".json,.jsonl,application/json" onChange={event => {
         const file = event.currentTarget.files?.[0]; if (file) void loadFile(file);
       }} />

@@ -492,9 +492,17 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
 
   return <>
     <div id="toolbar">
-      <div class="toolbar-row" id="toolbar-row1">
+      <div class="toolbar-row toolbar-heading" id="toolbar-row1">
         <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Behavior Editor</span>
-        <span class="toolbar-sep">|</span>
+        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
+      </div>
+      <div class="toolbar-row" id="toolbar-row2">
+        <label for="api-url">Server:</label>
+        <input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
+        <Button id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{connected || base ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect'}</Button>
+        <span id="api-status" class={apiStatus.kind}>{apiStatus.text}</span>
+      </div>
+      <div class="toolbar-row" id="toolbar-row3">
         <label for="behavior-input">Behavior:</label>
         <input type="file" id="behavior-input" accept=".json,application/json" onChange={event => {
           const file = event.currentTarget.files?.[0];
@@ -509,18 +517,12 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
         <Button id="btn-download" onClick={download}>Download JSON</Button>
         <Button id="btn-copy" onClick={() => { void copy(); }}>Copy JSON</Button>
         <span id="save-status" class={saveStatus.kind}>{saveStatus.text}</span>
-        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
       </div>
-      <div class="toolbar-row" id="toolbar-row2">
+      <div class="toolbar-row" id="toolbar-row4">
         <label for="behavior-name">Name:</label>
         <input type="text" id="behavior-name" value={behavior.name} spellcheck={false} onInput={event => setBehavior(current => ({ ...current, name: event.currentTarget.value }))} />
         <label for="behavior-desc">Description:</label>
         <input type="text" id="behavior-desc" value={behavior.description} spellcheck={false} onInput={event => setBehavior(current => ({ ...current, description: event.currentTarget.value }))} />
-        <span class="toolbar-sep">|</span>
-        <label for="api-url">Server:</label>
-        <input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
-        <Button id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{connected || base ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect'}</Button>
-        <span id="api-status" class={apiStatus.kind}>{apiStatus.text}</span>
       </div>
     </div>
 

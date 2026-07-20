@@ -746,9 +746,11 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
 
   return <>
     <Toolbar id="toolbar">
-      <ToolbarRow id="toolbar-row1">
+      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
         <ToolbarBrand icon={<img src="favicon.png" alt="" />}>Bunnyland Character</ToolbarBrand>
-        <span class="toolbar-sep">|</span>
+        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input
           id="api-url"
@@ -766,9 +768,8 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
           id="api-status"
           tone={statusKind === 'live' ? 'ok' : statusKind === 'err' ? 'error' : 'muted'}
         >{apiStatus}</StatusText>
-        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
       </ToolbarRow>
-      <ToolbarRow id="toolbar-row2">
+      <ToolbarRow id="toolbar-row3">
         <label for="character-select">Character:</label>
         <select
           id="character-select"

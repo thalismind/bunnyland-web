@@ -513,9 +513,11 @@ export function ScriptEditorPage() {
 
   return <>
     <div id="toolbar">
-      <div class="toolbar-row" id="toolbar-row1">
+      <div class="toolbar-row toolbar-heading" id="toolbar-row1">
         <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Script Editor</span>
-        <span class="toolbar-sep">|</span>
+        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+      </div>
+      <div class="toolbar-row" id="toolbar-row2">
         <label for="snapshot-input">Snapshot:</label>
         <input type="file" id="snapshot-input" accept=".json,application/json" onChange={event => {
           const file = event.currentTarget.files?.[0]; if (file) void loadSnapshot(file);
@@ -529,9 +531,8 @@ export function ScriptEditorPage() {
         <button id="btn-download" onClick={download}>Download JSON</button>
         <button id="btn-copy" onClick={() => { void copy(); }}>Copy JSON</button>
         <span id="save-status" class={status.kind}>{status.text}</span>
-        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
       </div>
-      <div class="toolbar-row" id="toolbar-row2">
+      <div class="toolbar-row" id="toolbar-row3">
         <label for="script-id">ID:</label><input type="text" id="script-id" value={script.id} spellcheck={false}
           onInput={event => setScript(current => ({ ...current, id: event.currentTarget.value }))} />
         <label for="script-name">Name:</label><input type="text" id="script-name" value={script.name} spellcheck={false}

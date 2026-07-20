@@ -20,6 +20,7 @@
   const THEME_VALUE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
   const boundThemeSelects = new Set();
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
+  let clientMenuBaseUrl = '';
   // Admin tools order: World Generator, World Graph, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
     {
@@ -387,13 +388,14 @@
   }
 
   function clientHref(item) {
-    const url = new URL(item.href, location.href);
+    const url = new URL(item.href, clientMenuBaseUrl || location.href);
     url.hash = item.supportsFocus && FOCUS_PAGE_NAMES.has(currentPageName()) ? location.hash : '';
     if (item.supportsServer) {
       const server = currentServerValue();
       if (server) url.searchParams.set('server', server);
     }
     if (url.origin !== location.origin) return url.toString();
+    if (clientMenuBaseUrl) return `${url.pathname}${url.search}${url.hash}`;
     return `${url.pathname.split('/').pop()}${url.search}${url.hash}`;
   }
 
@@ -482,7 +484,8 @@
     document.getElementById('client-menu-dialog')?.classList.add('hidden');
   }
 
-  function initClientMenu({ buttonId = 'btn-client-menu', showOnFirstLoad = false } = {}) {
+  function initClientMenu({ baseUrl = '', buttonId = 'btn-client-menu', showOnFirstLoad = false } = {}) {
+    if (baseUrl) clientMenuBaseUrl = new URL(baseUrl, location.href).toString();
     const button = document.getElementById(buttonId);
     if (button) {
       button.addEventListener('click', () => openClientMenu());

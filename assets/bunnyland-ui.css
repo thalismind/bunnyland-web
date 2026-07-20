@@ -403,6 +403,9 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom: 1px solid var(--bl-border);
   flex-shrink: 0;
   font-size: var(--bl-text-md);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .bl-toolbar {
@@ -414,19 +417,51 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom: 1px solid var(--bl-border);
   flex-shrink: 0;
   font-size: var(--bl-text-md);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .toolbar-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 24px;
+  min-width: 0;
+  max-width: 100%;
 }
 
-#toolbar-row2,
-#toolbar-row3 {
+.toolbar-row + .toolbar-row {
   border-top: 1px solid var(--bl-border-muted);
   padding-top: 5px;
+}
+
+.toolbar-heading {
+  flex-wrap: nowrap;
+}
+
+.toolbar-heading .toolbar-brand {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-heading .client-menu-button {
+  flex: 0 0 auto;
+}
+
+.toolbar-row > * {
+  max-width: 100%;
+}
+
+.toolbar-row input[type=file],
+.toolbar-row input[type=text],
+.toolbar-row input[type=number],
+.toolbar-row select,
+.toolbar-row .search-dropdown {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .toolbar-sep { color: var(--bl-border); }
@@ -670,7 +705,21 @@ button:disabled { opacity: 0.4; cursor: default; }
 #api-status {
   font-size: var(--bl-text-sm);
   color: var(--bl-text-muted);
-  white-space: nowrap;
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.toolbar-row #status,
+.toolbar-row #save-status,
+.toolbar-row #runtime-status,
+.toolbar-row #tempo-status {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .app-grid,
@@ -1157,7 +1206,6 @@ textarea {
 
   .toolbar-row {
     flex-shrink: 0;
-    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
   }

@@ -1068,18 +1068,19 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
 
   return <>
     <Toolbar id="toolbar">
-      <ToolbarRow id="toolbar-row1">
+      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
         <ToolbarBrand icon={<img src="favicon.png" alt="" />}>Bunnyland Web REPL</ToolbarBrand>
-        <span class="toolbar-sep">|</span>
+        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input id="api-url" onInput={(event): void => setApiUrl(event.currentTarget.value)} spellcheck={false} type="text" value={apiUrl} />
         <Button id="btn-connect" onClick={(): void => {
           if (connected) disconnect(); else connect(apiUrl.trim());
         }}>{connected ? 'Disconnect' : 'Connect Live'}</Button>
         <StatusText class={statusKind} id="api-status" tone={statusKind === 'live' ? 'ok' : statusKind === 'error' ? 'error' : 'muted'}>{apiStatus}</StatusText>
-        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
       </ToolbarRow>
-      <ToolbarRow id="toolbar-row2">
+      <ToolbarRow id="toolbar-row3">
         <label for="player-select">Character:</label>
         <select id="player-select" onChange={(event): void => {
           if (event.currentTarget.value) void selectPlayer(event.currentTarget.value); else dropPlayer();

@@ -242,9 +242,11 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
 
   return <>
     <div id="toolbar">
-      <div class="toolbar-row">
+      <div class="toolbar-row toolbar-heading" id="toolbar-row1">
         <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Event Stream</span>
-        <span class="toolbar-sep">|</span>
+        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
+      </div>
+      <div class="toolbar-row" id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input id="api-url" type="text" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
         <Button id="btn-connect" onClick={(): void => base ? disconnect() : void connect(apiUrl.trim())}>{base ? 'Disconnect' : 'Connect'}</Button>
@@ -253,7 +255,6 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
         <label for="poll-interval">Poll</label>
         <input id="poll-interval" type="number" min="1" max="60" step="1" value={pollInterval} onChange={event => setPollInterval(Math.max(1, Number(event.currentTarget.value) || 5))} />
         <span id="api-status">{status}</span>
-        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
       </div>
     </div>
 

@@ -445,9 +445,11 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   const statusTone = apiStatus === 'live' ? 'ok' : apiStatus.startsWith('error:') ? 'error' : 'muted';
   return <>
     <Toolbar id="toolbar">
-      <ToolbarRow>
+      <ToolbarRow class="toolbar-heading" id="toolbar-row1">
         <ToolbarBrand icon={<img src="favicon.png" alt="" />}>Bunnyland Character Memory</ToolbarBrand>
-        <span class="toolbar-sep">|</span>
+        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
+      </ToolbarRow>
+      <ToolbarRow id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input
           id="api-url"
@@ -462,7 +464,6 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
         }}>{base ? 'Disconnect' : 'Connect'}</Button>
         <Button disabled={!base} id="btn-refresh" onClick={(): void => { void refresh(); }}>Refresh</Button>
         <StatusText class={statusTone === 'ok' ? 'ok' : statusTone === 'error' ? 'err' : ''} id="api-status" tone={statusTone}>{apiStatus}</StatusText>
-        <Button id="btn-client-menu" class="client-menu-button">Menu</Button>
       </ToolbarRow>
     </Toolbar>
 

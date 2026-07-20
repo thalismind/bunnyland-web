@@ -69,12 +69,28 @@ def assert_shell(page, name: str) -> None:
             viewportHeight: innerHeight,
             viewportWidth: innerWidth,
             scrollWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+            toolbarClientWidth: toolbar?.clientWidth || 0,
+            toolbarScrollWidth: toolbar?.scrollWidth || 0,
             toolbarWidth: toolbar?.getBoundingClientRect().width || 0,
             toolbarRows: [...document.querySelectorAll('#toolbar > .toolbar-row, .bl-toolbar > .toolbar-row')]
-              .map((row) => {
+              .map((row, index) => {
                 const rect = row.getBoundingClientRect();
                 const contentBottom = Math.max(rect.top, ...[...row.children].map((child) => child.getBoundingClientRect().bottom));
-                return { top: rect.top, bottom: rect.bottom, contentBottom };
+                const style = getComputedStyle(row);
+                return {
+                  index,
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  contentBottom,
+                  clientWidth: row.clientWidth,
+                  scrollWidth: row.scrollWidth,
+                  borderTopWidth: style.borderTopWidth,
+                  brand: Boolean(row.querySelector('.toolbar-brand')),
+                  menu: Boolean(row.querySelector('#btn-client-menu')),
+                  api: Boolean(row.querySelector('#api-url')),
+                  character: Boolean(row.querySelector('#player-select, #character-select')),
+                  fragments: Boolean(row.querySelector('#fragment-file')),
+                };
               }),
             panes,
           };
@@ -87,11 +103,28 @@ def assert_shell(page, name: str) -> None:
         raise AssertionError(f"{name} has document-level horizontal overflow: {layout!r}")
     if layout["toolbarWidth"] > layout["viewportWidth"] + 1:
         raise AssertionError(f"{name} toolbar exceeds the viewport: {layout!r}")
+    if layout["toolbarScrollWidth"] > layout["toolbarClientWidth"] + 1:
+        raise AssertionError(f"{name} toolbar scrolls horizontally: {layout!r}")
+    if not layout["toolbarRows"] or not layout["toolbarRows"][0]["brand"] or not layout["toolbarRows"][0]["menu"]:
+        raise AssertionError(f"{name} title and menu are not together on the first row: {layout!r}")
     for index, row in enumerate(layout["toolbarRows"]):
+        if row["scrollWidth"] > row["clientWidth"] + 1:
+            raise AssertionError(f"{name} toolbar row scrolls horizontally: {layout!r}")
         if row["contentBottom"] > row["bottom"] + 1:
             raise AssertionError(f"{name} toolbar content escapes its row: {layout!r}")
         if index and layout["toolbarRows"][index - 1]["bottom"] > row["top"] + 1:
             raise AssertionError(f"{name} toolbar rows overlap: {layout!r}")
+        if index and row["borderTopWidth"] == "0px":
+            raise AssertionError(f"{name} additional toolbar row lacks a border: {layout!r}")
+    api_rows = [row["index"] for row in layout["toolbarRows"] if row["api"]]
+    character_rows = [row["index"] for row in layout["toolbarRows"] if row["character"]]
+    fragment_rows = [row["index"] for row in layout["toolbarRows"] if row["fragments"]]
+    if api_rows and api_rows[0] > 1:
+        raise AssertionError(f"{name} server controls are below the second row: {layout!r}")
+    if character_rows and character_rows != [2]:
+        raise AssertionError(f"{name} character selection is not on the row after server controls: {layout!r}")
+    if fragment_rows and fragment_rows != [2]:
+        raise AssertionError(f"{name} fragment selection is not on the row after server controls: {layout!r}")
     for pane in layout["panes"]:
         if pane["width"] > layout["viewportWidth"] + 1 or pane["left"] < -1 or pane["right"] > layout["viewportWidth"] + 1:
             raise AssertionError(f"{name} pane exceeds the viewport: {pane!r}")
@@ -130,11 +163,30 @@ def main() -> None:
 
         for name in FULL_SCREEN_PAGES:
             page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
+            page.locator("#toolbar").wait_for(state="visible")
+            page.evaluate(
+                """() => {
+                  const status = document.querySelector('#api-status, #status, #tempo-status');
+                  if (status) status.textContent = 'Connection failed: ' + 'upstream-gateway-with-an-unusually-long-hostname.example.invalid/'.repeat(5);
+                }"""
+            )
             assert_shell(page, name)
             if name in STACKS:
                 assert_stack(page, name, STACKS[name])
             if name in {"character.html", "toon-client.html", "world-editor.html"}:
                 page.screenshot(path=str(SCREENSHOT_DIR / f"bunnyland-responsive-{name[:-5]}.png"))
+
+        page.set_viewport_size({"width": 768, "height": 900})
+        for name in FULL_SCREEN_PAGES:
+            page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
+            page.locator("#toolbar").wait_for(state="visible")
+            page.evaluate(
+                """() => {
+                  const status = document.querySelector('#api-status, #status, #tempo-status');
+                  if (status) status.textContent = 'Connection failed: ' + 'upstream-gateway-with-an-unusually-long-hostname.example.invalid/'.repeat(5);
+                }"""
+            )
+            assert_shell(page, name)
 
         page.set_viewport_size({"width": 320, "height": 760})
         page.goto(
@@ -204,8 +256,14 @@ def main() -> None:
         landscape = browser.new_context(viewport={"width": 844, "height": 390}, device_scale_factor=1, is_mobile=True, has_touch=True)
         page = landscape.new_page()
         coverage.start_page(page)
+        page.route("https://cdn.jsdelivr.net/**", lambda route: route.fulfill(status=200, body=""))
+        page.route("**/api/v1/auth/session", lambda route: route.fulfill(status=200, json={
+            "subject": "responsive-test", "scopes": ["world:admin"],
+            "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+        }))
         for name in LANDSCAPE_PAGES:
             page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
+            page.locator("#toolbar").wait_for(state="visible")
             assert_shell(page, name)
         coverage.close_page(page)
         landscape.close()

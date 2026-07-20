@@ -474,15 +474,16 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
 
   return <>
     {loading && <div id="loading-overlay"><div class="loading-card"><div class="loading-title">Bunnyland</div><pre class="loading-bunny"> /)_/\\{`\n`}( =.= ){`\n`} )   ({`\n`}(__ __)</pre></div></div>}
-    <div id="toolbar"><div class="toolbar-row" id="toolbar-row1">
-      <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Toon</span><span class="toolbar-sep">|</span>
+    <div id="toolbar"><div class="toolbar-row toolbar-heading" id="toolbar-row1">
+      <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Toon</span>
+      <Button id="btn-client-menu" class="client-menu-button">Menu</Button><Button id="btn-help">?</Button>
+    </div><div class="toolbar-row" id="toolbar-row2">
       <label for="api-url">Server:</label><input id="api-url" value={apiUrl} onInput={event => setApiUrl(event.currentTarget.value)} />
       <Button id="btn-connect" onClick={() => {
         if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); runtime.api.setServerInUrl(''); }
         else { const base = String(runtime.api.normalizeBase(apiUrl) || ''); baseRef.current = base; setConnected(true); setLoading(false); setStatus('● Connected'); runtime.api.setServerInUrl(base); void refresh(); }
       }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span id="api-status">{status}</span>
-      <Button id="btn-client-menu" class="client-menu-button">Menu</Button><Button id="btn-help">?</Button>
-    </div><div class="toolbar-row" id="toolbar-row2">
+    </div><div class="toolbar-row" id="toolbar-row3">
       <label for="player-select">Character:</label><select id="player-select" value={playerId} onChange={event => selectPlayer(event.currentTarget.value)}>
         <option value="">— select to play —</option>{[...characterList].sort((a, b) => a.name.localeCompare(b.name)).map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
       </select><Button id="btn-release-character" disabled={!playerId} onClick={() => setClaimOpen(true)}>{control?.active === false ? 'Resume' : control ? 'Idle' : 'Claim'}</Button>

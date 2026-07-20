@@ -385,9 +385,11 @@ export function WorldGeneratorPage() {
 
   return <>
     <div id="toolbar">
-      <div class="toolbar-row">
+      <div class="toolbar-row toolbar-heading" id="toolbar-row1">
         <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland World Generator</span>
-        <span class="toolbar-sep">|</span>
+        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
+      </div>
+      <div class="toolbar-row" id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
         <button id="btn-connect" onClick={() => base ? disconnect() : void connect(apiInputRef.current?.value.trim() ?? '')}>
@@ -395,7 +397,6 @@ export function WorldGeneratorPage() {
         </button>
         <button id="btn-refresh" disabled={!base} onClick={() => { void refresh(); }}>Refresh</button>
         <span id="api-status" class={status.kind}>{status.text}</span>
-        <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button>
       </div>
     </div>
 
