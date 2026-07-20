@@ -123,6 +123,10 @@ def main() -> None:
         page = portrait.new_page()
         coverage.start_page(page)
         page.route("https://cdn.jsdelivr.net/**", lambda route: route.fulfill(status=200, body=""))
+        page.route("**/api/v1/auth/session", lambda route: route.fulfill(status=200, json={
+            "subject": "responsive-test", "scopes": ["world:admin"],
+            "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+        }))
 
         for name in FULL_SCREEN_PAGES:
             page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")

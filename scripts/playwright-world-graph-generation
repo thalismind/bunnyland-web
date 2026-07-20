@@ -393,6 +393,12 @@ def exercise_character_scopes(
         ignore_https_errors=True,
         viewport={"width": 1280, "height": 800},
     )
+    login = context.request.post(
+        f"{base_url}/api/v1/auth/session",
+        data={"username": CHARACTER_USERNAME, "password": PASSWORD, "delivery": "cookie"},
+    )
+    if login.status != 200:
+        raise AssertionError(f"character browser login failed: {login.status} {login.text()}")
     page = context.new_page()
     coverage.start_page(page)
     page.add_init_script(
@@ -472,6 +478,12 @@ def main() -> None:
                 ignore_https_errors=True,
                 viewport={"width": 1440, "height": 900},
             )
+            login = context.request.post(
+                f"{base_url}/api/v1/auth/session",
+                data={"username": USERNAME, "password": PASSWORD, "delivery": "cookie"},
+            )
+            if login.status != 200:
+                raise AssertionError(f"World Graph browser login failed: {login.status} {login.text()}")
             page = context.new_page()
             coverage.start_page(page)
             page.add_init_script(
@@ -568,8 +580,8 @@ def main() -> None:
                 raise AssertionError("applied room is absent from the World Graph")
 
             prompts = page.evaluate("window.__promptCalls")
-            if prompts[:2] != ["Bunnyland username", "Bunnyland password"]:
-                raise AssertionError(f"World Graph did not authenticate through the real server: {prompts!r}")
+            if "Bunnyland username" in prompts or "Bunnyland password" in prompts:
+                raise AssertionError(f"World Graph used legacy native authentication prompts: {prompts!r}")
             stream_patch_count = page.evaluate(
                 "window.__worldStreamMessages.filter((message) => message.type === 'patch').length"
             )

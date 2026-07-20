@@ -1,4 +1,6 @@
 import {
+  AuthGate,
+  AuthProvider,
   Button,
   EmptyState,
   Pane,
@@ -7,6 +9,7 @@ import {
   ToolbarBrand,
   ToolbarRow,
 } from '@bunnyland/ui-web/preact';
+import { serverFromUrl } from '@bunnyland/ui-web/api';
 import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -572,4 +575,4 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
 }
 
 const root = document.getElementById('app');
-if (root) render(<CharacterMemoryPage />, root);
+if (root) render(<AuthProvider base={serverFromUrl() || '/api/v1'}><AuthGate scopes={['world:admin']}><CharacterMemoryPage /></AuthGate></AuthProvider>, root);

@@ -80,6 +80,16 @@ afterAll(() => vi.unstubAllGlobals());
 const pageWindow = () => window as unknown as { app?: Facade };
 
 describe('WorldEditorPage', () => {
+  it('keeps offline editing available while requesting admin access for live snapshots', () => {
+    const request = vi.fn();
+    const view = render(<WorldEditorPage liveAuth={{ authorized: false, request }} />);
+    expect(view.container.querySelector('#btn-new')).toBeTruthy();
+    expect(view.container.querySelector('#btn-fetch')?.textContent).toBe('Login for Live');
+    fireEvent.click(view.container.querySelector('#btn-fetch')!);
+    expect(request).toHaveBeenCalledOnce();
+    expect(sendAdmin).not.toHaveBeenCalled();
+  });
+
   it('loads and normalizes pending map links while preserving server query and history focus', async () => {
     window.history.replaceState(null, '', '/world-editor.html?server=%2Fapi#map/target');
     const view = render(<WorldEditorPage />);

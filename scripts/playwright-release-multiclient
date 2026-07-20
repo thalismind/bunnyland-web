@@ -354,14 +354,19 @@ def connect_page(page, page_name: str, api_url: str) -> None:
         route.fulfill(response=route.fetch(url=target))
 
     page.route("**/api-release/**", proxy_api)
-    page.goto(f"{BASE_URL}/{page_name}", wait_until="domcontentloaded")
-    if page_name == "toon-client.html":
-        page.locator("#loading-overlay").wait_for(state="hidden", timeout=5000)
     auth = player_auth_header()
     if auth:
-        page.evaluate("(authHeader) => BunnylandApi.setPlayerAuth(authHeader)", auth)
-    page.locator("#api-url").fill("/api-release")
-    page.locator("#btn-connect").click()
+        page.context.add_cookies([{
+            "name": "bunnyland_token",
+            "value": auth.removeprefix("Bearer "),
+            "url": BASE_URL,
+        }])
+    page.goto(
+        f"{BASE_URL}/{page_name}?server=%2Fapi-release",
+        wait_until="domcontentloaded",
+    )
+    if page_name == "toon-client.html":
+        page.locator("#loading-overlay").wait_for(state="hidden", timeout=5000)
     page.wait_for_function("() => window.app && window.app.characters?.length > 0 || window.app?.characterList?.length > 0", timeout=20000)
 
 

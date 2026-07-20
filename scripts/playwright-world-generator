@@ -75,6 +75,11 @@ def json_response(route, body) -> None:
 def install_routes(page, generated_requests: list[dict]) -> None:
     state = {"snapshot": INITIAL_SNAPSHOT, "generation_checks": 0}
 
+    page.route("**/auth/session", lambda route: json_response(route, {
+        "subject": "admin-test", "scopes": ["world:admin"],
+        "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+    }))
+
     page.route(
         "**/admin/world/generators",
         lambda route: json_response(

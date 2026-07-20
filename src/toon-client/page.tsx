@@ -1,4 +1,5 @@
-import { Button } from '@bunnyland/ui-web/preact';
+import { serverFromUrl } from '@bunnyland/ui-web/api';
+import { AuthGate, AuthProvider, Button } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
@@ -511,4 +512,14 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
 
 interface BrowserWindow extends Window { BunnylandApi: ToonRuntime['api']; BunnylandPlay: ToonRuntime['play']; BunnylandUI: ToonRuntime['ui'] }
 const root = document.getElementById('app');
-if (root) { const browser = window as unknown as BrowserWindow; render(<ToonPage runtime={{ api: browser.BunnylandApi, play: browser.BunnylandPlay, ui: browser.BunnylandUI }} />, root); }
+if (root) {
+  const browser = window as unknown as BrowserWindow;
+  render(
+    <AuthProvider base={serverFromUrl() || '/api/v1'}>
+      <AuthGate scopes={['world:play']}>
+        <ToonPage runtime={{ api: browser.BunnylandApi, play: browser.BunnylandPlay, ui: browser.BunnylandUI }} />
+      </AuthGate>
+    </AuthProvider>,
+    root,
+  );
+}

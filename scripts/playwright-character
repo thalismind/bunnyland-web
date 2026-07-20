@@ -138,6 +138,18 @@ def launch_browser(playwright):
 
 
 def install_routes(page, state: dict) -> None:
+    def auth_session(route):
+        if route.request.method == "POST":
+            state["authenticated"] = True
+        if not state["authenticated"]:
+            route.fulfill(status=401, json={"detail": "bearer token required"})
+            return
+        route.fulfill(status=200, json={
+            "subject": "character-test", "scopes": ["character:profile", "character:chat"],
+            "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+        })
+
+    page.route("**/auth/session", auth_session)
     def character_projection(route):
         character_id = route.request.url.rsplit("/", 1)[-1].replace("%3A", ":")
         body = projection(
@@ -192,10 +204,15 @@ def main() -> None:
         page.add_init_script(
             "localStorage.setItem('bunnyland.characterChat.clientId', 'character-chat-client');"
         )
-        state = {"ready": False, "chat_payloads": []}
+        state = {"ready": False, "chat_payloads": [], "authenticated": False}
         install_routes(page, state)
 
         page.goto(f"{BASE_URL}/character.html?server=/api/v1#{CHARACTER}", wait_until="domcontentloaded")
+        page.locator("button", has_text="Login").click()
+        expect(page.locator(".bl-auth-scopes")).to_contain_text("Character profile (character:profile)")
+        page.get_by_label("Username").fill("character-test")
+        page.get_by_label("Password").fill("correct horse")
+        page.locator("button", has_text="Sign in").click()
         page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
 
         expect(page).to_have_title("Bunnyland Character: Bun")

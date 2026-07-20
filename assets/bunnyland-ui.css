@@ -349,6 +349,51 @@ button:disabled { opacity: 0.4; cursor: default; }
 .bl-status-warn { color: var(--bl-warn); }
 .bl-status-info { color: var(--bl-info); }
 
+.bl-auth-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  padding: 24px;
+  text-align: center;
+}
+
+.bl-auth-dialog {
+  width: min(420px, calc(100vw - 24px));
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-md);
+  color: var(--bl-text);
+  background: var(--bl-bg-strong);
+  box-shadow: var(--bl-shadow-popover);
+}
+
+.bl-auth-dialog::backdrop { background: var(--bl-overlay); }
+
+.bl-auth-form,
+.bl-auth-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.bl-auth-form { gap: 14px; }
+.bl-auth-form h2 { margin: 0; font-size: var(--bl-text-xl); }
+.bl-auth-form input { width: 100%; }
+
+.bl-auth-scopes {
+  margin: 0;
+  color: var(--bl-text-muted);
+  font-size: var(--bl-text-xs);
+  line-height: 1.45;
+}
+
+.bl-auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 #toolbar {
   display: flex;
   flex-direction: column;

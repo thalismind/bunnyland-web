@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { AuthProvider, useAuth } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { EntityList } from './entity-list';
 
@@ -8,6 +9,7 @@ type Json = Record<string, any>;
 type Entity = { components: Json; created_epoch?: number; id: string; prefab?: string; relationships: Record<string, any[]> };
 type World = { entities: Record<string, Entity>; meta: Json; metadata: Json };
 type Status = { kind: string; text: string };
+type LiveAuth = { authorized: boolean; request: () => void };
 
 const globals = globalThis as typeof globalThis & { BunnylandApi: any; BunnylandUI: any; BunnylandWorld: any };
 const api = globals.BunnylandApi;
@@ -208,11 +210,12 @@ type Facade = {
 };
 const pageWindow = window as unknown as Window & { app?: Facade };
 
-export function WorldEditorPage() {
+export function WorldEditorPage({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
   const worldRef = useRef<World>(emptyWorld()); const selectedRef = useRef('entity_1');
   const schemaRef = useRef<Json | null>(null); const fragmentsRef = useRef<Json[]>([]);
   const liveBaseRef = useRef(''); const authRef = useRef<any>(null); const pendingRef = useRef(parseFocusHash());
-  const timersRef = useRef<Record<string, number>>({}); const mountedRef = useRef(true);
+  const timersRef = useRef<Record<string, number>>({}); const mountedRef = useRef(true); const liveAuthRef = useRef(liveAuth); const queuedLiveRef = useRef('');
+  liveAuthRef.current = liveAuth;
   const [revision, setRevision] = useState(0); const [search, setSearch] = useState('');
   const [apiUrl, setApiUrl] = useState('/api/v1/'); const [status, setStatus] = useState<Status>({ kind: '', text: 'Ready' });
   const [runtime, setRuntime] = useState<{ paused: boolean | null; running: boolean }>({ paused: null, running: false });
@@ -246,6 +249,10 @@ export function WorldEditorPage() {
   });
 
   const sendAdmin = async (path: string, options: Json) => {
+    if (liveAuthRef.current && !liveAuthRef.current.authorized) {
+      liveAuthRef.current.request();
+      throw new Error('Sign in with world administration access first');
+    }
     if (!liveBaseRef.current) throw new Error('Load a server snapshot first');
     return api.sendAdmin(liveBaseRef.current, path, { ...options, getAuth: () => authRef.current, setAuth: (auth: any) => { authRef.current = auth; } });
   };
@@ -264,8 +271,15 @@ export function WorldEditorPage() {
     if (!liveBaseRef.current) return; window.clearTimeout(timersRef.current[key]);
     timersRef.current[key] = window.setTimeout(() => { void sendPatch(operations, false, 'Component patched').catch(error => setStatus({ kind: 'err', text: `Patch error: ${errorMessage(error)}` })); }, 350);
   };
-  const fetchSnapshot = async () => {
-    const base = api.normalizeBase(apiUrl); if (!base) return;
+  const fetchSnapshot = async (candidate = apiUrl) => {
+    if (liveAuthRef.current && !liveAuthRef.current.authorized) {
+      queuedLiveRef.current = candidate;
+      liveAuthRef.current.request();
+      setStatus({ kind: '', text: 'Sign in to load a live server snapshot' });
+      return;
+    }
+    queuedLiveRef.current = '';
+    const base = api.normalizeBase(candidate); if (!base) return;
     try {
       liveBaseRef.current = base;
       worldRef.current = worldApi.parseWorld(await sendAdmin('/admin/world/snapshot', { method: 'GET', prompt: true }));
@@ -276,6 +290,15 @@ export function WorldEditorPage() {
       applyPending(); syncUrl(); revise(); setStatus({ kind: 'ok', text: 'Server snapshot loaded · live patches enabled' });
     } catch (error) { setStatus({ kind: 'err', text: `Server error: ${errorMessage(error)}` }); }
   };
+  const fetchSnapshotRef = useRef(fetchSnapshot);
+  fetchSnapshotRef.current = fetchSnapshot;
+
+  useEffect(() => {
+    if (!liveAuth?.authorized || !queuedLiveRef.current) return;
+    const server = queuedLiveRef.current;
+    queuedLiveRef.current = '';
+    void fetchSnapshotRef.current(server);
+  }, [liveAuth?.authorized]);
 
   useEffect(() => {
     mountedRef.current = true; ui.initClientMenu();
@@ -293,7 +316,7 @@ export function WorldEditorPage() {
     pageWindow.app = facade;
     const onLocation = () => { const id = parseFocusHash(); if (!id) selectEntityPage('', false); else if (worldRef.current.entities[id]) selectEntityPage(id, false); else { pendingRef.current = id; selectedRef.current = ''; revisePage(); } };
     window.addEventListener('hashchange', onLocation); window.addEventListener('popstate', onLocation);
-    void (async () => { const cfg = await ui.loadConfig(); const server = api.serverFromUrl() || (typeof cfg?.serverUrl === 'string' ? cfg.serverUrl : ''); if (server) setApiUrl(server); if (api.serverFromUrl() || (cfg?.autoConnect && server)) { const base = api.normalizeBase(server); liveBaseRef.current = base; setApiUrl(server); await fetchSnapshotWith(base); } else applyPendingPage(); })();
+    void (async () => { const cfg = await ui.loadConfig(); const server = api.serverFromUrl() || (typeof cfg?.serverUrl === 'string' ? cfg.serverUrl : ''); if (server) setApiUrl(server); if (api.serverFromUrl() || (cfg?.autoConnect && server)) { if (liveAuthRef.current && !liveAuthRef.current.authorized) { queuedLiveRef.current = server; setStatus({ kind: '', text: 'Sign in to load a live server snapshot' }); applyPendingPage(); return; } const base = api.normalizeBase(server); liveBaseRef.current = base; setApiUrl(server); await fetchSnapshotWith(base); } else applyPendingPage(); })();
     async function fetchSnapshotWith(base: string) {
       try {
         worldRef.current = worldApi.parseWorld(await api.sendAdmin(base, '/admin/world/snapshot', { method: 'GET', prompt: true, getAuth: () => authRef.current, setAuth: (auth: any) => { authRef.current = auth; } }));
@@ -335,7 +358,7 @@ export function WorldEditorPage() {
   };
 
   return <>
-    <div id="toolbar"><div class="toolbar-row" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland World Editor</span><span class="toolbar-sep">|</span><label for="file-input">World:</label><input type="file" id="file-input" accept=".json,application/json" onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then(text => { worldRef.current = worldApi.parseWorld(JSON.parse(text)); liveBaseRef.current = ''; selectedRef.current = pendingRef.current && worldRef.current.entities[pendingRef.current] ? pendingRef.current : Object.keys(worldRef.current.entities)[0] || ''; revise(); syncUrl(); setStatus({ kind: 'ok', text: 'World loaded' }); }).catch(error => setStatus({ kind: 'err', text: `Load error: ${errorMessage(error)}` })); }} /><button id="btn-new" onClick={() => { worldRef.current = emptyWorld(); selectedRef.current = 'entity_1'; liveBaseRef.current = ''; schemaRef.current = null; setRuntime({ paused: null, running: false }); revise(); syncUrl(); setStatus({ kind: 'ok', text: 'New world created' }); }}>New World</button><span class="toolbar-sep">|</span><label for="api-url">Server:</label><input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} /><button id="btn-fetch" onClick={() => { void fetchSnapshot(); }}>Load Snapshot</button><button id="btn-save-live" onClick={() => { void sendAdmin('/admin/world/checkpoints', { method: 'POST' }).then(data => { if (data.world_epoch != null) { world.metadata.epoch = data.world_epoch; world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch; revise(); } setStatus({ kind: 'ok', text: 'World saved' }); }).catch(error => setStatus({ kind: 'err', text: `Save error: ${errorMessage(error)}` })); }}>Save Live</button><button id="btn-toggle-live" disabled={!liveBaseRef.current} title={!liveBaseRef.current ? 'Load a server snapshot before changing runtime state' : runtime.paused ? 'Resume world ticks' : 'Pause world ticks'} onClick={() => { void sendAdmin('/admin/world/runtime', { method: 'PATCH', body: JSON.stringify({ paused: !runtime.paused }) }).then(data => { setRuntime({ paused: Boolean(data.paused), running: Boolean(data.running) }); if (data.world_epoch != null) world.metadata.epoch = data.world_epoch; revise(); setStatus({ kind: 'ok', text: data.paused ? 'World paused' : 'World resumed' }); }).catch(error => setStatus({ kind: 'err', text: `Runtime error: ${errorMessage(error)}` })); }}>{!liveBaseRef.current || runtime.paused == null ? '⏯' : runtime.paused ? '▶' : '⏸'}</button><span id="runtime-status">{!liveBaseRef.current ? 'runtime: offline' : runtime.paused == null ? 'runtime: locked' : runtime.paused ? 'runtime: paused' : runtime.running ? 'runtime: playing' : 'runtime: stopped'}</span><span id="status" class={status.kind}>{status.text}</span><button id="btn-client-menu" class="client-menu-button" type="button">Menu</button></div>
+    <div id="toolbar"><div class="toolbar-row" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland World Editor</span><span class="toolbar-sep">|</span><label for="file-input">World:</label><input type="file" id="file-input" accept=".json,application/json" onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then(text => { worldRef.current = worldApi.parseWorld(JSON.parse(text)); liveBaseRef.current = ''; selectedRef.current = pendingRef.current && worldRef.current.entities[pendingRef.current] ? pendingRef.current : Object.keys(worldRef.current.entities)[0] || ''; revise(); syncUrl(); setStatus({ kind: 'ok', text: 'World loaded' }); }).catch(error => setStatus({ kind: 'err', text: `Load error: ${errorMessage(error)}` })); }} /><button id="btn-new" onClick={() => { worldRef.current = emptyWorld(); selectedRef.current = 'entity_1'; liveBaseRef.current = ''; schemaRef.current = null; setRuntime({ paused: null, running: false }); revise(); syncUrl(); setStatus({ kind: 'ok', text: 'New world created' }); }}>New World</button><span class="toolbar-sep">|</span><label for="api-url">Server:</label><input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} /><button id="btn-fetch" onClick={() => { void fetchSnapshot(); }}>{liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Load Snapshot'}</button><button id="btn-save-live" onClick={() => { void sendAdmin('/admin/world/checkpoints', { method: 'POST' }).then(data => { if (data.world_epoch != null) { world.metadata.epoch = data.world_epoch; world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch; revise(); } setStatus({ kind: 'ok', text: 'World saved' }); }).catch(error => setStatus({ kind: 'err', text: `Save error: ${errorMessage(error)}` })); }}>Save Live</button><button id="btn-toggle-live" disabled={!liveBaseRef.current} title={!liveBaseRef.current ? 'Load a server snapshot before changing runtime state' : runtime.paused ? 'Resume world ticks' : 'Pause world ticks'} onClick={() => { void sendAdmin('/admin/world/runtime', { method: 'PATCH', body: JSON.stringify({ paused: !runtime.paused }) }).then(data => { setRuntime({ paused: Boolean(data.paused), running: Boolean(data.running) }); if (data.world_epoch != null) world.metadata.epoch = data.world_epoch; revise(); setStatus({ kind: 'ok', text: data.paused ? 'World paused' : 'World resumed' }); }).catch(error => setStatus({ kind: 'err', text: `Runtime error: ${errorMessage(error)}` })); }}>{!liveBaseRef.current || runtime.paused == null ? '⏯' : runtime.paused ? '▶' : '⏸'}</button><span id="runtime-status">{!liveBaseRef.current ? 'runtime: offline' : runtime.paused == null ? 'runtime: locked' : runtime.paused ? 'runtime: paused' : runtime.running ? 'runtime: playing' : 'runtime: stopped'}</span><span id="status" class={status.kind}>{status.text}</span><button id="btn-client-menu" class="client-menu-button" type="button">Menu</button></div>
       <div class="toolbar-row" id="toolbar-row2"><label for="meta-seed">Seed:</label><input type="text" id="meta-seed" value={world.meta?.seed || ''} spellcheck={false} onInput={event => { world.meta ??= {}; world.meta.seed = event.currentTarget.value; revise(); }} /><label for="meta-generator">Generator:</label><input type="text" id="meta-generator" value={world.meta?.generator || ''} spellcheck={false} onInput={event => { world.meta ??= {}; world.meta.generator = event.currentTarget.value; revise(); }} /><label for="meta-epoch">Epoch:</label><input type="number" id="meta-epoch" min="0" value={Number(world.metadata.epoch || 0)} onInput={event => { world.metadata.epoch = Number(event.currentTarget.value || 0); world.meta ??= {}; world.meta.saved_at_epoch = world.metadata.epoch; revise(); }} /><span class="toolbar-sep">|</span><button id="btn-download" onClick={() => downloadJson(jsonText, `${String(world.meta?.seed || 'world').replace(/[^a-zA-Z0-9_.-]+/g, '_') || 'world'}.json`, () => setStatus({ kind: 'ok', text: 'World JSON downloaded' }))}>Download JSON</button><button id="btn-copy" onClick={() => { void navigator.clipboard.writeText(jsonText).then(() => setStatus({ kind: 'ok', text: 'World JSON copied' })).catch(() => setStatus({ kind: 'err', text: 'Clipboard unavailable' })); }}>Copy JSON</button><button id="btn-toggle-snapshot" title={snapshotVisible ? 'Hide snapshot JSON pane' : 'Show snapshot JSON pane'} onClick={() => { const next = !snapshotVisible; setSnapshotVisible(next); localStorage.setItem('bunnyland.editor.snapshotVisible', String(next)); }}>{snapshotVisible ? 'Hide Snapshot' : 'Show Snapshot'}</button><span class="toolbar-sep">|</span><span id="world-info">{Object.keys(world.entities).length} entities · epoch {world.metadata.epoch || 0}</span></div>
       <div class="toolbar-row" id="toolbar-row3"><label for="fragment-file">Fragments:</label><input type="file" id="fragment-file" accept=".json,application/json" onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then(text => { fragmentsRef.current.push(...normalizeFragments(JSON.parse(text), file.name)); revise(); }); event.currentTarget.value = ''; }} /><span id="library-select-wrap"><SearchDropdown disabled={!fragmentsRef.current.length} dropdownId="fragment-dropdown" id="library-select" options={fragmentsRef.current.map(fragment => ({ value: fragment.id, label: `${fragment.kind} · ${fragment.title}` }))} placeholder="find fragment..." /></span><button id="btn-refresh-library" onClick={() => { if (!liveBaseRef.current) { setStatus({ kind: 'err', text: 'Load a server snapshot before refreshing the library' }); return; } void api.sendJson(liveBaseRef.current, '/play/catalog').then((data: Json) => { fragmentsRef.current = normalizeFragments(data.content || {}, data.content?.library_id || 'server'); revise(); setStatus({ kind: 'ok', text: `Loaded ${fragmentsRef.current.length} library fragments` }); }); }}>Refresh Library</button><button id="btn-import-fragment" disabled={!fragmentsRef.current.length} onClick={() => { void importFragment(); }}>Import Fragment</button><button id="btn-export-fragment" onClick={() => { if (!selected) return; downloadJson(JSON.stringify({ schema_version: 1, id: `export/${selected.id}`, title: entityName(selected), kind: worldApi.entityType(selected), root_client_id: '$root', operations: [{ op: 'add_entity', client_id: '$root', prefab: selected.prefab || 'entity', components: Object.entries(selected.components).map(([type, fields]) => ({ type, fields: clone(fields) })) }] }, null, 2), `${selected.id}.fragment.json`, () => setStatus({ kind: 'ok', text: 'Fragment JSON downloaded' })); }}>Export Selected Fragment</button></div>
     </div>
@@ -452,4 +475,13 @@ async function deleteEntity(entity: Entity, world: World, live: string, sendPatc
 }
 
 const root = document.getElementById('app');
-if (root) render(<WorldEditorPage />, root);
+if (root) {
+  function WorldEditorEntry() {
+    const { hasScopes, openLogin, status } = useAuth();
+    const authorized = status === 'authenticated' && hasScopes(['world:admin']);
+    const request = useCallback((): void => openLogin(['world:admin']), [openLogin]);
+    const liveAuth = useMemo<LiveAuth>(() => ({ authorized, request }), [authorized, request]);
+    return <WorldEditorPage liveAuth={liveAuth} />;
+  }
+  render(<AuthProvider base={api.serverFromUrl() || '/api/v1'}><WorldEditorEntry /></AuthProvider>, root);
+}

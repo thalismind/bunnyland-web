@@ -1,4 +1,4 @@
-import { Button } from '@bunnyland/ui-web/preact';
+import { AuthProvider, Button, useAuth } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -43,6 +43,11 @@ interface BehaviorUi {
 export interface BehaviorEditorRuntime {
   api: BehaviorApi;
   ui: BehaviorUi;
+}
+
+interface LiveAuth {
+  authorized: boolean;
+  request: () => void;
 }
 
 export const BUILTIN_CONDITIONS = ['has_open_exit', 'has_visible_characters', 'has_visible_objects'];
@@ -218,7 +223,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime }) {
+export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth; runtime: BehaviorEditorRuntime }) {
   const [behavior, setBehavior] = useState(() => cloneBehavior(DEFAULT_BEHAVIOR));
   const [conditions, setConditions] = useState([...BUILTIN_CONDITIONS]);
   const [actions, setActions] = useState([...BUILTIN_ACTIONS]);
@@ -233,6 +238,9 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
   const baseRef = useRef('');
   const authRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+  const liveAuthRef = useRef(liveAuth);
+  const queuedServerRef = useRef('');
+  liveAuthRef.current = liveAuth;
 
   const changeStructure = useCallback((update: (draft: BehaviorSpec) => void): void => {
     setBehavior(current => {
@@ -363,10 +371,18 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
     runtime.api.setServerInUrl('');
   }, [runtime]);
 
-  const connect = useCallback(async (candidate: string): Promise<void> => {
+  const connect = useCallback(async (candidate: string, requestAuth = true): Promise<void> => {
     if (!mountedRef.current) return;
     const normalized = runtime.api.normalizeBase(candidate);
     if (!normalized) return;
+    if (liveAuthRef.current && !liveAuthRef.current.authorized) {
+      queuedServerRef.current = normalized;
+      setApiUrl(normalized);
+      setApiStatus({ text: 'login required', kind: '' });
+      if (requestAuth) liveAuthRef.current.request();
+      return;
+    }
+    queuedServerRef.current = '';
     baseRef.current = normalized;
     setBase(normalized);
     setApiUrl(normalized);
@@ -389,10 +405,17 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
   }, [refreshFrom, runtime]);
 
   useEffect(() => {
+    if (!liveAuth?.authorized || !queuedServerRef.current) return;
+    const server = queuedServerRef.current;
+    queuedServerRef.current = '';
+    void connect(server, false);
+  }, [connect, liveAuth?.authorized]);
+
+  useEffect(() => {
     mountedRef.current = true;
     runtime.ui.initClientMenu();
     const connectTo = (server: string): void => {
-      if (mountedRef.current) void connect(server);
+      if (mountedRef.current) void connect(server, false);
     };
     void runtime.api.applyConfigToInput({
       connect: connectTo,
@@ -413,6 +436,11 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
     }
     if (!connected) {
       setSaveStatus({ text: 'Connect to a server first', kind: 'err' });
+      return;
+    }
+    if (liveAuthRef.current && !liveAuthRef.current.authorized) {
+      liveAuthRef.current.request();
+      setSaveStatus({ text: 'Sign in with world administration access first', kind: 'err' });
       return;
     }
     try {
@@ -491,7 +519,7 @@ export function BehaviorEditorPage({ runtime }: { runtime: BehaviorEditorRuntime
         <span class="toolbar-sep">|</span>
         <label for="api-url">Server:</label>
         <input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
-        <Button id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{connected || base ? 'Disconnect' : 'Connect'}</Button>
+        <Button id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{connected || base ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect'}</Button>
         <span id="api-status" class={apiStatus.kind}>{apiStatus.text}</span>
       </div>
     </div>
@@ -552,5 +580,14 @@ interface BrowserWindow extends Window {
 const root = document.getElementById('app');
 if (root) {
   const browserWindow = window as unknown as BrowserWindow;
-  render(<BehaviorEditorPage runtime={{ api: browserWindow.BunnylandApi, ui: browserWindow.BunnylandUI }} />, root);
+  const runtime = { api: browserWindow.BunnylandApi, ui: browserWindow.BunnylandUI };
+  function BehaviorEditorEntry() {
+    const { hasScopes, openLogin, status } = useAuth();
+    const authorized = status === 'authenticated' && hasScopes(['world:admin']);
+    const request = useCallback((): void => openLogin(['world:admin']), [openLogin]);
+    const liveAuth = useMemo<LiveAuth>(() => ({ authorized, request }), [authorized, request]);
+    return <BehaviorEditorPage liveAuth={liveAuth} runtime={runtime} />;
+  }
+  const server = new URL(location.href).searchParams.get('server') || '/api/v1';
+  render(<AuthProvider base={server}><BehaviorEditorEntry /></AuthProvider>, root);
 }

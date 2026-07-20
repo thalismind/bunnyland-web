@@ -1,10 +1,13 @@
 import {
+  AuthGate,
+  AuthProvider,
   Button,
   StatusText,
   Toolbar,
   ToolbarBrand,
   ToolbarRow,
 } from '@bunnyland/ui-web/preact';
+import { serverFromUrl } from '@bunnyland/ui-web/api';
 import type {
   ActionArgument,
   ActionView,
@@ -1143,4 +1146,4 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
 }
 
 const root = document.getElementById('app');
-if (root) render(<WebReplPage />, root);
+if (root) render(<AuthProvider base={serverFromUrl() || '/api/v1'}><AuthGate scopes={['world:play']}><WebReplPage /></AuthGate></AuthProvider>, root);

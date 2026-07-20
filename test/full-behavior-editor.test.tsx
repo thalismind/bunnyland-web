@@ -37,6 +37,17 @@ function runtime(options: RuntimeOptions = {}): BehaviorEditorRuntime {
 afterEach(cleanup);
 
 describe('BehaviorEditorPage', () => {
+  it('keeps offline authoring available while requesting admin access for a live connection', () => {
+    const editorRuntime = runtime();
+    const request = vi.fn();
+    const view = render(<BehaviorEditorPage liveAuth={{ authorized: false, request }} runtime={editorRuntime} />);
+    expect(view.container.querySelector('#tree-root')).toBeTruthy();
+    expect(view.container.querySelector('#btn-connect')?.textContent).toBe('Login for Live');
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    expect(request).toHaveBeenCalledOnce();
+    expect(editorRuntime.api.sendAdmin).not.toHaveBeenCalled();
+  });
+
   it('edits a keyed tree and validates leaf refs and parameter JSON', () => {
     const view = render(<BehaviorEditorPage runtime={runtime()} />);
     const root = view.container.querySelector('.bt-node[data-path=""]');

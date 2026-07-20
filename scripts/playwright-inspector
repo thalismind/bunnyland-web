@@ -75,6 +75,10 @@ def main() -> None:
             };
             """
         )
+        page.route("**/api/v1/auth/session", lambda route: route.fulfill(status=200, json={
+            "subject": "admin", "scopes": ["world:admin"],
+            "expires_at": 2000000000, "rotate_after": None, "rotation_eligible": False,
+        }))
         page.route("**/admin/world", lambda route: route.fulfill(status=200, json={"ok": True}))
         page.route("**/admin/world/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
         page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi%2Fv1", wait_until="domcontentloaded")
@@ -145,16 +149,33 @@ def main() -> None:
             """
         )
         authenticated = {"value": False}
-        auth_page.route("**/api/v1/auth/session", lambda route: (
-            authenticated.update(value=True),
-            route.fulfill(status=200, json={"access_token": "admin-token", "subject": "admin", "scopes": ["world:play", "world:admin"], "expires_at": 2000000000, "rotate_after": 1990000000}),
-        )[-1])
+        def auth_session(route):
+            if route.request.method == "POST":
+                authenticated["value"] = True
+            if not authenticated["value"]:
+                route.fulfill(status=401, json={"detail": "bearer token required"})
+                return
+            route.fulfill(status=200, json={
+                "subject": "admin", "scopes": ["world:play", "world:admin"],
+                "expires_at": 2000000000, "rotate_after": 1990000000,
+                "rotation_eligible": False,
+            })
+
+        auth_page.route("**/api/v1/auth/session", auth_session)
         auth_page.route("**/api/v1/admin/world", lambda route: route.fulfill(
             status=200 if authenticated["value"] else 401,
             json={"ok": True} if authenticated["value"] else {"detail": "locked"},
         ))
         auth_page.route("**/api/v1/admin/world/runtime", lambda route: route.fulfill(status=200, json={"running": True, "paused": False}))
         auth_page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi%2Fv1#map", wait_until="domcontentloaded")
+        auth_page.get_by_role("button", name="Close client menu").click()
+        auth_page.locator("#btn-connect").click()
+        requested_scopes = auth_page.locator(".bl-auth-scopes").text_content()
+        if "World administration (world:admin)" not in (requested_scopes or ""):
+            raise AssertionError(f"admin login modal omitted requested scopes: {requested_scopes!r}")
+        auth_page.get_by_label("Username").fill("admin")
+        auth_page.get_by_label("Password").fill("secret")
+        auth_page.locator("button", has_text="Sign in").click()
         auth_page.wait_for_function("window.__webSocketFrames.length > 0")
         auth_result = auth_page.evaluate(
             """
@@ -166,8 +187,8 @@ def main() -> None:
             })
             """
         )
-        if auth_result["prompts"] != ["Bunnyland username", "Bunnyland password"]:
-            raise AssertionError(f"inspector did not prompt for admin auth: {auth_result!r}")
+        if auth_result["prompts"]:
+            raise AssertionError(f"inspector used native prompts instead of the shared login modal: {auth_result!r}")
         expected_socket = f"{BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://')}/api/v1/admin/world/stream"
         if auth_result["sockets"] != [expected_socket]:
             raise AssertionError(f"inspector did not authenticate websocket: {auth_result!r}")

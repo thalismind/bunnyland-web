@@ -1,4 +1,6 @@
 import {
+  AuthGate,
+  AuthProvider,
   Button,
   StatusText,
   Toolbar,
@@ -273,10 +275,11 @@ interface CharacterFacade {
 }
 
 export interface CharacterPageProps {
+  onViewChange?: (view: CharacterView) => void;
   services?: CharacterServices;
 }
 
-export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: CharacterPageProps) {
+export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICES }: CharacterPageProps) {
   const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [apiBase, setApiBase] = useState('');
   const [connected, setConnected] = useState(false);
@@ -515,6 +518,7 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
             ? 'chat'
             : current;
         if (next !== current) history.replaceState(null, '', characterViewUrl(location.href, next));
+        if (next !== current) onViewChange?.(next);
         return next;
       });
     }).catch((error) => {
@@ -522,14 +526,15 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
       setStatusKind('err');
       setApiStatus(`⚠ ${errorMessage(error)}`);
     });
-  }, [services]);
+  }, [onViewChange, services]);
 
   const selectView = useCallback((next: CharacterView): void => {
     if (next === 'chat' && features?.character_chat === false) return;
     if (next === 'sheet' && features?.character_sheets === false) return;
     setView(next);
+    onViewChange?.(next);
     history.replaceState(null, '', characterViewUrl(location.href, next));
-  }, [features]);
+  }, [features, onViewChange]);
 
   useEffect(() => {
     if (!connected || !apiBase) return;
@@ -951,4 +956,20 @@ export function CharacterPage({ services = DEFAULT_BROWSER_SERVICES }: Character
 }
 
 const root = document.getElementById('app');
-if (root) render(<CharacterPage />, root);
+if (root) {
+  const base = DEFAULT_BROWSER_SERVICES.serverFromUrl() || '/api/v1';
+  function CharacterEntry() {
+    const [scope, setScope] = useState(viewFromUrl() === 'chat' ? 'character:chat' as const : 'character:profile' as const);
+    const selectScope = useCallback((view: CharacterView): void => {
+      setScope(view === 'chat' ? 'character:chat' : 'character:profile');
+    }, []);
+    return (
+      <AuthProvider base={base}>
+        <AuthGate scopes={[scope]}>
+          <CharacterPage onViewChange={selectScope} />
+        </AuthGate>
+      </AuthProvider>
+    );
+  }
+  render(<CharacterEntry />, root);
+}

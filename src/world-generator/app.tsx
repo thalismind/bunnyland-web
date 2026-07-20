@@ -1,4 +1,5 @@
-import { EmptyState } from '@bunnyland/ui-web/preact';
+import { serverFromUrl } from '@bunnyland/ui-web/api';
+import { AuthGate, AuthProvider, EmptyState } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -485,4 +486,4 @@ export function WorldGeneratorPage() {
 }
 
 const root = document.getElementById('app');
-if (root) render(<WorldGeneratorPage />, root);
+if (root) render(<AuthProvider base={serverFromUrl() || '/api/v1'}><AuthGate scopes={['world:admin']}><WorldGeneratorPage /></AuthGate></AuthProvider>, root);

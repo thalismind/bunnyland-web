@@ -41,6 +41,10 @@ def main() -> None:
         coverage = PlaywrightCoverage("world-editor-toolbar")
         browser = launch_browser(playwright)
         page = coverage.new_page(browser, viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+        page.route("**/api/v1/auth/session", lambda route: route.fulfill(status=200, json={
+            "subject": "world-editor-toolbar-test", "scopes": ["world:admin"],
+            "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+        }))
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
 
         fragment_parent = page.locator("#fragment-file").evaluate("node => node.closest('.toolbar-row').id")

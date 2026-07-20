@@ -1,4 +1,5 @@
-import { Button, EmptyState } from '@bunnyland/ui-web/preact';
+import { serverFromUrl } from '@bunnyland/ui-web/api';
+import { AuthGate, AuthProvider, Button, EmptyState } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -324,10 +325,17 @@ interface BrowserWindow extends Window {
 const root = document.getElementById('app');
 if (root) {
   const browserWindow = window as unknown as BrowserWindow;
-  render(<EventStreamPage runtime={{
-    api: browserWindow.BunnylandApi,
-    events: browserWindow.BunnylandEvents,
-    ui: browserWindow.BunnylandUI,
-    world: browserWindow.BunnylandWorld,
-  }} />, root);
+  render(
+    <AuthProvider base={serverFromUrl() || '/api/v1'}>
+      <AuthGate scopes={['world:admin']}>
+        <EventStreamPage runtime={{
+          api: browserWindow.BunnylandApi,
+          events: browserWindow.BunnylandEvents,
+          ui: browserWindow.BunnylandUI,
+          world: browserWindow.BunnylandWorld,
+        }} />
+      </AuthGate>
+    </AuthProvider>,
+    root,
+  );
 }

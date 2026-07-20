@@ -133,6 +133,10 @@ def recent_events_payload() -> dict:
 
 
 def route_api(page) -> None:
+    page.route("**/mock/auth/session", lambda route: route.fulfill(status=200, json={
+        "subject": "admin-test", "scopes": ["world:admin"],
+        "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
+    }))
     page.route(
         "**/mock/admin/world/snapshot",
         lambda route: route.fulfill(

@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { serverFromUrl } from '@bunnyland/ui-web/api';
+import { AuthGate, AuthProvider } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -526,4 +528,4 @@ export function WebTuiPage() {
 }
 
 const root = document.getElementById('app');
-if (root) render(<WebTuiPage />, root);
+if (root) render(<AuthProvider base={serverFromUrl() || '/api/v1'}><AuthGate scopes={['world:play']}><WebTuiPage /></AuthGate></AuthProvider>, root);
