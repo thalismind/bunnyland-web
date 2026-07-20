@@ -174,6 +174,7 @@ export function WebTuiPage() {
     if (!current.connected || !baseRef.current) return;
     const base = baseRef.current;
     const token = ++refreshTokenRef.current;
+    let claimRequest = false;
     try {
       const list = await play.fetchCharacterList(base);
       if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || !modelRef.current.connected) return;
@@ -184,7 +185,8 @@ export function WebTuiPage() {
         dropPlayer();
         return;
       }
-      if (playerId) {
+      if (playerId && modelRef.current.control) {
+        claimRequest = true;
         const [projection, queued] = await Promise.all([
           play.fetchCharacterProjection(base, playerId, modelRef.current.control),
           play.fetchQueuedCommands(base, playerId, modelRef.current.control),
@@ -201,11 +203,22 @@ export function WebTuiPage() {
         drainEvents(events.events ?? [], !modelRef.current.eventsPrimed);
         update({ eventsPrimed: true });
       }
-      if (!playerId || liveStateRef.current === 'live') {
+      if (!playerId || (modelRef.current.control && liveStateRef.current === 'live')) {
         update({ status: { kind: 'live', text: `● Live · epoch ${modelRef.current.projection?.worldEpoch || list.epoch || 0}s` } });
       }
     } catch (error) {
       if (token !== refreshTokenRef.current || base !== baseRef.current) return;
+      const playerId = modelRef.current.playerId;
+      if (claimRequest && playerId && play.isClaimNotFoundError(error)) {
+        play.clearClaimControl(CLIENT_ID_KEY, playerId);
+        stopLive();
+        update({
+          control: null, projection: null, queued: [], queueProjection: null, selectedId: '',
+          status: { kind: 'err', text: '⚠ Claim expired. Claim again to continue.' },
+        });
+        startLobby();
+        return;
+      }
       update({ status: { kind: 'err', text: `⚠ ${message(error)}` } });
     }
   };

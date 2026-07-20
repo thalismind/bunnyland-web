@@ -179,8 +179,10 @@ def install_routes(page, posted: list[dict]) -> None:
     }))
     deleted: list[str] = []
     fallback_updates: list[dict] = []
+    claim_state = {"expired": False, "methods": []}
     page.exposed_deleted_commands = deleted
     page.exposed_fallback_updates = fallback_updates
+    page.exposed_claim_state = claim_state
 
     def assert_claim(route) -> None:
         if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
@@ -203,6 +205,7 @@ def install_routes(page, posted: list[dict]) -> None:
         )
 
     def claim_handler(route):
+        claim_state["methods"].append(route.request.method)
         if route.request.url.endswith("/fallback") or route.request.url.endswith("/release-controller"):
             assert_claim(route)
         if route.request.post_data:
@@ -223,6 +226,16 @@ def install_routes(page, posted: list[dict]) -> None:
             ),
         )
 
+    def projection_handler(route):
+        if claim_state["expired"]:
+            route.fulfill(
+                status=404,
+                content_type="application/json",
+                body=json.dumps({"detail": "claim does not exist"}),
+            )
+            return
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(projection))
+
     def scene_image_handler(route):
         assert_claim(route)
         route.fulfill(
@@ -238,7 +251,7 @@ def install_routes(page, posted: list[dict]) -> None:
     projection = {**CHARACTER_PROJECTION, **QUEUED}
     page.route("**/play/characters", json_route(CHARACTER_LIST))
     page.route("**/play/claims/**", claim_handler)
-    page.route("**/play/claims/**/projection", json_route(projection))
+    page.route("**/play/claims/**/projection", projection_handler)
     page.route("**/play/claims/**/events**", recent_events_handler)
     page.route("**/play/claims/**/jobs", scene_image_handler)
     page.route("**/play/claims", claim_handler)
@@ -415,6 +428,32 @@ def submit_unavailable(page, posted: list[dict]) -> None:
         raise AssertionError(f"unavailable action should still queue: {posted[-1]!r}")
 
 
+def expire_and_reclaim(page) -> None:
+    state = page.exposed_claim_state
+    state["expired"] = True
+    page.evaluate("() => window.app.refresh()")
+    expect(page.locator("#api-status")).to_contain_text("Claim expired")
+    expect(page.locator("#btn-release-character")).to_contain_text("Claim")
+    page.wait_for_function("() => window.app?.control === null && window.app?.projection === null")
+    stored = page.evaluate(
+        "id => localStorage.getItem(`bunnyland.webTui.clientId.claim.${id}`)",
+        CHARACTER,
+    )
+    if stored is not None:
+        raise AssertionError(f"expired claim remained in local storage: {stored!r}")
+
+    state["expired"] = False
+    page.locator("#btn-release-character").click()
+    with page.expect_response("**/play/claims"):
+        page.locator("#btn-dialog-claim").click()
+    page.wait_for_function(
+        "id => window.app?.control?.claimId && window.app?.projection?.characterId === id",
+        arg=CHARACTER,
+    )
+    if not state["methods"] or state["methods"][-1] != "POST":
+        raise AssertionError(f"expired claim was not replaced with a fresh POST: {state!r}")
+
+
 def narrate_event(page) -> None:
     EVENTS["events"] = [
         {
@@ -474,6 +513,7 @@ def main() -> None:
         click_door_queues_move(page, posted)
         submit_unavailable(page, posted)
         submit_tell(page, posted)
+        expire_and_reclaim(page)
         layout = page.evaluate(
             """
             () => {

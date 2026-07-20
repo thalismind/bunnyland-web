@@ -9,6 +9,7 @@ const ITEM = 'item:1';
 
 function harness() {
   const close = vi.fn();
+  const clearClaimControl = vi.fn();
   const submitted: Array<Record<string, unknown>> = [];
   let fetches = 0;
   const projection = {
@@ -26,12 +27,13 @@ function harness() {
     iconPreference: () => true,
     setIconPreference: () => undefined,
     fetchCharacterList: async () => { fetches += 1; return { characters: [{ id: CHARACTER, name: 'Bun' }], epoch: 5 }; },
-    fetchCharacterProjection: async () => projection,
+    fetchCharacterProjection: vi.fn(async () => projection),
     fetchQueuedCommands: async () => ({ characterId: CHARACTER, commands: [] }),
     fetchCharacterRecentEvents: async () => ({ events: [] }),
     fetchRoomProjection: async () => ({ room: { id: 'room:1', name: 'Parlor', entities: [{ id: CHARACTER, name: 'Bun', sprite: { position: { x: 20, y: 20 } } }, { id: OTHER, name: 'Marlow', sprite: { position: { x: 40, y: 40 } } }], exits: [] } }),
     drainNarratedEvents: (_messages, options) => ({ lines: [], seenIds: (options as { seenIds: Set<string> }).seenIds }),
     latestImageCompletion: () => null,
+    isClaimNotFoundError: error => (error as { status?: number })?.status === 404,
     syncClaimControl: control => control,
     persistentClientId: async () => 'toon-client',
     storedClaimControl: () => null,
@@ -39,7 +41,7 @@ function harness() {
     claimWebController: async () => ({ controller_id: 'web:1', generation: 1, claim_id: 'claim' }),
     controlFromResponse: () => ({ characterId: CHARACTER, controllerId: 'web:1', generation: 1, claimId: 'claim', active: true }),
     storeClaimControl: () => undefined,
-    clearClaimControl: () => undefined,
+    clearClaimControl,
     updateWebControllerFallback: async () => ({ controller_id: 'web:1', generation: 1, claim_id: 'claim' }),
     releaseWebController: async () => ({ controller_id: 'idle:1', generation: 2, claim_id: 'claim' }),
     releaseWebClaim: async () => ({}),
@@ -84,7 +86,7 @@ function harness() {
     play: functions,
     ui: { initClientMenu: () => undefined, initHelp: () => undefined },
   };
-  return { close, fetches: () => fetches, runtime, submitted };
+  return { clearClaimControl, close, fetches: () => fetches, runtime, submitted };
 }
 
 afterEach(() => {
@@ -111,7 +113,7 @@ describe('ToonPage', () => {
     expect(test.fetches()).toBeGreaterThan(before);
     view.unmount();
     expect((window as unknown as { app?: unknown }).app).toBeUndefined();
-    expect(test.close).toHaveBeenCalled();
+    await waitFor(() => expect(test.close).toHaveBeenCalled());
   });
 
   it('keeps one action form open and submits the collected payload', async () => {
@@ -130,6 +132,25 @@ describe('ToonPage', () => {
     fireEvent.click(view.container.querySelector('.af-submit')!);
     await waitFor(() => expect(test.submitted).toHaveLength(1));
     expect(test.submitted[0]).toMatchObject({ command_type: 'say', payload: { text: 'hello toon' }, on_insufficient_points: 'queue' });
+  });
+
+  it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
+    const test = harness();
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
+    vi.mocked(test.runtime.play.fetchCharacterProjection as (...args: unknown[]) => Promise<unknown>)
+      .mockRejectedValueOnce(Object.assign(new Error('claim does not exist'), { status: 404 }));
+
+    await (window as unknown as { app: { _refresh(): Promise<void> } }).app._refresh();
+
+    await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Claim'));
+    expect(test.clearClaimControl).toHaveBeenCalledWith('bunnyland.toon.clientId', CHARACTER);
+    expect(view.container.querySelector('#api-status')?.textContent).toContain('Claim expired');
+    await waitFor(() => expect(test.close).toHaveBeenCalled());
   });
 
   it('applies deep-linked targets and preserves the server query while targets change', async () => {

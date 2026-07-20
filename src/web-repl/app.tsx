@@ -118,6 +118,7 @@ export interface WebReplServices {
   imageAffordance: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
   imageRequestMessage: (result: unknown) => string;
   initClientMenu: () => { close?: () => void } | void;
+  isClaimNotFoundError: (error: unknown) => boolean;
   isReferenceArg: (argument: ActionArgument) => boolean;
   latestImageCompletion: (
     messages: unknown[], options: { base: string; purpose: string },
@@ -365,6 +366,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     const base = apiBaseRef.current;
     if (!base) return;
     const generation = ++requestGeneration.current;
+    let claimRequest = false;
     try {
       const lobby = await services.fetchCharacterList(base);
       if (!aliveRef.current || generation !== requestGeneration.current) return;
@@ -381,7 +383,8 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         setQueueProjection(null);
         setControl(null);
         controlRef.current = null;
-      } else if (selected) {
+      } else if (selected && controlRef.current) {
+        claimRequest = true;
         const nextProjection = await services.fetchCharacterProjection(base, selected, controlRef.current);
         if (!aliveRef.current || generation !== requestGeneration.current || selected !== playerIdRef.current) return;
         const accepted = nextProjection?.characterId === selected ? nextProjection : null;
@@ -406,13 +409,28 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
           console.warn('Could not refresh Bunnyland web REPL events', error);
         }
       }
-      if (!playerIdRef.current || liveStateRef.current === 'live') {
+      if (!playerIdRef.current || (controlRef.current && liveStateRef.current === 'live')) {
         setStatusKind('live');
         setApiStatus(`● Live · epoch ${lobby.epoch}s`);
       }
       if (announce) write('Connected.', 'ok');
     } catch (error) {
       if (!aliveRef.current || generation !== requestGeneration.current) return;
+      const selected = playerIdRef.current;
+      if (claimRequest && selected && services.isClaimNotFoundError(error)) {
+        services.clearClaimControl(CLIENT_ID_KEY, selected);
+        projectionRef.current = null;
+        queueProjectionRef.current = null;
+        queuedCommandsRef.current = [];
+        controlRef.current = null;
+        setProjection(null);
+        setQueuedCommands([]);
+        setQueueProjection(null);
+        setControl(null);
+        setStatusKind('error');
+        setApiStatus('⚠ Claim expired. Claim again to continue.');
+        return;
+      }
       setStatusKind('error');
       setApiStatus(`⚠ ${errorMessage(error)}`);
       if (announce) write(`Connection failed: ${errorMessage(error)}`, 'error');

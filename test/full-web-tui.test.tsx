@@ -60,6 +60,7 @@ const play = {
   iconPreference: vi.fn(() => true),
   imageRequestMessage: vi.fn(() => 'image requested'),
   inventoryEntries: vi.fn((value: typeof projection | null) => value?.inventory ?? []),
+  isClaimNotFoundError: vi.fn((error: unknown) => (error as { status?: number })?.status === 404),
   latestImageCompletion: vi.fn(() => null),
   latestImageFailure: vi.fn(() => null),
   persistentClientId: vi.fn(() => 'web-tui-client'),
@@ -173,6 +174,21 @@ describe('WebTuiPage', () => {
     expect(view.container.querySelector('#action-form-overlay')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(view.container.querySelector('#action-form-overlay')).toBeNull();
+  });
+
+  it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
+    const view = render(<WebTuiPage />);
+    await connectAndSelect(view.container);
+    fetchCharacterProjection.mockRejectedValueOnce(Object.assign(new Error('claim does not exist'), { status: 404 }));
+
+    await (window as unknown as { app: TestFacade }).app.refresh();
+
+    await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Claim'));
+    expect(play.clearClaimControl).toHaveBeenCalledWith('bunnyland.webTui.clientId', character.id);
+    expect((window as unknown as { app: TestFacade }).app.control).toBeNull();
+    expect((window as unknown as { app: TestFacade }).app.projection).toBeNull();
+    expect(view.container.querySelector('#api-status')?.textContent).toContain('Claim expired');
+    expect(closeLive).toHaveBeenCalled();
   });
 
   it('applies deep-linked targets and keeps the server query independent from target history', async () => {

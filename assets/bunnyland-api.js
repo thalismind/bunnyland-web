@@ -7,6 +7,14 @@
     ? globalThis.crypto.randomUUID()
     : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+  class ApiError extends Error {
+    constructor(message, status) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+    }
+  }
+
   function normalizeBase(url) {
     return String(url || '').trim().replace(/\/$/, '');
   }
@@ -155,7 +163,7 @@
 
   async function parseJsonResponse(res) {
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (!res.ok) throw new ApiError(data.detail || `HTTP ${res.status}`, res.status);
     return data;
   }
 
@@ -304,6 +312,7 @@
   }
 
   window.BunnylandApi = {
+    ApiError,
     applyConfigToInput,
     applyServerParam,
     adminHeaders,

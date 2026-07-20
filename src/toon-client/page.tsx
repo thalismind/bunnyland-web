@@ -213,6 +213,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     const base = baseRef.current;
     if (!base) return;
     const generation = ++refreshGeneration.current;
+    let claimRequest = false;
     try {
       const lobby = await playCall<Promise<{ characters: CharacterSummary[]; epoch: number }>>(runtime, 'fetchCharacterList', base);
       if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current) return;
@@ -220,6 +221,8 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const id = playerRef.current;
       if (!id) { setStatus(`● Live · epoch ${lobby.epoch || 0}s`); return; }
       const currentControl = controlRef.current;
+      if (!currentControl) return;
+      claimRequest = true;
       const [character, queued, recent] = await Promise.all([
         playCall<Promise<Projection>>(runtime, 'fetchCharacterProjection', base, id, currentControl),
         playCall<Promise<QueueProjection>>(runtime, 'fetchQueuedCommands', base, id, currentControl),
@@ -249,7 +252,20 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const latest = playCall<{ url?: string } | null>(runtime, 'latestImageCompletion', Array.isArray(recent.events) ? recent.events : [], { base, purpose: 'event' });
       if (latest?.url) setEventImage(latest.url);
       setStatus('● Live');
-    } catch (error) { if (mounted.current && generation === refreshGeneration.current && base === baseRef.current) setStatus(`⚠ ${errorMessage(error)}`); }
+    } catch (error) {
+      if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current) return;
+      const id = playerRef.current;
+      if (claimRequest && id && playCall<boolean>(runtime, 'isClaimNotFoundError', error)) {
+        playCall(runtime, 'clearClaimControl', CLIENT_ID_KEY, id);
+        controlRef.current = null; projectionRef.current = null; queueRef.current = null; roomRef.current = null;
+        selectedRef.current = ''; localPosRef.current = null; primed.current = false; seenIds.current = new Set();
+        setControl(null); setProjection(null); setQueueProjection(null); setRoomProjection(null);
+        setSelectedId(''); setLocalPos(null); setLocalDirty(false);
+        setStatus('⚠ Claim expired. Claim again to continue.');
+        return;
+      }
+      setStatus(`⚠ ${errorMessage(error)}`);
+    }
   }, [appendActivity, runtime]);
 
   const postCommand = useCallback(async (action: Json, payload: Json): Promise<boolean> => {

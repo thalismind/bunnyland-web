@@ -426,6 +426,10 @@
     }
   }
 
+  function isClaimNotFoundError(error) {
+    return error instanceof BunnylandApi.ApiError && error.status === 404;
+  }
+
   function allTargets(projection) {
     const targets = [];
     const seen = new Set();
@@ -821,28 +825,38 @@
   async function claimWebController(base, payload, control = null) {
     BunnylandApi.setClientId(payload.client_id || control?.clientId);
     const claimId = control?.claimId || payload.claim_id || '';
-    const path = claimId
-      ? `/play/claims/${encodeURIComponent(claimId)}`
-      : '/play/claims';
-    const body = claimId ? null : JSON.stringify({
-      character_id: payload.character_id,
-      label: payload.label,
-      fallback_controller: payload.fallback_controller,
-      fallback_reason: payload.fallback_reason,
-      llm_profile_name: payload.llm_profile_name,
-      llm_model: payload.llm_model,
-      llm_provider: payload.llm_provider,
-      timeout_seconds: payload.timeout_seconds,
-    });
-    const { data, response } = await BunnylandApi.sendJsonWithResponse(base, path, {
-      method: claimId ? 'PUT' : 'POST',
-      headers: BunnylandApi.claimHeaders(control),
-      body,
-    });
+    const request = async (resumeId, requestControl) => BunnylandApi.sendJsonWithResponse(
+      base,
+      resumeId ? `/play/claims/${encodeURIComponent(resumeId)}` : '/play/claims',
+      {
+        method: resumeId ? 'PUT' : 'POST',
+        headers: BunnylandApi.claimHeaders(requestControl),
+        body: resumeId ? null : JSON.stringify({
+          character_id: payload.character_id,
+          label: payload.label,
+          fallback_controller: payload.fallback_controller,
+          fallback_reason: payload.fallback_reason,
+          llm_profile_name: payload.llm_profile_name,
+          llm_model: payload.llm_model,
+          llm_provider: payload.llm_provider,
+          timeout_seconds: payload.timeout_seconds,
+        }),
+      },
+    );
+    let result;
+    let priorSecret = control?.claimSecret || '';
+    try {
+      result = await request(claimId, control);
+    } catch (error) {
+      if (!claimId || !isClaimNotFoundError(error)) throw error;
+      result = await request('', null);
+      priorSecret = '';
+    }
+    const { data, response } = result;
     return {
       ...data,
       claim_id: data.id,
-      claim_secret: response.headers.get('X-Bunnyland-Claim-Secret') || control?.claimSecret || '',
+      claim_secret: response.headers.get('X-Bunnyland-Claim-Secret') || priorSecret,
     };
   }
 
@@ -1129,6 +1143,7 @@
     cancelQueuedCommand,
     claimWebController,
     clearClaimControl,
+    isClaimNotFoundError,
     storedClaimControl,
     storeClaimControl,
     claimSettings,

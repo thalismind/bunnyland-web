@@ -105,6 +105,7 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
     imageAffordance: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
     imageRequestMessage: () => '👀 image requested',
     initClientMenu: () => ({ close: closeMenu }),
+    isClaimNotFoundError: (error) => (error as { status?: number })?.status === 404,
     isReferenceArg: (argument) => argument.kind === 'entity',
     latestImageCompletion: () => null,
     latestImageFailure: () => null,
@@ -192,6 +193,26 @@ describe('full Web REPL page', () => {
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     expect(input.value).toBe('say hello hooks');
+  });
+
+  it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
+    const runtime = services();
+    const view = render(<WebReplPage services={runtime.service} />);
+    await selectPlayer(view);
+    vi.mocked(runtime.service.fetchCharacterProjection).mockRejectedValueOnce(
+      Object.assign(new Error('claim does not exist'), { status: 404 }),
+    );
+
+    await facade()?.refresh();
+
+    await waitFor(() => expect(facade()?.control).toBeNull());
+    expect(runtime.service.clearClaimControl).toHaveBeenCalledWith(
+      'bunnyland.webRepl.clientId', 'character:one',
+    );
+    expect(facade()?.projection).toBeNull();
+    expect(view.container.querySelector('#api-status')?.textContent).toContain('Claim expired');
+    expect(view.container.querySelector('#btn-claim-menu')?.textContent).toContain('Claim');
+    await waitFor(() => expect(runtime.closeLive).toHaveBeenCalled());
   });
 
   it('cleans live/menu/timer effects and removes its compatibility facade', async () => {
