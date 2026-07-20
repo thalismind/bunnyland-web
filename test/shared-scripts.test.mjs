@@ -498,7 +498,7 @@ test('BunnylandPlay scopes room projections to the claimed character', async () 
   assert.equal(calls[0][2].headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
 
-test('browser pages use the current shared API helper cache key', () => {
+test('browser pages load the shared API helper without manual cache keys', () => {
   const pages = [
     'behavior-editor.html',
     'character-memory.html',
@@ -517,9 +517,10 @@ test('browser pages use the current shared API helper cache key', () => {
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-api\.js\?v=20260718-formal-v1/,
-      `${page} must load the current shared API helper`,
+      /assets\/bunnyland-api\.js/,
+      `${page} must load the shared API helper`,
     );
+    assert.doesNotMatch(html, /assets\/bunnyland-api\.js\?v=/);
   }
 });
 
@@ -555,7 +556,7 @@ test('styled Vite pages load the consolidated responsive tool stylesheet', () =>
   }
 });
 
-test('browser pages use the current shared UI helper cache key', () => {
+test('browser pages load the shared UI helper without manual cache keys', () => {
   const pages = [
     'behavior-editor.html',
     'character-memory.html',
@@ -575,13 +576,14 @@ test('browser pages use the current shared UI helper cache key', () => {
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-ui\.js\?v=20260719-world-graph/,
-      `${page} must load the current shared UI helper`,
+      /assets\/bunnyland-ui\.js/,
+      `${page} must load the shared UI helper`,
     );
+    assert.doesNotMatch(html, /assets\/bunnyland-ui\.js\?v=/);
   }
 });
 
-test('player pages use the current shared play helper cache key', () => {
+test('player pages load the shared play helper without manual cache keys', () => {
   const pages = [
     'toon-client.html',
     'web-tui.html',
@@ -592,9 +594,10 @@ test('player pages use the current shared play helper cache key', () => {
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-play\.js\?v=20260718-formal-v1/,
-      `${page} must load the current shared play helper`,
+      /assets\/bunnyland-play\.js/,
+      `${page} must load the shared play helper`,
     );
+    assert.doesNotMatch(html, /assets\/bunnyland-play\.js\?v=/);
   }
 });
 
