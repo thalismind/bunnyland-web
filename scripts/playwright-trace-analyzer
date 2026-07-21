@@ -220,11 +220,11 @@ def test_jsonl_trace(page, jsonl: Path) -> None:
 
 def test_json_trace(page, json_file: Path) -> None:
     load_trace(page, json_file)
-    page.locator("#theme-select").select_option("anime-light")
+    page.locator("#theme-select").select_option("candy")
     theme = page.evaluate(
-        "() => ({ current: BunnylandUI.currentTheme(), anime: document.documentElement.classList.contains('bl-theme-anime-light') })"
+        "() => ({ current: BunnylandUI.currentTheme(), candy: document.documentElement.classList.contains('bl-theme-candy') })"
     )
-    if theme != {"current": "anime-light", "anime": True}:
+    if theme != {"current": "candy", "candy": True}:
         raise AssertionError(f"theme selector did not use shared theme setup: {theme!r}")
     if page.locator(".client-menu-item").count() != 0:
         raise AssertionError("trace analyzer should not render the shared client menu")

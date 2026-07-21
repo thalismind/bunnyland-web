@@ -204,17 +204,24 @@ def main() -> None:
             () => {
               const root = document.documentElement;
               const readBg = () => getComputedStyle(root).getPropertyValue('--bl-bg').trim();
-              const darkBefore = root.classList.contains('bl-theme-purple-blue-dark');
+              BunnylandUI.setColorScheme('dark');
+              const darkBefore = root.classList.contains('bl-theme-purple-blue')
+                && root.classList.contains('bl-color-scheme-dark');
               const darkBg = readBg();
               BunnylandUI.setTheme('anime-light');
-              const lightApplied = root.classList.contains('bl-theme-anime-light') && !root.classList.contains('bl-theme-purple-blue-dark');
+              const lightApplied = BunnylandUI.currentTheme() === 'candy'
+                && BunnylandUI.currentColorScheme() === 'light'
+                && root.classList.contains('bl-theme-candy')
+                && root.classList.contains('bl-color-scheme-light');
               const lightBg = readBg();
               BunnylandUI.setTheme('dark');
               return {
                 darkBefore,
                 lightApplied,
                 bgChanged: darkBg !== lightBg,
-                restored: root.classList.contains('bl-theme-purple-blue-dark') && !root.classList.contains('bl-theme-anime-light'),
+                restored: root.classList.contains('bl-theme-purple-blue')
+                  && root.classList.contains('bl-color-scheme-dark')
+                  && !root.classList.contains('bl-theme-candy'),
               };
             }
             """
@@ -222,18 +229,21 @@ def main() -> None:
         if not all(theme_contract.values()):
             raise AssertionError(f"theme class contract failed: {theme_contract!r}")
         page.locator("#btn-client-menu").click()
-        page.locator("#client-menu-theme-select").select_option("earth-light")
+        page.locator("#client-menu-theme-select").select_option("earth")
+        page.locator("#client-menu-color-scheme-select").select_option("light")
         menu_theme = page.evaluate(
             """
             () => ({
               current: BunnylandUI.currentTheme(),
-              earth: document.documentElement.classList.contains('bl-theme-earth-light'),
+              earth: document.documentElement.classList.contains('bl-theme-earth'),
+              light: document.documentElement.classList.contains('bl-color-scheme-light'),
               selectValue: document.getElementById('client-menu-theme-select')?.value,
+              schemeValue: document.getElementById('client-menu-color-scheme-select')?.value,
             })
             """
         )
-        if menu_theme != {"current": "earth-light", "earth": True, "selectValue": "earth-light"}:
-            raise AssertionError(f"theme selector did not apply earth-light: {menu_theme!r}")
+        if menu_theme != {"current": "earth", "earth": True, "light": True, "selectValue": "earth", "schemeValue": "light"}:
+            raise AssertionError(f"theme controls did not apply earth light: {menu_theme!r}")
         page.keyboard.press("Escape")
 
         page.goto(f"{BASE_URL}/toon-client.html", wait_until="domcontentloaded")

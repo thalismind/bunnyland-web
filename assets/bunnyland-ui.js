@@ -3,22 +3,33 @@
 
   const THEME_KEY = 'bunnyland.theme';
   const THEME_CLASS_PREFIX = 'bl-theme-';
-  const DEFAULT_THEME = 'purple-blue-dark';
+  const COLOR_SCHEME_KEY = 'bunnyland.color-scheme';
+  const COLOR_SCHEME_CLASS_PREFIX = 'bl-color-scheme-';
+  const DEFAULT_THEME = 'purple-blue';
   const THEME_ALIASES = {
+    anime: 'candy',
+    'anime-dark': 'candy-dark',
+    'anime-light': 'candy-light',
     dark: 'purple-blue-dark',
     light: 'purple-blue-light',
   };
   const DEFAULT_THEME_OPTIONS = [
-    { value: 'purple-blue-dark', label: 'Purple / Blue Dark' },
-    { value: 'purple-blue-light', label: 'Purple / Blue Light' },
-    { value: 'anime-dark', label: 'Anime Pink / Cyan Dark' },
-    { value: 'anime-light', label: 'Anime Pink / Cyan Light' },
-    { value: 'earth-dark', label: 'Earth Green / Gold Dark' },
-    { value: 'earth-light', label: 'Earth Green / Gold Light' },
+    { value: 'purple-blue', label: 'Purple / Blue' },
+    { value: 'candy', label: 'Candy Pink / Cyan' },
+    { value: 'earth', label: 'Earth Green / Gold' },
+    { value: 'ocean', label: 'Ocean Teal / Coral' },
+    { value: 'sunset', label: 'Sunset Orange / Plum' },
+    { value: 'high-contrast', label: 'High Contrast' },
+  ];
+  const COLOR_SCHEME_OPTIONS = [
+    { value: 'auto', label: 'Auto (System)' },
+    { value: 'dark', label: 'Dark' },
+    { value: 'light', label: 'Light' },
   ];
   const THEME_OPTIONS = DEFAULT_THEME_OPTIONS.map(option => ({ ...option }));
   const THEME_VALUE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
   const boundThemeSelects = new Set();
+  const boundColorSchemeSelects = new Set();
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   let clientMenuBaseUrl = '';
   // Admin tools order: World Generator, World Graph, editor tools alphabetically, then miscellaneous tools.
@@ -259,13 +270,21 @@
     return { readTags: () => readTagEditorTags(editor, options), update };
   }
 
-  function normalizeThemeValue(name) {
-    const raw = String(name || DEFAULT_THEME).trim();
-    return THEME_ALIASES[raw] || raw;
-  }
-
   function isKnownTheme(name) {
     return THEME_OPTIONS.some(option => option.value === name);
+  }
+
+  function parseThemeSelection(name) {
+    const value = String(name || DEFAULT_THEME).trim();
+    const raw = THEME_ALIASES[value] || value;
+    if (isKnownTheme(raw)) return { theme: raw, scheme: null };
+    const match = raw.match(/^(.*)-(dark|light)$/);
+    if (match && isKnownTheme(match[1])) return { theme: match[1], scheme: match[2] };
+    return { theme: raw, scheme: null };
+  }
+
+  function normalizeThemeValue(name) {
+    return parseThemeSelection(name).theme;
   }
 
   function sanitizeThemeOption(option) {
@@ -285,6 +304,29 @@
 
   function refreshThemeSelects() {
     for (const select of boundThemeSelects) renderThemeSelect(select);
+  }
+
+  function normalizeColorScheme(name) {
+    return name === 'dark' || name === 'light' ? name : 'auto';
+  }
+
+  function colorSchemeOptions() {
+    return COLOR_SCHEME_OPTIONS.map(option => ({ ...option }));
+  }
+
+  function currentColorScheme() {
+    return normalizeColorScheme(document.documentElement.dataset.colorScheme);
+  }
+
+  function renderColorSchemeSelect(select) {
+    select.innerHTML = colorSchemeOptions().map(option => `
+      <option value="${option.value}">${option.label}</option>
+    `).join('');
+    select.value = currentColorScheme();
+  }
+
+  function refreshColorSchemeSelects() {
+    for (const select of boundColorSchemeSelects) renderColorSchemeSelect(select);
   }
 
   function themeFromSearch(search = location.search || '') {
@@ -315,19 +357,38 @@
     return theme;
   }
 
+  function applyColorScheme(scheme, persist = true) {
+    const root = document.documentElement;
+    for (const className of [...root.classList]) {
+      if (className.startsWith(COLOR_SCHEME_CLASS_PREFIX)) root.classList.remove(className);
+    }
+    if (scheme !== 'auto') root.classList.add(`${COLOR_SCHEME_CLASS_PREFIX}${scheme}`);
+    root.dataset.colorScheme = scheme;
+    if (persist) storageSet(COLOR_SCHEME_KEY, scheme);
+    refreshColorSchemeSelects();
+    return scheme;
+  }
+
+  function setColorScheme(name) {
+    return applyColorScheme(normalizeColorScheme(name), true);
+  }
+
   function setTheme(name) {
-    const theme = normalizeTheme(name);
+    const selection = parseThemeSelection(name);
+    if (selection.scheme) applyColorScheme(selection.scheme, true);
+    const theme = normalizeTheme(selection.theme);
     return applyTheme(theme, true);
   }
 
   function initTheme(defaultTheme = DEFAULT_THEME, search = location.search || '') {
+    const linkedValue = new URLSearchParams(search).get('theme');
     const linkedTheme = themeFromSearch(search);
-    if (linkedTheme) return applyTheme(linkedTheme, true);
-
     const stored = storageGet(THEME_KEY);
-    const requested = normalizeThemeValue(stored || defaultTheme || DEFAULT_THEME);
-    const theme = normalizeTheme(requested);
-    return applyTheme(theme, Boolean(stored) && isKnownTheme(requested));
+    const selection = parseThemeSelection((linkedTheme && linkedValue) || stored || defaultTheme || DEFAULT_THEME);
+    const storedScheme = storageGet(COLOR_SCHEME_KEY);
+    applyColorScheme(selection.scheme || normalizeColorScheme(storedScheme), Boolean(selection.scheme || storedScheme));
+    const theme = normalizeTheme(selection.theme);
+    return applyTheme(theme, Boolean(linkedTheme || (stored && isKnownTheme(selection.theme))));
   }
 
   function themeOptions() {
@@ -356,6 +417,14 @@
     select.value = currentTheme();
     select.addEventListener('change', () => setTheme(select.value));
     return { setValue: (value) => { select.value = normalizeTheme(value); setTheme(select.value); } };
+  }
+
+  function bindColorSchemeSelect(select) {
+    if (!select) return null;
+    boundColorSchemeSelects.add(select);
+    renderColorSchemeSelect(select);
+    select.addEventListener('change', () => setColorScheme(select.value));
+    return { setValue: (value) => { select.value = normalizeColorScheme(value); setColorScheme(select.value); } };
   }
 
   function storageGet(key) {
@@ -421,6 +490,7 @@
   function renderClientMenu(dialog, discordUrl = '') {
     const current = currentPageName();
     const theme = currentTheme();
+    const colorScheme = currentColorScheme();
     dialog.innerHTML = `
       <div class="client-menu-card">
         <div class="client-menu-header">
@@ -446,10 +516,18 @@
         </div>
         <div class="client-menu-footer">
           <label class="client-menu-theme" for="client-menu-theme-select">
-            <span>Theme</span>
+            <span>Palette</span>
             <select id="client-menu-theme-select">
               ${themeOptions().map(option => `
                 <option value="${escapeHtml(option.value)}" ${option.value === theme ? 'selected' : ''}>${escapeHtml(option.label)}</option>
+              `).join('')}
+            </select>
+          </label>
+          <label class="client-menu-theme" for="client-menu-color-scheme-select">
+            <span>Appearance</span>
+            <select id="client-menu-color-scheme-select">
+              ${colorSchemeOptions().map(option => `
+                <option value="${option.value}" ${option.value === colorScheme ? 'selected' : ''}>${option.label}</option>
               `).join('')}
             </select>
           </label>
@@ -462,6 +540,10 @@
     `;
     dialog.querySelector('#client-menu-theme-select')?.addEventListener('change', (event) => {
       setTheme(event.target.value);
+      renderClientMenu(dialog, discordUrl);
+    });
+    dialog.querySelector('#client-menu-color-scheme-select')?.addEventListener('change', (event) => {
+      setColorScheme(event.target.value);
       renderClientMenu(dialog, discordUrl);
     });
   }
@@ -683,10 +765,13 @@
   }
 
   window.BunnylandUI = {
+    bindColorSchemeSelect,
     bindTagEditor,
     bindSearchDropdown,
     bindThemeSelect,
     cloneJson,
+    colorSchemeOptions,
+    currentColorScheme,
     escapeHtml,
     currentTheme,
     initClientMenu,
@@ -699,6 +784,7 @@
     registerThemeOptions,
     renderTagEditorTags,
     setTheme,
+    setColorScheme,
     tagEditorHtml,
     themeFromSearch,
     themeOptions,
