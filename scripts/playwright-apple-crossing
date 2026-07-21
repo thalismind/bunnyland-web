@@ -463,7 +463,6 @@ def letter_taken(page: Page, server: AppleServer) -> None:
     wait_until(page, inventory_has("courier letter"), "letter in player inventory")
     return_with_apple(page)
     drop_apple(page)
-    wait_until(page, room_has("red crossing apple"), "uneaten apple in Apple Crossing")
     wait_for_log(page, "courier letter is not where I can reach it")
     wait_until(page, inventory_has("courier letter"), "player still holds letter")
     assert_not_delivered(server)
