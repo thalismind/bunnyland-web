@@ -444,10 +444,14 @@ def test_memory_editor_flow(page, api_url: str, character: dict, document_id: st
         "tags": ["new"],
     }, f"document was not created through the editor: {created!r}")
 
-    page.on("dialog", lambda dialog: dialog.accept())
     page.locator("#btn-delete-document").click()
+    delete_dialog = page.locator("#bl-action-dialog[open]")
+    delete_dialog.wait_for(state="visible")
+    delete_dialog.locator(".bl-dialog-confirm").click()
     page.locator(f'.document-row[data-document="{document_id}"]').click()
     page.locator("#btn-delete-document").click()
+    delete_dialog.wait_for(state="visible")
+    delete_dialog.locator(".bl-dialog-confirm").click()
     expect(page.locator("#document-list")).to_contain_text("No matching documents.")
     after_delete = api_get(
         api_url,

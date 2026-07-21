@@ -273,6 +273,9 @@ def main() -> None:
         assert page.locator(".edge-card[data-type='Contains']").count() == 1
         page.locator('.entity-row[data-id="local_target"]').click()
         page.locator("#btn-delete-entity").click()
+        delete_dialog = page.locator("#bl-action-dialog[open]")
+        delete_dialog.wait_for(state="visible")
+        delete_dialog.locator(".bl-dialog-confirm").click()
         page.wait_for_function("window.app && !window.app.world.entities.local_target")
         local_json = page.locator("#json-output").input_value()
         if "local_target" in local_json:
