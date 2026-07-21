@@ -121,8 +121,12 @@ def main() -> None:
             raise AssertionError(f"welcome page did not use the versioned API root: {welcome_api_requests!r}")
         if page.locator("h1").text_content() != "Welcome to Bunnyland":
             raise AssertionError("welcome page headline did not render")
-        if page.locator('a[href^="toon-client.html?"]').count() < 1:
-            raise AssertionError("welcome page is missing a Toon Client link")
+        if page.locator('.quick-links a.primary[href^="web-tui.html?"]').count() != 1:
+            raise AssertionError("welcome page does not recommend the Web TUI")
+        if page.locator('.play-list a[href^="web-tui.html?"]').count() != 1:
+            raise AssertionError("welcome page first-run guidance does not open the Web TUI")
+        if page.locator('.quick-links a[href^="toon-client.html?"]').count() != 1:
+            raise AssertionError("welcome page is missing the alternate Toon Client link")
         if page.locator('a[href="https://bunnyland.dev/guides/"]').count() < 1:
             raise AssertionError("welcome page is missing guides link")
         welcome_text = page.locator("body").text_content()

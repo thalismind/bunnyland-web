@@ -168,10 +168,10 @@ export function LandingPage() {
           <h1 id="welcome-title">Welcome to Bunnyland</h1>
           <p class="lede">Humans, NPCs, and AI agents share one living world and act through the same validated rules. Connect to a server, choose a character, and explore whatever world is running.</p>
           <div class="quick-links" aria-label="Get started">
-            <a class="button-link primary" href={playerHref('toon-client.html')}>Play in Toon Client</a>
+            <a class="button-link primary" href={playerHref('web-tui.html')}>Play in Web TUI</a>
             <a id="discord-link" class="button-link discord" href={discordUrl || '#'} target="_blank" rel="noopener"
               style={{ display: discordUrl ? '' : 'none' }}>Discord</a>
-            <a class="button-link" href={playerHref('web-tui.html')}>Web TUI</a>
+            <a class="button-link" href={playerHref('toon-client.html')}>Toon Client</a>
             <a class="button-link" href={playerHref('web-repl.html')}>Web REPL</a>
             <a class="button-link" href="https://bunnyland.dev/guides/">Read the Guides</a>
           </div>
@@ -181,7 +181,7 @@ export function LandingPage() {
           <div>
             <p><strong>Start playing:</strong></p>
             <ul class="play-list">
-              <li><a href={playerHref('toon-client.html')}>Open Toon Client</a>.</li>
+              <li><a href={playerHref('web-tui.html')}>Open Web TUI</a>.</li>
               <li>Choose and claim an available character.</li>
               <li>Use <strong>Look</strong> to learn where you are.</li>
               <li>Pick from the actions your character can take.</li>

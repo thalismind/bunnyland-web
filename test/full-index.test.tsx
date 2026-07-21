@@ -46,6 +46,9 @@ describe('LandingPage deployment state', () => {
     await waitFor(() => expect(view.getByText('Available on this server.')).toBeTruthy());
 
     expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Welcome to Bunnyland');
+    expect(view.getByRole('link', { name: 'Play in Web TUI' }).classList.contains('primary')).toBe(true);
+    expect(view.container.querySelector<HTMLAnchorElement>('.play-list a')?.textContent).toBe('Open Web TUI');
+    expect(view.getByRole('link', { name: 'Toon Client' }).classList.contains('primary')).toBe(false);
     expect(view.getByText('Choose and claim an available character.')).toBeTruthy();
     expect(view.container.textContent).not.toMatch(/Moss|Juniper|Market Lane|post office|market apple/);
     const discord = view.container.querySelector<HTMLAnchorElement>('#discord-link')!;
