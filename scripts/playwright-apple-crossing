@@ -1,0 +1,582 @@
+#!/usr/bin/env python3
+"""Real-server Apple Crossing browser journeys for the v1 release gate."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from typing import TextIO
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from playwright.sync_api import (
+    Browser,
+    Page,
+    Playwright,
+    Route,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
+
+from playwright_container import container_cli, stop_container
+from playwright_coverage import PlaywrightCoverage
+from playwright_server import ensure_web_server
+
+
+WEB_BASE = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+SERVER_IMAGE = os.environ.get(
+    "BUNNYLAND_RELEASE_SERVER_IMAGE",
+    "ghcr.io/thalismind/bunnyland-server:main",
+)
+ARTIFACT_DIR = Path(
+    os.environ.get(
+        "BUNNYLAND_APPLE_ARTIFACT_DIR",
+        f"/tmp/bunnyland-apple-crossing-{int(time.time())}",
+    )
+)
+PASSWORD = "apple-crossing-browser-fixture-only"
+DELIVERY_MARK = "Hungry Courier delivery complete"
+JsonObject = dict[str, object]
+
+
+def launch_browser(playwright: Playwright) -> Browser:
+    chrome = (
+        os.environ.get("BUNNYLAND_CHROME")
+        or shutil.which("google-chrome")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+    if chrome:
+        return playwright.chromium.launch(
+            headless=True,
+            executable_path=chrome,
+            args=["--no-sandbox"],
+        )
+    return playwright.chromium.launch(headless=True)
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def json_request(
+    url: str,
+    *,
+    token: str = "",
+    body: JsonObject | None = None,
+) -> JsonObject:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        headers["X-Bunnyland-Client-Id"] = "apple-crossing-observer"
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers,
+        method="POST" if body is not None else "GET",
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = response.read()
+    if not payload:
+        return {}
+    parsed = json.loads(payload.decode("utf-8"))
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{url} returned a non-object JSON response")
+    return parsed
+
+
+def wait_for_health(api_url: str, proc: subprocess.Popen[bytes]) -> None:
+    deadline = time.monotonic() + 90
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"Apple Crossing server exited with code {proc.returncode}")
+        try:
+            json_request(f"{api_url}/public/health")
+            return
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+            last_error = error
+            time.sleep(0.25)
+    raise RuntimeError(f"timed out waiting for {api_url}/public/health: {last_error}")
+
+
+def token_from_session(payload: JsonObject, username: str) -> str:
+    raw = payload.get("token") or payload.get("access_token") or payload.get("bearer_token")
+    if not isinstance(raw, str):
+        raise RuntimeError(f"session for {username} omitted its bearer token")
+    token = raw.removeprefix("Bearer ")
+    if not token.startswith("blt_"):
+        raise RuntimeError(f"session for {username} returned an unexpected token format")
+    return token
+
+
+def login(api_url: str, username: str) -> str:
+    return token_from_session(
+        json_request(
+            f"{api_url}/auth/session",
+            body={"username": username, "password": PASSWORD, "delivery": "body"},
+        ),
+        username,
+    )
+
+
+def prepare_users(runtime: list[str]) -> Path:
+    auth_dir = ARTIFACT_DIR / "auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    auth_dir.chmod(0o700)
+    users_file = auth_dir / "users.yml"
+    password_hash = subprocess.run(
+        [
+            *runtime,
+            "run",
+            "--rm",
+            "-i",
+            SERVER_IMAGE,
+            "auth",
+            "hash-password",
+            "--password-stdin",
+        ],
+        input=f"{PASSWORD}\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    users_file.write_text(
+        "users:\n"
+        "  apple-player:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    enabled: true\n"
+        "    scopes: [world:play]\n"
+        "  apple-observer:\n"
+        f"    password_hash: {password_hash!r}\n"
+        "    enabled: true\n"
+        "    scopes: [world:admin]\n",
+        encoding="utf-8",
+    )
+    users_file.chmod(0o600)
+    return users_file
+
+
+class AppleServer:
+    def __init__(self, runtime: list[str], users_file: Path, journey: str) -> None:
+        self.runtime = runtime
+        self.users_file = users_file
+        self.journey = journey
+        self.port = free_port()
+        self.api_url = f"http://127.0.0.1:{self.port}/v1"
+        self.name = f"bunnyland-apple-{journey}-{self.port}"
+        self.state_dir = ARTIFACT_DIR / journey
+        self.world_file = self.state_dir / "world.json"
+        self.log_file = self.state_dir / "server.log"
+        self.proc: subprocess.Popen[bytes] | None = None
+        self.log: TextIO | None = None
+        self.play_token = ""
+        self.admin_token = ""
+
+    def start(self, *, load: bool = False) -> None:
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.log = self.log_file.open("a", encoding="utf-8")
+        world_args = (
+            ["--load", "/state/world.json"]
+            if load
+            else [
+                "--generator",
+                "apple-crossing",
+                "--seed",
+                f"v1 browser {self.journey}",
+            ]
+        )
+        command = [
+            *self.runtime,
+            "run",
+            "--rm",
+            "--name",
+            self.name,
+            "-p",
+            f"127.0.0.1:{self.port}:8765",
+            "-v",
+            f"{self.state_dir.resolve()}:/state",
+            "-v",
+            f"{self.users_file.resolve()}:/auth-users.yml:ro",
+            SERVER_IMAGE,
+            "serve",
+            *world_args,
+            "--ticks",
+            "0",
+            "--tick-seconds",
+            "0.2",
+            "--api-host",
+            "0.0.0.0",
+            "--api-port",
+            "8765",
+            "--save",
+            "/state/world.json",
+            "--autosave-every",
+            "1",
+            "--auth-users-file",
+            "/auth-users.yml",
+            "--token-db",
+            "/state/auth-tokens.sqlite3",
+            "--claim-timeout-seconds",
+            "0",
+        ]
+        self.proc = subprocess.Popen(
+            command,
+            stdout=self.log,
+            stderr=subprocess.STDOUT,
+        )
+        wait_for_health(self.api_url, self.proc)
+        if not self.play_token:
+            self.play_token = login(self.api_url, "apple-player")
+            self.admin_token = login(self.api_url, "apple-observer")
+
+    def stop(self) -> None:
+        if self.proc is not None:
+            stop_container(self.runtime, self.name, self.proc)
+            self.proc = None
+        if self.log is not None:
+            self.log.close()
+            self.log = None
+
+    def restart_from_save(self) -> None:
+        self.stop()
+        if not self.world_file.exists():
+            raise AssertionError(f"autosave was not created: {self.world_file}")
+        self.start(load=True)
+
+    def snapshot_text(self) -> str:
+        snapshot = json_request(
+            f"{self.api_url}/admin/world/snapshot",
+            token=self.admin_token,
+        )
+        return json.dumps(snapshot, sort_keys=True)
+
+
+def proxy_api(server: AppleServer, route: Route) -> None:
+    parsed = urllib.parse.urlsplit(route.request.url)
+    path = parsed.path.removeprefix("/api-apple")
+    target = f"{server.api_url}{path}"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    route.fulfill(response=route.fetch(url=target))
+
+
+def accept_content_warning(page: Page) -> None:
+    dialog = page.get_by_role("dialog", name="Content warning")
+    try:
+        dialog.wait_for(state="visible", timeout=3000)
+    except PlaywrightTimeoutError:
+        return
+    page.get_by_role("button", name="Accept and Join").click()
+
+
+def connect_repl(page: Page, server: AppleServer) -> None:
+    page.route("**/api-apple/**", lambda route: proxy_api(server, route))
+    page.context.add_cookies(
+        [
+            {
+                "name": "bunnyland_token",
+                "value": server.play_token,
+                "url": WEB_BASE,
+            }
+        ]
+    )
+    page.goto(
+        f"{WEB_BASE}/web-repl.html?server=%2Fapi-apple",
+        wait_until="domcontentloaded",
+    )
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=20_000)
+    page.locator("#player-select").select_option(label="Juniper")
+    accept_content_warning(page)
+    page.wait_for_function(
+        "() => window.app?.projection?.characterName === 'Juniper' && window.app?.control?.claimId",
+        timeout=20_000,
+    )
+
+
+def refresh(page: Page) -> None:
+    page.evaluate("() => window.app.refresh()")
+
+
+def wait_until(
+    page: Page,
+    predicate: Callable[[Page], bool],
+    label: str,
+    *,
+    timeout: float = 20,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        refresh(page)
+        if predicate(page):
+            return
+        page.wait_for_timeout(200)
+    projection = page.evaluate("() => window.app?.projection || null")
+    raise AssertionError(f"timed out waiting for {label}; projection={projection!r}")
+
+
+def room_is(title: str) -> Callable[[Page], bool]:
+    return lambda page: page.evaluate(
+        "expected => window.app?.projection?.room?.title === expected",
+        title,
+    ) is True
+
+
+def inventory_has(label: str) -> Callable[[Page], bool]:
+    return lambda page: page.evaluate(
+        """expected => (window.app?.projection?.inventory || []).some(
+          item => String(item.label || item.name || '').toLowerCase().includes(expected)
+        )""",
+        label.lower(),
+    ) is True
+
+
+def room_has(label: str) -> Callable[[Page], bool]:
+    return lambda page: page.evaluate(
+        """expected => (window.app?.projection?.room?.entities || []).some(
+          item => String(item.label || item.name || '').toLowerCase().includes(expected)
+        )""",
+        label.lower(),
+    ) is True
+
+
+def submit(page: Page, command: str, command_type: str) -> None:
+    page.locator("#repl-input").fill(command)
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and "/play/claims/" in response.url
+            and response.url.endswith("/commands")
+        ),
+        timeout=15_000,
+    ) as response_info:
+        page.locator("#btn-send").click()
+    response = response_info.value
+    if not 200 <= response.status < 300:
+        raise AssertionError(f"{command!r} returned HTTP {response.status}")
+    page.wait_for_function(
+        "expected => document.querySelector('#repl-log')?.textContent.includes(`» ${expected}`)",
+        arg=command_type,
+        timeout=10_000,
+    )
+
+
+def move(page: Page, direction: str, destination: str) -> None:
+    submit(page, f"move {direction}", "move")
+    wait_until(page, room_is(destination), f"room {destination}")
+
+
+def take_apple(page: Page) -> None:
+    submit(page, "take red crossing apple", "take")
+    wait_until(page, inventory_has("red crossing apple"), "apple in inventory")
+
+
+def return_with_apple(page: Page) -> None:
+    move(page, "east", "Apple Hedge")
+    take_apple(page)
+    move(page, "west", "Apple Crossing")
+
+
+def drop_apple(page: Page) -> None:
+    submit(page, "drop red crossing apple", "drop")
+    wait_until(
+        page,
+        lambda current: not inventory_has("red crossing apple")(current),
+        "apple removed from player inventory",
+    )
+
+
+def wait_for_delivery(page: Page, server: AppleServer) -> None:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        refresh(page)
+        if DELIVERY_MARK in server.snapshot_text():
+            return
+        page.wait_for_timeout(200)
+    raise AssertionError("Hungry Courier did not complete through normal server ticks")
+
+
+def inspect_delivery(page: Page) -> None:
+    move(page, "south", "Old Footbridge")
+    move(page, "west", "Mira's Cottage Lane")
+    move(page, "in", "Mira's Cottage")
+    submit(page, "inspect delivery ledger", "inspect")
+    page.wait_for_function(
+        "expected => document.querySelector('#repl-log')?.textContent.includes(expected)",
+        arg=DELIVERY_MARK,
+        timeout=10_000,
+    )
+
+
+def finish_delivery(page: Page, server: AppleServer) -> None:
+    drop_apple(page)
+    wait_for_delivery(page, server)
+    inspect_delivery(page)
+
+
+def assert_not_delivered(server: AppleServer) -> None:
+    if DELIVERY_MARK in server.snapshot_text():
+        raise AssertionError("Hungry Courier completed in a negative branch")
+
+
+def wait_for_log(page: Page, text: str) -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        refresh(page)
+        if text.lower() in page.locator("#repl-log").inner_text().lower():
+            return
+        page.wait_for_timeout(200)
+    raise AssertionError(f"REPL did not surface {text!r}")
+
+
+def golden_path(page: Page, server: AppleServer) -> None:
+    return_with_apple(page)
+    finish_delivery(page, server)
+
+
+def apple_consumed(page: Page, server: AppleServer) -> None:
+    return_with_apple(page)
+    submit(page, "eat red crossing apple", "eat")
+    wait_until(
+        page,
+        lambda current: not inventory_has("red crossing apple")(current),
+        "player-consumed apple removed from inventory",
+    )
+    wait_for_log(page, "need real food")
+    wait_until(page, room_has("Pip Thistle"), "hungry courier still in Apple Crossing")
+    assert_not_delivered(server)
+
+
+def letter_taken(page: Page, server: AppleServer) -> None:
+    submit(page, "take courier letter", "take")
+    wait_until(page, inventory_has("courier letter"), "letter in player inventory")
+    return_with_apple(page)
+    drop_apple(page)
+    wait_until(page, room_has("red crossing apple"), "uneaten apple in Apple Crossing")
+    wait_for_log(page, "courier letter is not where I can reach it")
+    wait_until(page, inventory_has("courier letter"), "player still holds letter")
+    assert_not_delivered(server)
+
+
+def ignored_quest(page: Page, server: AppleServer) -> None:
+    page.locator("#repl-input").fill("look")
+    page.locator("#btn-send").click()
+    page.wait_for_function(
+        "() => document.querySelector('#repl-log')?.textContent.includes('Apple Crossing')",
+        timeout=10_000,
+    )
+    wait_for_log(page, "need real food")
+    wait_until(page, room_has("Pip Thistle"), "courier remains at the crossing")
+    wait_until(page, room_has("courier letter"), "letter remains at the crossing")
+    assert_not_delivered(server)
+
+
+def reconnect(page: Page, server: AppleServer) -> None:
+    move(page, "east", "Apple Hedge")
+    take_apple(page)
+    claim_id = page.evaluate("() => window.app.control.claimId")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=20_000)
+    page.locator("#player-select").select_option(label="Juniper")
+    accept_content_warning(page)
+    page.wait_for_function(
+        "() => window.app?.projection?.characterName === 'Juniper' && window.app?.control?.claimId",
+        timeout=20_000,
+    )
+    resumed_claim = page.evaluate("() => window.app.control.claimId")
+    if resumed_claim != claim_id:
+        raise AssertionError(f"reconnect replaced live claim {claim_id!r} with {resumed_claim!r}")
+    wait_until(page, room_is("Apple Hedge"), "reconnected room")
+    wait_until(page, inventory_has("red crossing apple"), "reconnected inventory")
+    move(page, "west", "Apple Crossing")
+    finish_delivery(page, server)
+
+
+def save_reload(page: Page, server: AppleServer) -> None:
+    return_with_apple(page)
+    page.wait_for_timeout(800)
+    server.restart_from_save()
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=20_000)
+    page.locator("#player-select").select_option(label="Juniper")
+    accept_content_warning(page)
+    page.wait_for_function(
+        "() => window.app?.projection?.characterName === 'Juniper' && window.app?.control?.claimId",
+        timeout=20_000,
+    )
+    wait_until(page, room_is("Apple Crossing"), "reloaded room")
+    wait_until(page, inventory_has("red crossing apple"), "reloaded inventory")
+    finish_delivery(page, server)
+
+
+JOURNEYS: tuple[tuple[str, Callable[[Page, AppleServer], None]], ...] = (
+    ("golden-path", golden_path),
+    ("apple-consumed", apple_consumed),
+    ("letter-taken", letter_taken),
+    ("ignored-quest", ignored_quest),
+    ("reconnect", reconnect),
+    ("save-reload", save_reload),
+)
+
+
+def run_journey(
+    browser: Browser,
+    coverage: PlaywrightCoverage,
+    runtime: list[str],
+    users_file: Path,
+    name: str,
+    journey: Callable[[Page, AppleServer], None],
+) -> None:
+    server = AppleServer(runtime, users_file, name)
+    try:
+        server.start()
+        context = browser.new_context(viewport={"width": 1280, "height": 820})
+        page = context.new_page()
+        coverage.start_page(page)
+        connect_repl(page, server)
+        journey(page, server)
+        page.screenshot(path=str(server.state_dir / "completed.png"), full_page=True)
+        coverage.close_page(page)
+        context.close()
+    finally:
+        server.stop()
+
+
+def main() -> None:
+    ensure_web_server(WEB_BASE)
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    runtime = container_cli()
+    subprocess.run([*runtime, "pull", SERVER_IMAGE], check=True)
+    users_file = prepare_users(runtime)
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        coverage = PlaywrightCoverage("apple-crossing")
+        for name, journey in JOURNEYS:
+            run_journey(browser, coverage, runtime, users_file, name, journey)
+            print(f"apple_crossing_{name.replace('-', '_')}=ok")
+        coverage.close_browser(browser)
+    print(f"apple_crossing=ok artifacts={ARTIFACT_DIR}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        for log_path in sorted(ARTIFACT_DIR.glob("*/server.log")):
+            print(f"\n--- {log_path} ---", file=sys.stderr)
+            print(
+                log_path.read_text(encoding="utf-8", errors="replace")[-6000:],
+                file=sys.stderr,
+            )
+        raise

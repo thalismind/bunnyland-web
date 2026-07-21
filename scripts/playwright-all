@@ -95,6 +95,7 @@ run_regression trace-analyzer scripts/playwright-trace-analyzer
 run_regression responsive scripts/playwright-responsive
 run_regression world-graph-generation env BUNNYLAND_WORLD_GRAPH_NO_BUILD=1 scripts/playwright-world-graph-generation
 run_regression release-multiclient scripts/playwright-release-multiclient
+run_regression apple-crossing scripts/playwright-apple-crossing
 
 if [[ "${BUNNYLAND_PLAYWRIGHT_COVERAGE:-0}" == "1" ]]; then
   python3 scripts/playwright_coverage.py "${BUNNYLAND_PLAYWRIGHT_COVERAGE_DIR}"

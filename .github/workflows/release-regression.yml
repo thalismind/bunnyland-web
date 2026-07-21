@@ -55,10 +55,18 @@ jobs:
           BUNNYLAND_RELEASE_ARTIFACT_DIR: artifacts/release-multiclient
         run: scripts/playwright-release-multiclient
 
+      - name: Run Apple Crossing browser journeys
+        env:
+          BUNNYLAND_RELEASE_SERVER_IMAGE: ${{ inputs.server_image }}
+          BUNNYLAND_APPLE_ARTIFACT_DIR: artifacts/apple-crossing
+        run: scripts/playwright-apple-crossing
+
       - name: Upload release regression artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: release-multiclient-artifacts
-          path: artifacts/release-multiclient
+          path: |
+            artifacts/release-multiclient
+            artifacts/apple-crossing
           if-no-files-found: error
