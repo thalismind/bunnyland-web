@@ -196,15 +196,19 @@
   }
 
   async function promptPlayerAuth(base) {
-    const username = window.prompt('Bunnyland username');
-    if (!username) return null;
-    const password = window.prompt('Bunnyland password');
-    if (password == null) return null;
+    const credentials = await window.BunnylandUI.credentialsDialog({
+      message: 'Enter your player credentials to continue.',
+      title: 'Sign in to Bunnyland',
+    });
+    if (!credentials) return null;
     try {
-      await login(base, username, password);
+      await login(base, credentials.username, credentials.password);
       return true;
     } catch (error) {
-      window.alert(error.message || 'Login failed');
+      await window.BunnylandUI.alertDialog(error.message || 'Login failed', {
+        title: 'Sign in failed',
+        tone: 'danger',
+      });
       return false;
     }
   }

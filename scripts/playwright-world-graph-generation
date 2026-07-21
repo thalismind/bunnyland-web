@@ -403,12 +403,6 @@ def exercise_character_scopes(
     coverage.start_page(page)
     page.add_init_script(
         f"""
-        window.prompt = (message, fallback = '') => {{
-          const text = String(message || '');
-          if (text === 'Bunnyland username') return {json.dumps(CHARACTER_USERNAME)};
-          if (text === 'Bunnyland password') return {json.dumps(PASSWORD)};
-          return fallback;
-        }};
         """
     )
     character_url = f"{base_url}/character.html?server=%2Fapi%2Fv1#{character_id}"
@@ -499,22 +493,6 @@ def main() -> None:
                     }});
                   }}
                 }};
-                window.prompt = (message, fallback = '') => {{
-                  const text = String(message || '');
-                  window.__promptCalls.push(text);
-                  if (text === 'Bunnyland username') return {json.dumps(USERNAME)};
-                  if (text === 'Bunnyland password') return {json.dumps(PASSWORD)};
-                  if (text.includes('new character')) return 'Playwright Cartographer';
-                  if (text.includes('new item')) return 'playwright sun coin';
-                  if (text.startsWith('Door entity ID')) {{
-                    const door = Object.values(window.app?.world?.entities || {{}})
-                      .find((entity) => entity.components?.DoorComponent);
-                    return door?.id || fallback;
-                  }}
-                  if (text.startsWith('Direction from the door')) return 'east';
-                  if (text.includes('new room')) return 'Playwright Moonlit Annex';
-                  return fallback;
-                }};
                 """
             )
             page.goto(
@@ -531,6 +509,26 @@ def main() -> None:
             )
             expect(page.locator("#api-status")).to_contain_text("Connected", timeout=10000)
             page.keyboard.press("Escape")
+            page.evaluate(
+                """
+                () => {
+                  BunnylandUI.promptDialog = async (message, options = {}) => {
+                    const text = String(message || '');
+                    window.__promptCalls.push(text);
+                    if (text.includes('new character')) return 'Playwright Cartographer';
+                    if (text.includes('new item')) return 'playwright sun coin';
+                    if (text.startsWith('Choose a door')) {
+                      const door = Object.values(window.app?.world?.entities || {})
+                        .find((entity) => entity.components?.DoorComponent);
+                      return door?.id || options.value || '';
+                    }
+                    if (text.startsWith('Enter a direction')) return 'east';
+                    if (text.includes('new room')) return 'Playwright Moonlit Annex';
+                    return options.value || null;
+                  };
+                }
+                """
+            )
 
             room_id = page.evaluate(
                 "() => Object.values(window.app.world.entities).find((entity) => "

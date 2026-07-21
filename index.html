@@ -231,6 +231,10 @@
       opacity: 0.64;
     }
 
+    .info-card.feature-error {
+      border-color: var(--bl-error);
+    }
+
     .feature-state {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-xs);
@@ -243,6 +247,10 @@
 
     .feature-state.unavailable {
       color: var(--bl-warning);
+    }
+
+    .feature-state.error {
+      color: var(--bl-error);
     }
 
     /* Inside the flex column, gap owns vertical spacing, so drop the elements'
@@ -363,8 +371,19 @@
       .welcome-hero {
         padding: 18px;
       }
+      .section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .section-heading > p {
+        max-width: none;
+      }
       h1 {
         font-size: 26px;
+      }
+      .info-card,
+      .client-card {
+        min-height: 0;
       }
       .client-grid {
         grid-template-columns: 1fr;

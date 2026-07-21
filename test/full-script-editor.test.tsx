@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScriptEditorPage, normalizeScript, validateScript } from '../src/script-editor/app';
 
 const initClientMenu = vi.fn();
+const promptDialog = vi.fn(async () => null);
 const world = {
   controlInfo: vi.fn(() => null),
   entityDisplayName: vi.fn((entity: { components: Record<string, { name?: string }>; id: string }) =>
@@ -27,7 +28,7 @@ const world = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('BunnylandUI', { initClientMenu });
+  vi.stubGlobal('BunnylandUI', { initClientMenu, promptDialog });
   vi.stubGlobal('BunnylandWorld', world);
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,

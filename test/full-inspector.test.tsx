@@ -87,6 +87,8 @@ function facade(): InspectorFacade | undefined {
 }
 
 const closeMenu = vi.fn();
+const confirmDialog = vi.fn(async () => true);
+const promptDialog = vi.fn<() => Promise<string | null>>();
 
 beforeEach(() => {
   history.replaceState(null, '', '/inspector.html');
@@ -101,8 +103,10 @@ beforeEach(() => {
     BunnylandEvents: { eventSummary: () => 'event', icon: () => '⚡' },
     BunnylandUI: {
       cloneJson: (value: unknown) => structuredClone(value),
+      confirmDialog,
       initClientMenu: () => ({ close: closeMenu }),
       loadConfig: async () => ({}),
+      promptDialog,
     },
     BunnylandWorld: {
       controlInfo: () => null,
@@ -187,13 +191,12 @@ describe('full Inspector page', () => {
     const sendPatch = vi.fn(async () => ({ changed_entities: [], deleted_entities: [] }));
     facade()!._sendAdmin = sendAdmin;
     facade()!._sendPatch = sendPatch;
-    const promptMock = vi.fn()
-      .mockReturnValueOnce('a mysterious traveler')
-      .mockReturnValueOnce('a silver key')
-      .mockReturnValueOnce('door')
-      .mockReturnValueOnce('east')
-      .mockReturnValueOnce('a rain-soaked library');
-    vi.stubGlobal('prompt', promptMock);
+    promptDialog
+      .mockResolvedValueOnce('a mysterious traveler')
+      .mockResolvedValueOnce('a silver key')
+      .mockResolvedValueOnce('door')
+      .mockResolvedValueOnce('east')
+      .mockResolvedValueOnce('a rain-soaked library');
 
     facade()!._showContextMenu('room', 100, 100);
     await waitFor(() => expect(view.container.querySelector('[data-menu-action="generate-character"]')).toBeTruthy());

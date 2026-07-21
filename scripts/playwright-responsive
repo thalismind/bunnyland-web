@@ -225,6 +225,10 @@ def main() -> None:
                 scrollWidth: card.scrollWidth,
               };
             }),
+            sectionHeadingDirection: getComputedStyle(document.querySelector('.section-heading')).flexDirection,
+            touchTargets: [...document.querySelectorAll('.quick-links .button-link')]
+              .filter((link) => getComputedStyle(link).display !== 'none')
+              .map((link) => ({ label: link.textContent.trim(), height: link.getBoundingClientRect().height })),
           })
         """)
         if (
@@ -249,6 +253,55 @@ def main() -> None:
                 or card["scrollWidth"] > card["clientWidth"] + 1
             ):
                 raise AssertionError(f"welcome info card overflows on mobile: {card!r}")
+        if welcome["sectionHeadingDirection"] != "column":
+            raise AssertionError(f"welcome section headings do not stack on mobile: {welcome!r}")
+        for target in welcome["touchTargets"]:
+            if target["height"] < 44:
+                raise AssertionError(f"welcome touch target is too short: {target!r}")
+
+        first_link = page.locator('.quick-links .button-link').first
+        first_link.focus()
+        if first_link.evaluate("node => getComputedStyle(node).outlineWidth") != "2px":
+            raise AssertionError("welcome links lack a visible keyboard focus outline")
+
+        page.locator("#btn-client-menu").click()
+        menu = page.locator("#client-menu-dialog")
+        menu.wait_for(state="visible")
+        menu_state = menu.evaluate("""
+          (dialog) => ({
+            sections: [...dialog.querySelectorAll('.client-menu-section-title')]
+              .map((heading) => heading.textContent.trim()),
+            firstPlayer: dialog.querySelector('.client-menu-section-title:nth-of-type(2) + .client-menu-item')?.textContent,
+            recommended: dialog.querySelector('.client-menu-recommended')?.textContent,
+          })
+        """)
+        if menu_state["sections"] != ["Bunnyland", "Player clients", "Builder & admin"]:
+            raise AssertionError(f"client menu sections are out of order: {menu_state!r}")
+        if "Web TUI" not in (menu_state["firstPlayer"] or "") or menu_state["recommended"] != "Recommended":
+            raise AssertionError(f"Web TUI is not the recommended player client: {menu_state!r}")
+        page.locator(".client-menu-close").click()
+
+        page.evaluate("""() => {
+          window.__bunnylandDialogResult = BunnylandUI.promptDialog('Name this binding.', {
+            label: 'Binding name', title: 'Bind entity', value: 'front_door',
+          });
+        }""")
+        action_dialog = page.locator("#bl-action-dialog[open]")
+        action_dialog.wait_for(state="visible")
+        action_dialog.locator("input[name=value]").fill("market_door")
+        action_dialog.locator(".bl-dialog-confirm").click()
+        if page.evaluate("async () => await window.__bunnylandDialogResult") != "market_door":
+            raise AssertionError("shared prompt dialog did not return its submitted value")
+
+        page.evaluate("""() => {
+          window.__bunnylandDialogResult = BunnylandUI.confirmDialog('Delete this entity?', {
+            confirmLabel: 'Delete', title: 'Delete entity', tone: 'danger',
+          });
+        }""")
+        action_dialog.wait_for(state="visible")
+        page.keyboard.press("Escape")
+        if page.evaluate("async () => await window.__bunnylandDialogResult") is not False:
+            raise AssertionError("shared confirm dialog did not cancel on Escape")
         page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-responsive-welcome.png"), full_page=True)
         coverage.close_page(page)
         portrait.close()

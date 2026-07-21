@@ -3,6 +3,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { BlockList, type ScriptBlockItem } from './block-list';
+import { promptDialog } from '../dialogs';
 
 type JsonObject = Record<string, unknown>;
 
@@ -483,10 +484,12 @@ export function ScriptEditorPage() {
     setStatus({ kind: 'ok', text: 'Target query updated' });
   };
 
-  const bindEntity = () => {
+  const bindEntity = async (): Promise<void> => {
     if (!selectedEntity) return;
     const suggestion = entityName(selectedEntity).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'entity';
-    const name = window.prompt('Binding name', suggestion);
+    const name = await promptDialog('Choose the name used to reference this entity.', {
+      label: 'Binding name', title: 'Bind entity', value: suggestion,
+    });
     if (!name) return;
     setScript(current => ({ ...current, bindings: { ...current.bindings, [name]: selectedEntity.id } }));
     setStatus({ kind: 'ok', text: `Bound $${name}` });
@@ -575,7 +578,7 @@ export function ScriptEditorPage() {
                 const room = selectedEntity.components.RoomComponent;
                 if (room?.title) applyEntityQuery({ components: ['RoomComponent'], room_title: room.title });
               }}>Use Room</button>
-              <button data-use="binding" onClick={bindEntity}>Bind Entity</button>
+              <button data-use="binding" onClick={() => { void bindEntity(); }}>Bind Entity</button>
             </div>
           </>}</div>
         </div>

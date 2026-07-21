@@ -14,6 +14,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { MemoryCharacterList, type MemoryCharacter } from './character-list';
+import { confirmDialog } from '../dialogs';
 
 export interface MemoryMetadata extends Record<string, unknown> {
   source?: string;
@@ -316,7 +317,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       if (!aliveRef.current || requestGeneration.current !== generation) return;
       setCharacters((response as { characters?: MemoryCharacterResponse[] }).characters || []);
       if (!collection) return;
-      if (changed && !window.confirm('Discard unsaved changes?')) return;
+      if (changed && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' })) return;
       const collectionResponse = await services.sendAdmin(
         base,
         `/admin/memory/collections/${encodeURIComponent(collection)}/documents`,
@@ -331,7 +332,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
 
   const loadCollection = async (name: string): Promise<void> => {
     if (!name || !base) return;
-    if (changed && !window.confirm('Discard unsaved changes?')) return;
+    if (changed && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' })) return;
     const generation = ++requestGeneration.current;
     setCollection(name);
     setDocuments([]);
@@ -348,8 +349,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
     }
   };
 
-  const selectDocument = (id: string): void => {
-    if (changed && !window.confirm('Discard unsaved changes?')) return;
+  const selectDocument = async (id: string): Promise<void> => {
+    if (changed && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' })) return;
     const document = documents.find((item) => item.id === id) || null;
     setSelectedDocument(document);
     setCreatingDocument(false);
@@ -357,8 +358,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
     setEditorNotice('');
   };
 
-  const newDocument = (): void => {
-    if (!collection || (changed && !window.confirm('Discard unsaved changes?'))) return;
+  const newDocument = async (): Promise<void> => {
+    if (!collection || (changed && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' }))) return;
     const activeAtSchedule = document.activeElement;
     const draftDocument = { document: '', id: '', metadata: { source: 'admin', tags: [] } };
     setSelectedDocument(draftDocument);
@@ -398,7 +399,9 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   const deleteDocument = async (): Promise<void> => {
     if (!selectedDocument || !collection || creatingDocument) return;
     const id = selectedDocument.id;
-    if (!window.confirm(`Delete memory document ${id}?`)) return;
+    if (!await confirmDialog(`Delete memory document ${id}?`, {
+      confirmLabel: 'Delete', title: 'Delete memory document', tone: 'danger',
+    })) return;
     const generation = requestGeneration.current;
     try {
       await services.sendAdmin(
@@ -503,7 +506,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
             <DocumentList
               collection={collection}
               documents={filteredDocuments}
-              onSelect={selectDocument}
+              onSelect={(id): void => { void selectDocument(id); }}
               selectedId={selectedDocument?.id || ''}
             />
           </div>
@@ -555,7 +558,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
           </label>
           <div id="metadata-error">{metadata.ok ? '' : metadata.error}</div>
           <div id="editor-actions">
-            <Button disabled={!collection} id="btn-new-document" onClick={newDocument}>New</Button>
+            <Button disabled={!collection} id="btn-new-document" onClick={(): void => { void newDocument(); }}>New</Button>
             <Button
               disabled={!hasDocument || !changed || !metadata.ok}
               id="btn-save-document"

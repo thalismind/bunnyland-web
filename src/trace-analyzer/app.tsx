@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { SpanDetail, type TraceDetailEntry, type TraceSpanDetail } from './span-detail';
 import { SpanRows, type TraceSpanRow } from './span-rows';
+import { promptDialog } from '../dialogs';
 
 type JsonObject = Record<string, unknown>;
 
@@ -150,10 +151,14 @@ function spanDetail(trace: Trace, span: TraceSpan | undefined): TraceSpanDetail 
   };
 }
 
-function promptTempoBasicAuth(): string | null {
-  const username = window.prompt('Tempo username');
+async function promptTempoBasicAuth(): Promise<string | null> {
+  const username = await promptDialog('Enter the username for this Tempo server.', {
+    autocomplete: 'username', label: 'Username', required: true, title: 'Tempo sign in',
+  });
   if (username === null) return null;
-  const password = window.prompt('Tempo password');
+  const password = await promptDialog('Enter the password for this Tempo server.', {
+    autocomplete: 'current-password', label: 'Password', required: true, title: 'Tempo sign in', type: 'password',
+  });
   return password === null ? null : `Basic ${btoa(`${username}:${password}`)}`;
 }
 
@@ -246,7 +251,7 @@ export function TraceAnalyzerPage() {
     });
     let response = await request();
     if (response.status === 401) {
-      const auth = promptTempoBasicAuth();
+      const auth = await promptTempoBasicAuth();
       if (auth) { tempoAuthRef.current = auth; response = await request(); }
     }
     if (!response.ok) throw new Error(`Tempo HTTP ${response.status}`);

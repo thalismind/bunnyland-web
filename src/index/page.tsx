@@ -24,7 +24,7 @@ const landingGlobals = globalThis as typeof globalThis & {
   BunnylandUI: { initClientMenu(): void };
 };
 
-type Availability = 'available' | 'checking' | 'unavailable';
+type Availability = 'available' | 'checking' | 'error' | 'unavailable';
 
 function terminalBase(serverUrl: string): string {
   return new URL(landingGlobals.BunnylandApi.assertSameOriginBase(serverUrl), location.href).href.replace(/\/+$/, '');
@@ -73,7 +73,7 @@ function useDeployment() {
         });
       } catch {
         if (!active) return;
-        setAvailability({ character_chat: 'unavailable', character_sheets: 'unavailable' });
+        setAvailability({ character_chat: 'error', character_sheets: 'error' });
       }
     })();
     return () => {
@@ -130,12 +130,17 @@ function FeatureCard({
   title: string;
 }) {
   const enabled = state === 'available';
+  const cardStateClass = enabled ? '' : state === 'error' ? 'feature-error' : 'feature-disabled';
   const idBase = 'character';
-  return <article id={`${idBase}-card`} class={`info-card ${enabled ? '' : 'feature-disabled'}`} data-feature="character">
+  return <article id={`${idBase}-card`} class={`info-card ${cardStateClass}`} data-feature="character">
     <h3>{title}</h3>
     <p>{description}</p>
-    <div class={`feature-state ${enabled ? 'available' : 'unavailable'}`} id={`${idBase}-state`}>
-      {state === 'checking' ? 'Checking server feature...' : enabled ? 'Available on this server.' : 'Disabled on this server.'}
+    <div class={`feature-state ${state}`} id={`${idBase}-state`}>
+      {state === 'checking'
+        ? 'Checking server feature...'
+        : enabled
+          ? 'Available on this server.'
+          : state === 'error' ? 'Could not reach this server.' : 'Disabled on this server.'}
     </div>
     <div class="info-actions">
       <a id={`${idBase}-link`} class={`button-link primary ${enabled ? '' : 'disabled'}`} href={href}
@@ -151,9 +156,12 @@ export function LandingPage() {
   const queryServer = clientServer(serverUrl);
   const playerHref = (page: string): string => `${page}?server=${encodeURIComponent(queryServer)}`;
   const characterHref = `character.html?server=${encodeURIComponent(queryServer)}`;
-  const characterState: Availability = Object.values(availability).includes('available')
+  const availabilityValues = Object.values(availability);
+  const characterState: Availability = availabilityValues.includes('available')
     ? 'available'
-    : Object.values(availability).includes('checking') ? 'checking' : 'unavailable';
+    : availabilityValues.includes('checking')
+      ? 'checking'
+      : availabilityValues.includes('error') ? 'error' : 'unavailable';
 
   return <div class="welcome-shell">
     <header class="welcome-header">

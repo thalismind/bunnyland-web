@@ -34,6 +34,7 @@
   const boundThemeSelects = new Set();
   const boundColorSchemeSelects = new Set();
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
+  let actionDialogQueue = Promise.resolve();
   let clientMenuBaseUrl = '';
   // Admin tools order: World Generator, World Graph, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
@@ -42,6 +43,7 @@
       title: 'Welcome',
       label: 'Start here',
       description: 'Project overview, docs, admin notes, and client chooser.',
+      group: 'Bunnyland',
       supportsServer: true,
     },
     {
@@ -49,21 +51,25 @@
       title: 'Bunnyland.dev',
       label: 'Website',
       description: 'Project homepage, feature overview, guides, and public docs.',
+      group: 'Bunnyland',
       supportsServer: false,
-    },
-    {
-      href: 'toon-client.html',
-      title: 'Toon Client',
-      label: 'Player room view',
-      description: 'Claim a character and play from the room-focused visual client.',
-      supportsFocus: true,
-      supportsServer: true,
     },
     {
       href: 'web-tui.html',
       title: 'Web TUI',
       label: 'Player action menu',
       description: 'Claim a character and play from the terminal TUI-style browser client.',
+      group: 'Player clients',
+      recommended: true,
+      supportsFocus: true,
+      supportsServer: true,
+    },
+    {
+      href: 'toon-client.html',
+      title: 'Toon Client',
+      label: 'Player room view',
+      description: 'Claim a character and play from the room-focused visual client.',
+      group: 'Player clients',
       supportsFocus: true,
       supportsServer: true,
     },
@@ -72,6 +78,7 @@
       title: 'Web REPL',
       label: 'Text-based play',
       description: 'Claim a character and play with typed commands in the browser.',
+      group: 'Player clients',
       supportsFocus: true,
       supportsServer: true,
     },
@@ -80,6 +87,7 @@
       title: 'Character Profile',
       label: 'Profile and chat',
       description: 'Open a character profile, inspect live state, and chat in character.',
+      group: 'Player clients',
       supportsFocus: true,
       supportsServer: true,
     },
@@ -88,6 +96,7 @@
       title: 'World Generator',
       label: 'Admin generator',
       description: 'Generate or replace a live world using enabled server generators.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -96,6 +105,7 @@
       title: 'World Graph',
       label: 'Graph editor',
       description: 'Browse and extend the ECS world graph from a snapshot or live server.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -104,6 +114,7 @@
       title: 'Behavior Editor',
       label: 'Behavior trees',
       description: 'Author behavior-tree JSON for behavioral controllers and register it live.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -112,6 +123,7 @@
       title: 'Memory Editor',
       label: 'Memory editor',
       description: 'Inspect and edit character memory collections on a live server.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -120,6 +132,7 @@
       title: 'Script Editor',
       label: 'Automation scripts',
       description: 'Create and validate script JSON blocks against a snapshot.',
+      group: 'Builder & admin',
       supportsServer: false,
       admin: true,
     },
@@ -128,6 +141,7 @@
       title: 'World Editor',
       label: 'Admin editor',
       description: 'Edit entities, components, relationships, fragments, and live snapshots.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -136,6 +150,7 @@
       title: 'Event Stream',
       label: 'Event viewer',
       description: 'Watch the live world event feed with expandable records and entity references.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -144,6 +159,7 @@
       title: 'Trace Analyzer',
       label: 'Trace inspection',
       description: 'Inspect live Tempo traces or load JSON and JSONL trace artifacts.',
+      group: 'Builder & admin',
       supportsServer: true,
       admin: true,
     },
@@ -476,6 +492,138 @@
     return url.origin === location.origin ? '' : ' target="_blank" rel="noopener"';
   }
 
+  function ensureActionDialog() {
+    let dialog = document.getElementById('bl-action-dialog');
+    if (dialog) return dialog;
+    dialog = document.createElement('dialog');
+    dialog.id = 'bl-action-dialog';
+    dialog.className = 'bl-dialog';
+    dialog.setAttribute('aria-labelledby', 'bl-action-dialog-title');
+    document.body.appendChild(dialog);
+    return dialog;
+  }
+
+  function actionDialog({
+    cancelLabel = 'Cancel',
+    cancellable = true,
+    confirmLabel = 'OK',
+    fields = [],
+    message = '',
+    title = 'Bunnyland',
+    tone = 'default',
+  } = {}) {
+    const open = () => new Promise((resolve) => {
+      const dialog = ensureActionDialog();
+      const previousFocus = document.activeElement;
+      dialog.innerHTML = `
+        <form class="bl-dialog-form" method="dialog">
+          <div class="bl-dialog-header"><h2 id="bl-action-dialog-title">${escapeHtml(title)}</h2></div>
+          <div class="bl-dialog-body">
+            ${message ? `<p class="bl-dialog-message">${escapeHtml(message)}</p>` : ''}
+            ${fields.map((field, index) => `
+              <label class="bl-dialog-field">
+                <span>${escapeHtml(field.label || field.name || `Value ${index + 1}`)}</span>
+                <input name="${escapeHtml(field.name || `field-${index}`)}"
+                  type="${escapeHtml(field.type || 'text')}"
+                  value="${escapeHtml(field.value || '')}"
+                  ${field.autocomplete ? `autocomplete="${escapeHtml(field.autocomplete)}"` : ''}
+                  ${field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : ''}
+                  ${field.required ? 'required' : ''}>
+              </label>
+            `).join('')}
+          </div>
+          <div class="bl-dialog-actions">
+            ${cancellable ? `<button class="bl-dialog-cancel" type="button">${escapeHtml(cancelLabel)}</button>` : ''}
+            <button class="bl-dialog-confirm ${tone === 'danger' ? 'bl-button-danger' : 'bl-button-primary'}" type="submit">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </form>
+      `;
+      const form = dialog.querySelector('.bl-dialog-form');
+      const cancel = dialog.querySelector('.bl-dialog-cancel');
+      let settled = false;
+
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        dialog.removeEventListener('cancel', onCancel);
+        dialog.removeEventListener('click', onBackdropClick);
+        if (dialog.open && typeof dialog.close === 'function') dialog.close();
+        else dialog.removeAttribute('open');
+        previousFocus?.focus?.();
+        resolve(value);
+      };
+      const onCancel = (event) => {
+        event.preventDefault();
+        if (cancellable) finish(null);
+      };
+      const onBackdropClick = (event) => {
+        if (cancellable && event.target === dialog) finish(null);
+      };
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const values = {};
+        for (const field of fields) {
+          const input = form.elements.namedItem(field.name);
+          values[field.name] = input?.value || '';
+        }
+        finish(values);
+      });
+      cancel?.addEventListener('click', () => finish(null));
+      dialog.addEventListener('cancel', onCancel);
+      dialog.addEventListener('click', onBackdropClick);
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+      (dialog.querySelector('input') || dialog.querySelector('.bl-dialog-confirm'))?.focus();
+    });
+    const queued = actionDialogQueue.then(open, open);
+    actionDialogQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  async function promptDialog(message, options = {}) {
+    const fieldName = 'value';
+    const values = await actionDialog({
+      ...options,
+      fields: [{
+        autocomplete: options.autocomplete,
+        label: options.label || 'Value',
+        name: fieldName,
+        placeholder: options.placeholder,
+        required: options.required,
+        type: options.type || 'text',
+        value: options.value || '',
+      }],
+      message,
+    });
+    return values ? values[fieldName] : null;
+  }
+
+  async function confirmDialog(message, options = {}) {
+    return Boolean(await actionDialog({
+      ...options,
+      confirmLabel: options.confirmLabel || 'Confirm',
+      fields: [],
+      message,
+    }));
+  }
+
+  async function credentialsDialog(options = {}) {
+    return actionDialog({
+      ...options,
+      confirmLabel: options.confirmLabel || 'Sign in',
+      fields: [
+        { autocomplete: 'username', label: options.usernameLabel || 'Username', name: 'username', required: true },
+        { autocomplete: 'current-password', label: options.passwordLabel || 'Password', name: 'password', required: true, type: 'password' },
+      ],
+      title: options.title || 'Sign in to Bunnyland',
+    });
+  }
+
+  async function alertDialog(message, options = {}) {
+    await actionDialog({ ...options, cancellable: false, fields: [], message });
+  }
+
   function ensureClientMenu() {
     let dialog = document.getElementById('client-menu-dialog');
     if (dialog) return dialog;
@@ -504,12 +652,14 @@
           <button class="client-menu-close" type="button" aria-label="Close client menu">x</button>
         </div>
         <div class="client-menu-list">
-          ${CLIENT_MENU_ITEMS.map((item) => {
+          ${CLIENT_MENU_ITEMS.map((item, index) => {
             const active = item.href === current || (current === '' && item.href === 'index.html');
+            const previousGroup = CLIENT_MENU_ITEMS[index - 1]?.group;
             return `
+              ${item.group !== previousGroup ? `<div class="client-menu-section-title">${escapeHtml(item.group)}</div>` : ''}
               <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}"${clientTargetAttrs(item)}>
                 <span class="client-menu-item-main">
-                  <span class="client-menu-item-title">${escapeHtml(item.title)}${item.admin ? '<span class="client-menu-admin-badge" title="Requires authentication" aria-label="Requires authentication">●</span>' : ''}</span>
+                  <span class="client-menu-item-title">${escapeHtml(item.title)}${item.recommended ? '<span class="client-menu-recommended">Recommended</span>' : ''}${item.admin ? '<span class="client-menu-admin-badge" title="Requires authentication" aria-label="Requires authentication">●</span>' : ''}</span>
                   <span class="client-menu-item-desc">${escapeHtml(item.description)}</span>
                 </span>
                 <span class="client-menu-item-label">${escapeHtml(active ? 'Current' : item.label)}</span>
@@ -768,6 +918,7 @@
   }
 
   window.BunnylandUI = {
+    alertDialog,
     bindColorSchemeSelect,
     bindTagEditor,
     bindSearchDropdown,
@@ -777,12 +928,15 @@
     currentColorScheme,
     escapeHtml,
     currentTheme,
+    confirmDialog,
+    credentialsDialog,
     initClientMenu,
     initHelp,
     initTheme,
     loadConfig,
     normalizeTags,
     normalizeTheme,
+    promptDialog,
     registerThemeOption,
     registerThemeOptions,
     renderTagEditorTags,

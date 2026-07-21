@@ -10,6 +10,22 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function filesWithExtensions(root, extensions) {
+  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const filename = path.join(root, entry.name);
+    if (entry.isDirectory()) return filesWithExtensions(filename, extensions);
+    return extensions.has(path.extname(entry.name)) ? [filename] : [];
+  });
+}
+
+function setDialogCredentials(context, username, password) {
+  context.BunnylandUI = {
+    ...context.BunnylandUI,
+    alertDialog: async () => {},
+    credentialsDialog: async () => ({ password, username }),
+  };
+}
+
 function loadBrowserAssets(files) {
   const documentElements = new Map();
   const rootClasses = new Set();
@@ -160,14 +176,50 @@ test('client menu carries server and focus between focused player pages only', (
   assert.doesNotMatch(html, /character-(?:sheet|chat)\.html/);
   assert.match(html, /event-stream\.html\?server=%2Fapi/);
   assert.doesNotMatch(html, /event-stream\.html\?server=%2Fapi#character/);
+  assert.ok(html.indexOf('web-tui.html') < html.indexOf('toon-client.html'));
+  assert.match(html, />Player clients</);
+  assert.match(html, />Builder &amp; admin</);
+  assert.match(html, /Web TUI<span class="client-menu-recommended">Recommended<\/span>/);
+});
+
+test('web styles use defined shared tokens and retain accessible player-page rules', () => {
+  const files = [
+    ...filesWithExtensions('assets', new Set(['.css'])),
+    ...filesWithExtensions('src', new Set(['.css'])),
+    ...fs.readdirSync('.').filter(filename => path.extname(filename) === '.html'),
+  ];
+  const styles = files.map(filename => fs.readFileSync(filename, 'utf8')).join('\n');
+  const defined = new Set([...styles.matchAll(/(--bl-[a-z0-9-]+)\s*:/g)].map(match => match[1]));
+  const used = new Set([...styles.matchAll(/var\((--bl-[a-z0-9-]+)/g)].map(match => match[1]));
+  const sharedCss = fs.readFileSync('assets/bunnyland-ui.css', 'utf8');
+  const toonCss = fs.readFileSync('src/toon-client/toon.css', 'utf8');
+  const landing = fs.readFileSync('index.html', 'utf8');
+
+  assert.deepEqual([...used].filter(token => !defined.has(token)).sort(), []);
+  assert.match(sharedCss, /:focus-visible/);
+  assert.match(sharedCss, /\.bl-page-web-tui[\s\S]*min-height:\s*44px/);
+  assert.match(toonCss, /#stage:focus-visible/);
+  assert.match(landing, /@media \(max-width: 620px\)[\s\S]*\.section-heading[\s\S]*flex-direction:\s*column/);
+});
+
+test('web runtime uses shared dialogs instead of native browser prompts', () => {
+  const runtimeFiles = [
+    ...filesWithExtensions('assets', new Set(['.js'])),
+    ...filesWithExtensions('src', new Set(['.ts', '.tsx'])),
+  ];
+  const runtime = runtimeFiles.map(filename => fs.readFileSync(filename, 'utf8')).join('\n');
+
+  assert.doesNotMatch(runtime, /\b(?:window\.)?(?:alert|confirm|prompt)\s*\(/);
+  assert.match(runtime, /credentialsDialog/);
+  assert.match(runtime, /confirmDialog/);
+  assert.match(runtime, /promptDialog/);
 });
 
 test('BunnylandApi prompts and reuses player auth for player routes', async () => {
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
   const calls = [];
-  const prompts = ['player1', 'player-pass'];
-  context.window.prompt = () => prompts.shift();
+  setDialogCredentials(context, 'player1', 'player-pass');
   context.fetch = async (url, options) => {
     calls.push({ url, options });
     if (calls.length === 1) return { ok: false, status: 401, json: async () => ({ detail: 'auth required' }) };
@@ -242,8 +294,7 @@ test('BunnylandApi retries explicit claim headers with prompted player auth', as
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
   const calls = [];
-  const prompts = ['player1', 'player-pass'];
-  context.window.prompt = () => prompts.shift();
+  setDialogCredentials(context, 'player1', 'player-pass');
   context.fetch = async (url, options) => {
     calls.push({ url, options });
     if (calls.length === 1) return { ok: false, status: 401, json: async () => ({ detail: 'auth required' }) };
@@ -266,8 +317,7 @@ test('BunnylandApi replaces stale explicit player auth after prompt', async () =
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
   const calls = [];
-  const prompts = ['player1', 'fresh-pass'];
-  context.window.prompt = () => prompts.shift();
+  setDialogCredentials(context, 'player1', 'fresh-pass');
   BunnylandApi.setPlayerAuth('Basic stale-token');
   const headers = BunnylandApi.claimHeaders({ claimSecret: 'claim-secret' });
   context.fetch = async (url, options) => {
@@ -287,10 +337,10 @@ test('BunnylandApi replaces stale explicit player auth after prompt', async () =
 test('BunnylandApi prompts before configured player-auth autoconnect', async () => {
   const context = loadBrowserAssets(['assets/bunnyland-api.js']);
   const { BunnylandApi } = context;
-  const prompts = ['player1', 'player-pass'];
   const connected = [];
-  context.window.prompt = () => prompts.shift();
   context.BunnylandUI = {
+    alertDialog: async () => {},
+    credentialsDialog: async () => ({ password: 'player-pass', username: 'player1' }),
     loadConfig: async () => ({
       serverUrl: '/api/',
       autoConnect: true,

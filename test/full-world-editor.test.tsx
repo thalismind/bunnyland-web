@@ -30,6 +30,7 @@ const bunnylandUi = {
     hidden.value = selected?.value || ''; input.value = selected?.label || '';
   }),
   cloneJson: clone,
+  confirmDialog: vi.fn(async () => true),
   initClientMenu: vi.fn(),
   loadConfig: vi.fn(async () => ({ autoConnect: false, serverUrl: '' })),
 };

@@ -73,16 +73,29 @@ describe('LandingPage deployment state', () => {
     expect(initClientMenu).toHaveBeenCalledOnce();
   });
 
-  it('uses same-origin fallback commands and disables features when config and status fail', async () => {
+  it('uses same-origin fallback commands and reports when feature status cannot be reached', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('missing config'); }));
     api.sendJson.mockRejectedValue(new Error('offline'));
 
     const view = render(<LandingPage />);
-    await waitFor(() => expect(view.getByText('Disabled on this server.')).toBeTruthy());
+    await waitFor(() => expect(view.getByText('Could not reach this server.')).toBeTruthy());
 
     expect(view.container.querySelector('#cmd-repl')?.textContent).toContain('/api');
     expect(view.container.querySelector<HTMLAnchorElement>('#discord-link')?.style.display).toBe('none');
+    expect(view.container.querySelector('#character-card')?.classList.contains('feature-error')).toBe(true);
+    expect(view.container.querySelector('#character-card')?.classList.contains('feature-disabled')).toBe(false);
+    expect(view.container.querySelector('#character-link')?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('distinguishes disabled server features from an unreachable server', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => configResponse({})));
+    api.sendJson.mockResolvedValue({ character_chat: false, character_sheets: false });
+
+    const view = render(<LandingPage />);
+    await waitFor(() => expect(view.getByText('Disabled on this server.')).toBeTruthy());
+
     expect(view.container.querySelector('#character-card')?.classList.contains('feature-disabled')).toBe(true);
+    expect(view.container.querySelector('#character-card')?.classList.contains('feature-error')).toBe(false);
     expect(view.container.querySelector('#character-link')?.getAttribute('tabindex')).toBe('-1');
   });
 
