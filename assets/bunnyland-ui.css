@@ -1,7 +1,9 @@
 :root,
 :root.bl-theme-dark,
 :root.bl-theme-purple-blue-dark,
-:root.bl-theme-purple-blue {
+:root.bl-theme-midnight-dark,
+:root.bl-theme-purple-blue,
+:root.bl-theme-midnight {
   color-scheme: dark;
 
   --bl-font-mono: 'Courier New', monospace;
@@ -50,7 +52,9 @@
 :root,
 :root.bl-theme-light,
 :root.bl-theme-purple-blue-light,
-:root.bl-theme-purple-blue {
+:root.bl-theme-midnight-light,
+:root.bl-theme-purple-blue,
+:root.bl-theme-midnight {
 
   --bl-light-bg: #f4f1ea;
   --bl-light-bg-strong: #ebe6dc;
@@ -487,6 +491,7 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([class*="bl-theme-"]):not(.bl-color-scheme-dark),
+  :root.bl-theme-midnight:not(.bl-color-scheme-dark),
   :root.bl-theme-purple-blue:not(.bl-color-scheme-dark),
   :root.bl-theme-candy:not(.bl-color-scheme-dark),
   :root.bl-theme-earth:not(.bl-color-scheme-dark),
@@ -530,6 +535,7 @@
   }
 }
 
+:root.bl-theme-midnight.bl-color-scheme-light,
 :root.bl-theme-purple-blue.bl-color-scheme-light,
 :root.bl-theme-candy.bl-color-scheme-light,
 :root.bl-theme-earth.bl-color-scheme-light,
@@ -537,6 +543,7 @@
 :root.bl-theme-sunset.bl-color-scheme-light,
 :root.bl-theme-high-contrast.bl-color-scheme-light,
 :root.bl-theme-light,
+:root.bl-theme-midnight-light,
 :root.bl-theme-purple-blue-light,
 :root.bl-theme-anime-light,
 :root.bl-theme-candy-light,

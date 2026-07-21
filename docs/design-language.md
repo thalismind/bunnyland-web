@@ -24,10 +24,12 @@ identical.
 The shared base style is published by `@bunnyland/ui-web` and synced into this repo as
 `assets/bunnyland-ui.css`.
 
-- Theme selection is page-level: `BunnylandUI.setTheme('purple-blue-dark')` applies a
-  root class such as `bl-theme-purple-blue-dark`, and that class overrides CSS variables.
-  Current palettes are `purple-blue`, `anime`, and `earth`, each with `dark` and `light`
-  modes. New colors should become `--bl-*` tokens before page styles depend on them.
+- Theme selection is page-level: `BunnylandUI.setTheme('midnight')` applies a root class
+  such as `bl-theme-midnight`, and that class overrides CSS variables. Current palettes
+  are `midnight`, `candy`, `earth`, `ocean`, `sunset`, and `high-contrast`; each follows
+  the selected `dark`, `light`, or system color scheme. New colors should become `--bl-*`
+  tokens before page styles depend on them. Legacy `purple-blue` and `anime` values remain
+  accepted as aliases.
 - Font: use `--bl-font-mono` for UI text and graph labels.
 - Type scale: use `--bl-text-xs`, `--bl-text-sm`, and `--bl-text-md` for dense controls.
 - Radius: use `--bl-radius-sm` for controls and compact rows, `--bl-radius-md` for

@@ -205,7 +205,7 @@ def main() -> None:
               const root = document.documentElement;
               const readBg = () => getComputedStyle(root).getPropertyValue('--bl-bg').trim();
               BunnylandUI.setColorScheme('dark');
-              const darkBefore = root.classList.contains('bl-theme-purple-blue')
+              const darkBefore = root.classList.contains('bl-theme-midnight')
                 && root.classList.contains('bl-color-scheme-dark');
               const darkBg = readBg();
               BunnylandUI.setTheme('anime-light');
@@ -219,7 +219,7 @@ def main() -> None:
                 darkBefore,
                 lightApplied,
                 bgChanged: darkBg !== lightBg,
-                restored: root.classList.contains('bl-theme-purple-blue')
+                restored: root.classList.contains('bl-theme-midnight')
                   && root.classList.contains('bl-color-scheme-dark')
                   && !root.classList.contains('bl-theme-candy'),
               };

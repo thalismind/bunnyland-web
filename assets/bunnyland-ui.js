@@ -5,16 +5,19 @@
   const THEME_CLASS_PREFIX = 'bl-theme-';
   const COLOR_SCHEME_KEY = 'bunnyland.color-scheme';
   const COLOR_SCHEME_CLASS_PREFIX = 'bl-color-scheme-';
-  const DEFAULT_THEME = 'purple-blue';
+  const DEFAULT_THEME = 'midnight';
   const THEME_ALIASES = {
     anime: 'candy',
     'anime-dark': 'candy-dark',
     'anime-light': 'candy-light',
-    dark: 'purple-blue-dark',
-    light: 'purple-blue-light',
+    dark: 'midnight-dark',
+    light: 'midnight-light',
+    'purple-blue': 'midnight',
+    'purple-blue-dark': 'midnight-dark',
+    'purple-blue-light': 'midnight-light',
   };
   const DEFAULT_THEME_OPTIONS = [
-    { value: 'purple-blue', label: 'Purple / Blue' },
+    { value: 'midnight', label: 'Midnight Blue / Lavender' },
     { value: 'candy', label: 'Candy Pink / Cyan' },
     { value: 'earth', label: 'Earth Green / Gold' },
     { value: 'ocean', label: 'Ocean Teal / Coral' },
