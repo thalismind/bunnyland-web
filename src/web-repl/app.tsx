@@ -21,6 +21,7 @@ import type {
 import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
+import { useContentWarningGate } from '../content-warning';
 import { ActionRows, TargetRows, type ReplActionRow, type ReplTargetRow } from './context-lists';
 import {
   CompletionOptions,
@@ -110,6 +111,7 @@ export interface WebReplServices {
   fetchCharacterRecentEvents: (
     base: string, characterId: string, control: ControlClaim | null,
   ) => Promise<{ events?: unknown[] }>;
+  fetchContentFlags: (base: string) => Promise<unknown>;
   formatPoints: (value: unknown) => string;
   iconPreference: (key: string, fallback: boolean) => boolean;
   imageAffordance: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
@@ -159,11 +161,12 @@ export interface WebReplServices {
   ) => Promise<ClaimResult>;
 }
 
-interface LegacyWindow extends Window {
+interface WebReplBrowserRuntime extends Window {
   BunnylandApi: {
     applyConfigToInput: WebReplServices['applyConfig'];
     normalizeBase: WebReplServices['normalizeBase'];
     requestSceneImage: WebReplServices['requestSceneImage'];
+    sendJson: (base: string, path: string) => Promise<unknown>;
     serverFromUrl: WebReplServices['serverFromUrl'];
     setServerInUrl: WebReplServices['setServerInUrl'];
   };
@@ -175,20 +178,21 @@ interface LegacyWindow extends Window {
 }
 
 function browserServices(): WebReplServices {
-  const legacy = window as unknown as LegacyWindow;
+  const browser = window as unknown as WebReplBrowserRuntime;
   const fallbackPlay = {
     IMAGE_AFFORDANCE: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
-  } as LegacyWindow['BunnylandPlay'];
-  const { IMAGE_AFFORDANCE, ...play } = legacy.BunnylandPlay || fallbackPlay;
+  } as WebReplBrowserRuntime['BunnylandPlay'];
+  const { IMAGE_AFFORDANCE, ...play } = browser.BunnylandPlay || fallbackPlay;
   return {
     ...play,
-    applyConfig: (options) => legacy.BunnylandApi.applyConfigToInput(options),
+    applyConfig: (options) => browser.BunnylandApi.applyConfigToInput(options),
+    fetchContentFlags: (base) => browser.BunnylandApi.sendJson(base, '/public/world'),
     imageAffordance: IMAGE_AFFORDANCE,
-    initClientMenu: () => legacy.BunnylandUI.initClientMenu(),
-    normalizeBase: (url) => legacy.BunnylandApi.normalizeBase(url),
-    requestSceneImage: (base, id, control) => legacy.BunnylandApi.requestSceneImage(base, id, control),
-    serverFromUrl: () => legacy.BunnylandApi.serverFromUrl(),
-    setServerInUrl: (base) => legacy.BunnylandApi.setServerInUrl(base),
+    initClientMenu: () => browser.BunnylandUI.initClientMenu(),
+    normalizeBase: (url) => browser.BunnylandApi.normalizeBase(url),
+    requestSceneImage: (base, id, control) => browser.BunnylandApi.requestSceneImage(base, id, control),
+    serverFromUrl: () => browser.BunnylandApi.serverFromUrl(),
+    setServerInUrl: (base) => browser.BunnylandApi.setServerInUrl(base),
   };
 }
 
@@ -286,6 +290,9 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const { requireAcceptance, warningDialog } = useContentWarningGate(
+    services.fetchContentFlags,
+  );
 
   apiBaseRef.current = apiBase;
   connectedRef.current = connected;
@@ -452,6 +459,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     const selected = playerIdRef.current;
     if (!base || !selected) return null;
     try {
+      if (!await requireAcceptance(base)) return null;
       const stored = services.storedClaimControl(CLIENT_ID_KEY, selected);
       const data = await services.claimWebController(base, {
         ...services.claimSettings(),
@@ -470,7 +478,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       console.warn('Could not claim Bunnyland web REPL controller', error);
       return null;
     }
-  }, [services]);
+  }, [requireAcceptance, services]);
 
   const dropPlayer = useCallback((syncHash = true): void => {
     requestGeneration.current += 1;
@@ -1171,6 +1179,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         </div></div>
       </aside>
     </main>
+    {warningDialog}
   </>;
 }
 

@@ -1,0 +1,26 @@
+.content-warning-backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 72%);
+}
+
+.content-warning-dialog {
+  position: static;
+  width: min(560px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  margin: 0;
+  overflow: auto;
+  border: 2px solid var(--bl-warn);
+  border-radius: var(--bl-radius-md);
+  background: var(--bl-bg-strong);
+  color: var(--bl-text);
+}
+
+.content-warning-dialog h2 { margin-top: 0; color: var(--bl-warn); }
+.content-warning-dialog ul { padding-left: 24px; }
+.content-warning-dialog .content-warning-ignore { display: flex; gap: 8px; align-items: flex-start; }
+.content-warning-dialog .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }

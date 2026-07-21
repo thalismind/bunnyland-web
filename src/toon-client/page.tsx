@@ -3,6 +3,7 @@ import { AuthGate, AuthProvider, Button } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
+import { useContentWarningGate } from '../content-warning';
 import { StageItems } from './stage';
 import type { ToonDoor, ToonSprite } from '../types';
 import './toon.css';
@@ -17,6 +18,7 @@ export interface ToonRuntime {
     mediaUrl(base: string, path: unknown): string;
     normalizeBase(server: unknown): string;
     requestSceneImage(base: string, characterId: string, control: Control | null): Promise<Json>;
+    sendJson(base: string, path: string): Promise<unknown>;
     setServerInUrl(base: string): void;
   };
   play: Record<string, unknown>;
@@ -168,6 +170,9 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const [claimController, setClaimController] = useState('');
   const [claimTimeout, setClaimTimeout] = useState('30');
   const [debugBounds, setDebugBounds] = useState(false);
+  const { requireAcceptance, warningDialog } = useContentWarningGate(
+    base => runtime.api.sendJson(base, '/public/world'),
+  );
   const baseRef = useRef('');
   const playerRef = useRef('');
   const projectionRef = useRef<Projection | null>(null);
@@ -311,13 +316,21 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     } catch (error) { if (mounted.current) setStatus(`⚠ ${errorMessage(error)}`); }
   }, [refresh, runtime]);
 
-  const selectPlayer = (id: string): void => {
+  const selectPlayer = async (id: string): Promise<void> => {
+    if (id) {
+      try {
+        if (!await requireAcceptance(baseRef.current)) return;
+      } catch (error) {
+        setStatus(`⚠ ${errorMessage(error)}`);
+        return;
+      }
+    }
     refreshGeneration.current += 1;
     refreshPromiseRef.current = null;
     playerRef.current = id;
     setPlayerId(id); setProjection(null); setRoomProjection(null); setQueueProjection(null);
     setControl(null); setSelectedId(''); setLocalPos(null); setActivityLines([]); primed.current = false; seenIds.current = new Set();
-    if (id) void claim(id); else void refresh();
+    if (id) await claim(id); else await refresh();
   };
 
   const updateFallback = async (): Promise<void> => {
@@ -484,7 +497,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         else { const base = String(runtime.api.normalizeBase(apiUrl) || ''); baseRef.current = base; setConnected(true); setLoading(false); setStatus('● Connected'); runtime.api.setServerInUrl(base); void refresh(); }
       }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span id="api-status">{status}</span>
     </div><div class="toolbar-row" id="toolbar-row3">
-      <label for="player-select">Character:</label><select id="player-select" value={playerId} onChange={event => selectPlayer(event.currentTarget.value)}>
+      <label for="player-select">Character:</label><select id="player-select" value={playerId} onChange={event => { void selectPlayer(event.currentTarget.value); }}>
         <option value="">— select to play —</option>{[...characterList].sort((a, b) => a.name.localeCompare(b.name)).map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
       </select><Button id="btn-release-character" disabled={!playerId} onClick={() => setClaimOpen(true)}>{control?.active === false ? 'Resume' : control ? 'Idle' : 'Claim'}</Button>
       <Button id="btn-request-image" onClick={() => { void requestImage(); }}>📷 Image</Button>
@@ -540,6 +553,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         </div>
       </div>{lightbox && <div id="image-lightbox" onClick={() => setLightbox(false)}><img src={eventImage} alt="Requested scene image" /></div>}
     </div>
+    {warningDialog}
   </>;
 }
 

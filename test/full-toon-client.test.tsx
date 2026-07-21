@@ -7,11 +7,12 @@ const CHARACTER = 'character:1';
 const OTHER = 'character:2';
 const ITEM = 'item:1';
 
-function harness() {
+function harness(contentFlags: string[] = []) {
   const close = vi.fn();
   const clearClaimControl = vi.fn();
   const submitted: Array<Record<string, unknown>> = [];
   let fetches = 0;
+  const claimWebController = vi.fn(async () => ({ controller_id: 'web:1', generation: 1, claim_id: 'claim' }));
   const projection = {
     characterId: CHARACTER,
     room: { id: 'room:1', name: 'Parlor' },
@@ -40,7 +41,7 @@ function harness() {
     persistentClientId: async () => 'toon-client',
     storedClaimControl: () => null,
     claimSettings: () => ({}),
-    claimWebController: async () => ({ controller_id: 'web:1', generation: 1, claim_id: 'claim' }),
+    claimWebController,
     controlFromResponse: () => ({ characterId: CHARACTER, controllerId: 'web:1', generation: 1, claimId: 'claim', active: true }),
     storeClaimControl: () => undefined,
     clearClaimControl,
@@ -84,20 +85,42 @@ function harness() {
         if (server) url.searchParams.set('server', server); else url.searchParams.delete('server');
         history.replaceState(null, '', url);
       },
+      sendJson: async () => ({
+        world_id: 'world-1',
+        world_epoch: 7,
+        title: 'Clover City',
+        description: '',
+        content_flags: contentFlags,
+      }),
     },
     play: functions,
     ui: { initClientMenu: () => undefined, initHelp: () => undefined },
   };
-  return { clearClaimControl, close, fetches: () => fetches, runtime, submitted };
+  return { claimWebController, clearClaimControl, close, fetches: () => fetches, runtime, submitted };
 }
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   history.replaceState(null, '', location.pathname);
   vi.restoreAllMocks();
 });
 
 describe('ToonPage', () => {
+  it('blocks claiming until flagged world content is accepted', async () => {
+    const test = harness(['adult:violence']);
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    expect(await view.findByRole('dialog', { name: 'Content warning' })).toBeTruthy();
+    expect(test.claimWebController).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Accept and Join'));
+    await waitFor(() => expect(test.claimWebController).toHaveBeenCalledOnce());
+  });
+
   it('leaves claimed refresh scheduling to the live update coordinator', async () => {
     const setInterval = vi.spyOn(window, 'setInterval');
     const test = harness();

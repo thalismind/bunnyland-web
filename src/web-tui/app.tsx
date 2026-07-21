@@ -1,21 +1,42 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { serverFromUrl } from '@bunnyland/ui-web/api';
 import { AuthGate, AuthProvider } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
+import { useContentWarningGate } from '../content-warning';
 import { ActionSections, ActivityRows, LiveQueuedRows, type TuiActivityRow, type TuiActionRow } from './live-projections';
 import { ExitList, InventoryList, MemberList } from './world-lists';
 
-type JsonObject = Record<string, any>;
+type JsonObject = Record<string, unknown> & {
+  command_id?: string;
+  direction?: string;
+  icon?: string;
+  id?: string;
+  kind?: string;
+  label?: string;
+  locked?: boolean;
+  name?: string;
+  title?: string;
+};
 type Control = { active?: boolean; claimId?: string; controllerId?: string; generation?: number } & JsonObject;
 type Character = { id: string; kind?: string; name: string };
-type Action = JsonObject;
+type ActionArgument = JsonObject & { key: string; kind?: string; required?: boolean; target_group?: string; title?: string };
+type Action = JsonObject & {
+  arguments?: ActionArgument[];
+  available?: boolean;
+  command_type?: string;
+  cost?: { action?: number; focus?: number };
+  lane?: string;
+  title?: string;
+  tool_name?: string;
+  unavailable_reason?: string;
+};
 type Projection = JsonObject & {
   actions?: Action[]; characterId?: string; inventory?: JsonObject[]; points?: JsonObject;
   room?: JsonObject & { entities?: JsonObject[]; exits?: JsonObject[] }; targetGroups?: Record<string, JsonObject[]>;
   worldEpoch?: number;
 };
+type QueueProjection = JsonObject & { characterId?: string; commands?: JsonObject[] };
 type Model = {
   activity: (JsonObject & { key: string; kind?: string; text: string })[];
   characters: Character[];
@@ -24,17 +45,75 @@ type Model = {
   eventsPrimed: boolean;
   playerId: string;
   projection: Projection | null;
-  queueProjection: JsonObject | null;
+  queueProjection: QueueProjection | null;
   queued: JsonObject[];
   selectedId: string;
   seenEventIds: Set<string>;
   status: { kind: string; text: string };
 };
 
+interface WebTuiPlayRuntime {
+  IMAGE_AFFORDANCE: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
+  actionArguments(action: Action): ActionArgument[];
+  actionAvailable(action: Action, options?: { fallback?: boolean }): boolean;
+  actionCommandType(action: Action): string;
+  actionCost(action: Action): { action: number; focus: number };
+  actionFields(action: Action, targets: (group: string) => JsonObject[]): FormField[];
+  actionIcon(action: Action): string;
+  actionLane(action: Action): 'focus' | 'world';
+  actionTitle(action: Action): string;
+  actionTool(action: Action): string;
+  actionUnavailableReason(action: Action): string;
+  allTargets(projection: Projection | null): Array<JsonObject & { label: string; value: string }>;
+  cancelQueuedCommand(base: string, characterId: string, commandId: string, control: Control | null): Promise<unknown>;
+  characterHref(base: string, characterId: string): string;
+  claimSettings(): JsonObject;
+  claimWebController(base: string, payload: JsonObject, control: Control | null): Promise<JsonObject>;
+  clearClaimControl(key: string, characterId: string): void;
+  controlFromResponse(data: JsonObject, characterId: string, options: { active: boolean }): Control;
+  createPlayerLiveUpdates(options: Record<string, unknown>): { close(): void };
+  drainNarratedEvents(messages: unknown[], options: Record<string, unknown>): { lines: Array<JsonObject & { text: string }>; seenIds: Set<string> };
+  entityIcon(entity: JsonObject): string;
+  fetchCharacterList(base: string): Promise<{ characters: Character[]; epoch: number }>;
+  fetchCharacterRecentEvents(base: string, characterId: string, control: Control | null): Promise<{ events?: JsonObject[] }>;
+  fetchClaimProjection(base: string, characterId: string, control: Control | null): Promise<{ character: Projection | null; queued: QueueProjection | null }>;
+  filterActions(actions: Action[], filter: string): Action[];
+  formatPoints(value: unknown): string;
+  iconPreference(key: string, fallback: boolean): boolean;
+  imageRequestMessage(result: unknown): string;
+  inventoryEntries(projection: Projection | null): Array<JsonObject & { icon: string; id: string; kind: string; label: string }>;
+  isClaimNotFoundError(error: unknown): boolean;
+  latestImageCompletion(messages: unknown[], options: Record<string, unknown>): { url?: string } | null;
+  latestImageFailure(messages: unknown[], options: Record<string, unknown>): { epoch?: number; reason?: string } | null;
+  persistentClientId(key: string, prefix: string): string;
+  queuedCommandLabel(command: JsonObject, actions: Action[]): string;
+  queuedCountdownSeconds(projection: QueueProjection | null): number | null;
+  releaseWebClaim(base: string, payload: JsonObject, control: Control | null): Promise<unknown>;
+  releaseWebController(base: string, payload: JsonObject, control: Control | null): Promise<JsonObject>;
+  setIconPreference(key: string, value: boolean): void;
+  storeClaimControl(key: string, control: Control): void;
+  storedClaimControl(key: string, characterId: string): Control | null;
+  submitCommand(base: string, payload: JsonObject, control: Control): Promise<JsonObject & { queued?: boolean; reason?: string }>;
+  syncClaimControl(control: Control | null, projection: Projection | null, characterId: string): Control | null;
+  updateWebControllerFallback(base: string, payload: JsonObject, control: Control | null): Promise<JsonObject>;
+}
+
+interface WebTuiApiRuntime {
+  applyConfigToInput(options: Record<string, unknown>): Promise<unknown>;
+  applyServerParam(options: Record<string, unknown>): void;
+  normalizeBase(value: string): string;
+  requestSceneImage(base: string, characterId: string, control: Control | null): Promise<unknown>;
+  sendJson(base: string, path: string): Promise<unknown>;
+  setServerInUrl(base: string): void;
+}
+
 const globals = globalThis as typeof globalThis & {
-  BunnylandApi: any;
-  BunnylandPlay: any;
-  BunnylandUI: any;
+  BunnylandApi: WebTuiApiRuntime;
+  BunnylandPlay: WebTuiPlayRuntime;
+  BunnylandUI: {
+    initClientMenu(): { close?: () => void } | void;
+    initHelp(options: { intro: string; sections: unknown[]; title: string }): void;
+  };
 };
 const play = globals.BunnylandPlay;
 const api = globals.BunnylandApi;
@@ -81,6 +160,9 @@ export function WebTuiPage() {
   const [claimFallback, setClaimFallback] = useState('suspend');
   const [claimController, setClaimController] = useState('');
   const [claimTimeout, setClaimTimeout] = useState('30');
+  const { requireAcceptance, warningDialog } = useContentWarningGate(
+    base => api.sendJson(base, '/public/world'),
+  );
   const apiInputRef = useRef<HTMLInputElement>(null);
   const claimDialogRef = useRef<HTMLDialogElement>(null);
   const lobbyTimerRef = useRef<number | null>(null);
@@ -154,7 +236,7 @@ export function WebTuiPage() {
     });
     const additions: JsonObject[] = [];
     const image = play.latestImageCompletion(events, { base: baseRef.current, purpose: 'event' });
-    if (image && image.url !== eventImageRef.current) {
+    if (image?.url && image.url !== eventImageRef.current) {
       eventImageRef.current = image.url;
       if (!prime) additions.push({ kind: 'system', text: `${play.IMAGE_AFFORDANCE.DELIVER_EMOJI} scene image ready: ${image.url}` });
     }
@@ -288,6 +370,20 @@ export function WebTuiPage() {
   };
   const selectPlayer = async (id: string) => {
     update({ control: null, playerId: id, projection: null, queued: [], queueProjection: null, selectedId: '' });
+    if (!id) {
+      dropPlayer();
+      return;
+    }
+    let accepted = false;
+    try {
+      accepted = await requireAcceptance(baseRef.current);
+    } catch (error) {
+      update({ status: { kind: 'error', text: `⚠ ${error instanceof Error ? error.message : String(error)}` } });
+    }
+    if (!accepted) {
+      dropPlayer();
+      return;
+    }
     const control = await claimPlayer(id);
     if (!mountedRef.current || id !== modelRef.current.playerId) return;
     refreshTokenRef.current += 1;
@@ -484,12 +580,12 @@ export function WebTuiPage() {
   const points = model.projection?.points ?? {};
   const selectedLabel = model.selectedId ? nameFor(model.selectedId) || model.selectedId : 'none';
   const members = (currentRoom?.entities ?? []).filter((entity: JsonObject) => entity.kind !== 'room').map((entity: JsonObject) => ({
-    icon: play.entityIcon(entity), id: entity.id, isPlayer: entity.id === model.playerId, kind: entity.kind || '',
-    label: entity.name || entity.id, selected: entity.id === model.selectedId,
+    icon: play.entityIcon(entity), id: entity.id || '', isPlayer: entity.id === model.playerId, kind: entity.kind || '',
+    label: entity.name || entity.id || '', selected: entity.id === model.selectedId,
   }));
   const exits = (currentRoom?.exits ?? []).map((exit: JsonObject, index: number) => ({
     index, key: [exit.id, exit.direction, exit.label].filter(Boolean).join(':') || String(index),
-    label: exit.direction || exit.label || exit.id, locked: Boolean(exit.locked),
+    label: exit.direction || exit.label || exit.id || '', locked: Boolean(exit.locked),
   }));
 
   return <>
@@ -527,7 +623,7 @@ export function WebTuiPage() {
         <div id="members" class="option-list"><MemberList empty="Select a character above to play as and see their room." items={members} onSelect={id => selectTarget(id)} /></div>
         <div id="doors-title" class="pane-title">Doors</div><div id="doors" class="option-list"><ExitList empty="No visible exits." items={exits} onSelect={value => { void moveExit(Number(value)); }} /></div>
         <div id="inventory-title" class="pane-title">Inventory</div><div id="inventory" class="option-list"><InventoryList empty={model.playerId ? 'Nothing carried.' : 'Select a character above.'}
-          items={inventory.map(item => ({ icon: item.icon, id: item.id, kind: item.kind, label: item.label, selected: item.id === model.selectedId }))} onSelect={id => selectTarget(id)} /></div>
+          items={inventory.map(item => ({ icon: item.icon || '', id: item.id || '', kind: item.kind || '', label: item.label || '', selected: item.id === model.selectedId }))} onSelect={id => selectTarget(id)} /></div>
         <div id="activity-title" class="pane-title">Activity</div><div id="activity" class="option-list"><ActivityRows rows={model.activity.map(line => ({
           icon: showIcons ? line.icon || '' : '', key: line.key, kind: line.kind || '', text: line.text,
         })) as TuiActivityRow[]} /></div>
@@ -552,6 +648,7 @@ export function WebTuiPage() {
             : <input class="form-input" type={field.kind === 'number' ? 'number' : 'text'} value={form.values[field.key] ?? ''} onInput={event => setForm({ ...form, values: { ...form.values, [field.key]: event.currentTarget.value } })} />}</label>)}
         <div class="form-error">{form.error}</div></div><div class="form-buttons"><button class="form-cancel" type="button" onClick={() => setForm(null)}>Cancel</button><button class="form-submit" type="button" onClick={submitForm}>Submit</button></div>
     </div></div> : null}
+    {warningDialog}
   </>;
 }
 

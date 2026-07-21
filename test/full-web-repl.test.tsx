@@ -99,6 +99,9 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
     })),
     fetchClaimProjection: vi.fn(async () => ({ character: projection(), queued: QUEUE })),
     fetchCharacterRecentEvents: vi.fn(async () => ({ events: [] })),
+    fetchContentFlags: vi.fn(async () => ({
+      world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
+    })),
     formatPoints: (value) => String(Number(value || 0)),
     iconPreference: () => true,
     imageAffordance: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
@@ -140,10 +143,26 @@ async function selectPlayer(view: ReturnType<typeof render>): Promise<void> {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   history.replaceState(null, '', '/web-repl.html');
 });
 
 describe('full Web REPL page', () => {
+  it('blocks claiming until flagged world content is accepted', async () => {
+    const runtime = services();
+    vi.mocked(runtime.service.fetchContentFlags).mockResolvedValue({
+      world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: ['adult:violence'],
+    });
+    const view = render(<WebReplPage services={runtime.service} />);
+    await waitFor(() => expect(view.container.querySelector('#player-select option[value="character:one"]')).toBeTruthy());
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: 'character:one' } });
+    expect(await view.findByRole('dialog', { name: 'Content warning' })).toBeTruthy();
+    expect(runtime.service.claimWebController).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Accept and Join'));
+    await waitFor(() => expect(runtime.service.claimWebController).toHaveBeenCalledOnce());
+  });
+
   it('projects keyed actions and delegates read-only facade refreshes', async () => {
     let current = PROJECTION;
     const runtime = services(() => current);

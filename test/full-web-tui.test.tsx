@@ -79,6 +79,9 @@ const bunnylandApi = {
   applyServerParam: vi.fn(),
   normalizeBase: vi.fn((value: string) => value.replace(/\/$/, '')),
   requestSceneImage: vi.fn(async () => ({})),
+  sendJson: vi.fn(async () => ({
+    world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
+  })),
   setServerInUrl: vi.fn(),
 };
 const bunnylandUi = { initClientMenu: vi.fn(), initHelp: vi.fn() };
@@ -100,9 +103,13 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   window.history.replaceState(null, '', '/web-tui.html');
   fetchCharacterList.mockResolvedValue({ characters: [character], epoch: 7 });
   fetchClaimProjection.mockResolvedValue({ character: projection, queued: { characterId: character.id, commands: [] } });
+  bunnylandApi.sendJson.mockResolvedValue({
+    world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
+  });
 });
 
 afterEach(() => {
@@ -121,6 +128,23 @@ async function connectAndSelect(container: HTMLElement) {
 }
 
 describe('WebTuiPage', () => {
+  it('blocks a character claim until the player accepts remote content flags', async () => {
+    bunnylandApi.sendJson.mockResolvedValue({
+      world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: ['adult:violence'],
+    });
+    const view = render(<WebTuiPage />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api/' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: character.id } });
+    expect(await view.findByRole('dialog', { name: 'Content warning' })).toBeTruthy();
+    expect(play.claimWebController).not.toHaveBeenCalled();
+
+    fireEvent.click(view.getByText('Accept and Join'));
+    await waitFor(() => expect(play.claimWebController).toHaveBeenCalledOnce());
+  });
+
   it('keeps keyed world and action nodes stable while delegating its exact read-only facade', async () => {
     const view = render(<WebTuiPage />);
     await connectAndSelect(view.container);

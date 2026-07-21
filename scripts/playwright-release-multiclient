@@ -22,9 +22,8 @@ import urllib.parse
 import urllib.request
 from base64 import b64encode
 from pathlib import Path
-from typing import Any
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
 from playwright_container import container_cli, stop_container
 from playwright_coverage import PlaywrightCoverage
@@ -53,6 +52,7 @@ OTEL_TRACE_FILE = Path(
 SERVER_CONTAINER_NAME: str | None = None
 SERVER_RUNTIME: list[str] | None = None
 SERVER_AUTH_DIR: Path | None = None
+JsonObject = dict[str, object]
 
 
 def prepare_container_auth(runtime: list[str]) -> Path:
@@ -150,7 +150,7 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def api_get(api_url: str, path: str) -> dict[str, Any]:
+def api_get(api_url: str, path: str) -> JsonObject:
     headers = player_headers()
     request = urllib.request.Request(f"{api_url}{path}", headers=headers)
     try:
@@ -313,9 +313,9 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
     return api_url, proc
 
 
-def playable_characters(api_url: str) -> list[dict[str, Any]]:
+def playable_characters(api_url: str) -> list[JsonObject]:
     lobby = api_get(api_url, "/play/characters")
-    characters: list[dict[str, Any]] = []
+    characters: list[JsonObject] = []
     for summary in lobby.get("characters", []):
         character_id = summary.get("id")
         if not character_id:
@@ -372,6 +372,7 @@ def connect_page(page, page_name: str, api_url: str) -> None:
 
 def select_toon(page, character_id: str) -> None:
     page.locator("#player-select").select_option(character_id)
+    accept_content_warning(page)
     page.wait_for_function(
         """(id) => window.app?.control?.characterId === id
             && window.app?.characterProjection?.characterId === id
@@ -384,6 +385,7 @@ def select_toon(page, character_id: str) -> None:
 
 def select_tui(page, character_id: str) -> None:
     page.locator("#player-select").select_option(character_id)
+    accept_content_warning(page)
     page.wait_for_function(
         """(id) => window.app?.control?.characterId === id
             && window.app?.projection?.characterId === id
@@ -396,6 +398,7 @@ def select_tui(page, character_id: str) -> None:
 
 def select_repl(page, character_id: str) -> None:
     page.locator("#player-select").select_option(character_id)
+    accept_content_warning(page)
     page.wait_for_function(
         """(id) => window.app?.control?.characterId === id
             && window.app?.projection?.characterId === id
@@ -437,7 +440,7 @@ def submit_repl_command(page) -> str:
     return page_room_id(page)
 
 
-def assert_distinct_controls(pages: dict[str, Any]) -> dict[str, Any]:
+def assert_distinct_controls(pages: dict[str, Page]) -> dict[str, JsonObject | None]:
     controls = {
         name: page.evaluate("() => window.app?.control || null")
         for name, page in pages.items()
@@ -449,6 +452,15 @@ def assert_distinct_controls(pages: dict[str, Any]) -> dict[str, Any]:
     if len(characters) != len(set(characters)):
         raise AssertionError(f"clients did not claim distinct characters: {controls!r}")
     return controls
+
+
+def accept_content_warning(page: Page) -> None:
+    dialog = page.get_by_role("dialog", name="Content warning")
+    try:
+        dialog.wait_for(state="visible", timeout=5000)
+    except PlaywrightTimeoutError:
+        return
+    page.get_by_role("button", name="Accept and Join").click()
 
 
 def assert_trace_artifact() -> int:

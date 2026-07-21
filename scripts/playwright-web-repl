@@ -159,6 +159,10 @@ def json_route(body):
 
 def install_routes(page, posted: list[dict]) -> None:
     page.route("**/config.json", json_route({"serverUrl": "", "autoConnect": False}))
+    page.route("**/public/world", json_route({
+        "world_id": "world:test", "world_epoch": 1, "title": "Test World",
+        "description": "", "content_flags": [],
+    }))
     page.route("**/auth/session", json_route({
         "subject": "play-test", "scopes": ["world:play"],
         "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
