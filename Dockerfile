@@ -2,7 +2,6 @@ FROM node:24-bookworm AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY vendor ./vendor
 RUN npm ci
 
 COPY . .
