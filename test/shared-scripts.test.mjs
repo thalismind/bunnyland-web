@@ -279,7 +279,9 @@ test('hostile entity and event identifiers use Preact handlers, not inline HTML'
   const inspector = fs.readFileSync('inspector.html', 'utf8');
   const editor = fs.readFileSync('world-editor.html', 'utf8');
   const inspectorApp = fs.readFileSync('src/inspector/app.tsx', 'utf8');
-  const editorApp = fs.readFileSync('src/world-editor/app.tsx', 'utf8');
+  const editorApp = filesWithExtensions('src/world-editor', new Set(['.ts', '.tsx']))
+    .map(filename => fs.readFileSync(filename, 'utf8'))
+    .join('\n');
 
   assert.doesNotMatch(inspector, /onclick=/i);
   assert.doesNotMatch(editor, /onclick=/i);
@@ -560,7 +562,6 @@ test('browser pages load the shared API helper without manual cache keys', () =>
     'trace-analyzer.html',
     'web-repl.html',
     'web-tui.html',
-    'world-editor.html',
     'world-generator.html',
   ];
   for (const page of pages) {
@@ -572,6 +573,10 @@ test('browser pages load the shared API helper without manual cache keys', () =>
     );
     assert.doesNotMatch(html, /assets\/bunnyland-api\.js\?v=/);
   }
+  const editor = fs.readFileSync('world-editor.html', 'utf8');
+  const editorApp = fs.readFileSync('src/world-editor/app.tsx', 'utf8');
+  assert.doesNotMatch(editor, /assets\/bunnyland-api\.js/);
+  assert.match(editorApp, /from '@bunnyland\/ui-web\/api'/);
 });
 
 test('every Vite page declares a mobile viewport', () => {
