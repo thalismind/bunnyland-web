@@ -165,8 +165,8 @@ export function LandingPage() {
       <section class="welcome-hero" aria-labelledby="welcome-title">
         <div>
           <p class="eyebrow">Start here</p>
-          <h1 id="welcome-title">Bunnyland Hungry Courier</h1>
-          <p class="lede">Humans, NPCs, and AI agents act through the same validated world rules. In the first demo, Moss wants to deliver a letter but must eat real food before the world will let that happen.</p>
+          <h1 id="welcome-title">Welcome to Bunnyland</h1>
+          <p class="lede">Humans, NPCs, and AI agents share one living world and act through the same validated rules. Connect to a server, choose a character, and explore whatever world is running.</p>
           <div class="quick-links" aria-label="Get started">
             <a class="button-link primary" href={playerHref('toon-client.html')}>Play in Toon Client</a>
             <a id="discord-link" class="button-link discord" href={discordUrl || '#'} target="_blank" rel="noopener"
@@ -179,13 +179,13 @@ export function LandingPage() {
         <aside class="hero-panel" aria-label="Ways to play">
           <img src="favicon.png" alt="" />
           <div>
-            <p><strong>Start here: do these 5 things.</strong></p>
+            <p><strong>Start playing:</strong></p>
             <ul class="play-list">
-              <li><a href={playerHref('toon-client.html')}>Open Toon Client</a> and claim Juniper.</li>
-              <li>Use <strong>Look</strong> to read the post office.</li>
-              <li>Go east to Market Lane.</li>
-              <li>Take the red market apple and bring it back west.</li>
-              <li>Drop the apple, then watch Moss act.</li>
+              <li><a href={playerHref('toon-client.html')}>Open Toon Client</a>.</li>
+              <li>Choose and claim an available character.</li>
+              <li>Use <strong>Look</strong> to learn where you are.</li>
+              <li>Pick from the actions your character can take.</li>
+              <li>Watch the world respond, then keep exploring.</li>
             </ul>
           </div>
         </aside>

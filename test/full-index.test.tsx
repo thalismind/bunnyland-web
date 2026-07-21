@@ -45,6 +45,9 @@ describe('LandingPage deployment state', () => {
     const view = render(<LandingPage />);
     await waitFor(() => expect(view.getByText('Available on this server.')).toBeTruthy());
 
+    expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Welcome to Bunnyland');
+    expect(view.getByText('Choose and claim an available character.')).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/Moss|Juniper|Market Lane|post office|market apple/);
     const discord = view.container.querySelector<HTMLAnchorElement>('#discord-link')!;
     expect(discord.href).toBe('https://discord.gg/bunnyland');
     expect(discord.style.display).toBe('');
