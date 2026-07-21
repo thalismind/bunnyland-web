@@ -34,6 +34,15 @@ def launch_browser(playwright):
     return playwright.chromium.launch(**kwargs)
 
 
+def dismiss_sign_in(page) -> None:
+    sign_in_dialog = page.locator("#bl-action-dialog[open]")
+    if not sign_in_dialog.is_visible():
+        return
+    if sign_in_dialog.locator("#bl-action-dialog-title").text_content() != "Sign in to Bunnyland":
+        raise AssertionError("world editor opened an unexpected shared dialog")
+    sign_in_dialog.locator(".bl-dialog-cancel").click()
+
+
 def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,6 +55,7 @@ def main() -> None:
             "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
         }))
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+        dismiss_sign_in(page)
 
         fragment_parent = page.locator("#fragment-file").evaluate("node => node.closest('.toolbar-row').id")
         if fragment_parent != "toolbar-row3":
@@ -222,6 +232,7 @@ def main() -> None:
         coverage.close_page(mobile_page)
         mobile_context.close()
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
+        dismiss_sign_in(page)
         page.locator("#btn-toggle-snapshot").click()
         if not page.locator("#main.snapshot-hidden").is_visible():
             raise AssertionError("snapshot toggle did not hide the preview pane")

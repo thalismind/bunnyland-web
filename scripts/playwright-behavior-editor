@@ -44,6 +44,11 @@ def fresh_page(browser, coverage: PlaywrightCoverage):
         "expires_at": 4102444800, "rotate_after": None, "rotation_eligible": False,
     }))
     page.goto(f"{BASE_URL}/behavior-editor.html", wait_until="networkidle")
+    sign_in_dialog = page.locator("#bl-action-dialog[open]")
+    if sign_in_dialog.is_visible():
+        if sign_in_dialog.locator("#bl-action-dialog-title").text_content() != "Sign in to Bunnyland":
+            raise AssertionError("behavior editor opened an unexpected shared dialog")
+        sign_in_dialog.locator(".bl-dialog-cancel").click()
     return page
 
 
