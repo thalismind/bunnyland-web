@@ -82,9 +82,8 @@ Inspector, Trace Analyzer, Character Profile, Web TUI, and Web REPL also move
 their secondary live-update regions without replacing focused inputs or unchanged rows.
 Their existing page controllers are temporary adapters so the remaining orchestration can
 move in independently verified slices without changing the API or Playwright contracts.
-Shared controls and theme behavior come from the pinned, self-contained
-`@bunnyland/ui-web` artifact in `vendor/`; builds and tests never import an adjacent source
-checkout.
+Shared controls and theme behavior come from the exact `@bunnyland/ui-web@0.2.0` npm
+release; builds and tests never import an adjacent source checkout.
 
 ```bash
 npm ci
