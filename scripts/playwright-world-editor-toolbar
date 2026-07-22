@@ -40,6 +40,30 @@ def dismiss_sign_in(page) -> None:
         return
     if sign_in_dialog.locator("#bl-action-dialog-title").text_content() != "Sign in to Bunnyland":
         raise AssertionError("world editor opened an unexpected shared dialog")
+    layout = sign_in_dialog.evaluate("""
+      (dialog) => {
+        const rect = dialog.getBoundingClientRect();
+        const inputRect = dialog.querySelector('input').getBoundingClientRect();
+        const buttonRect = dialog.querySelector('.bl-dialog-confirm').getBoundingClientRect();
+        return {
+          backdrop: getComputedStyle(dialog, '::backdrop').backgroundColor,
+          centerX: rect.left + rect.width / 2,
+          centerY: rect.top + rect.height / 2,
+          inputInset: inputRect.left - rect.left,
+          actionInset: rect.right - buttonRect.right,
+          viewportCenterX: innerWidth / 2,
+          viewportCenterY: innerHeight / 2,
+        };
+      }
+    """)
+    horizontally_offset = abs(layout["centerX"] - layout["viewportCenterX"]) > 1
+    vertically_offset = abs(layout["centerY"] - layout["viewportCenterY"]) > 1
+    if horizontally_offset or vertically_offset:
+        raise AssertionError(f"shared dialog is not centered: {layout!r}")
+    if layout["inputInset"] < 12 or layout["actionInset"] < 12:
+        raise AssertionError(f"shared dialog content lacks edge padding: {layout!r}")
+    if layout["backdrop"] in ("transparent", "rgba(0, 0, 0, 0)"):
+        raise AssertionError(f"shared dialog backdrop is transparent: {layout!r}")
     sign_in_dialog.locator(".bl-dialog-cancel").click()
 
 

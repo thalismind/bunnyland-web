@@ -6,6 +6,7 @@ import {
   Toolbar,
   ToolbarBrand,
   ToolbarRow,
+  useAuth,
 } from '@bunnyland/ui-web/preact';
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -77,6 +78,12 @@ export interface SheetProjection {
   worldEpoch: number;
 }
 
+export interface LlmControllerOption {
+  detail: string;
+  id: string;
+  label: string;
+}
+
 interface FeatureStatus {
   character_chat?: boolean;
   character_sheets?: boolean;
@@ -95,8 +102,10 @@ export interface CharacterServices {
     connect: (server: string) => void;
     isConnected: () => boolean;
   }) => Promise<unknown>;
+  assignController: (base: string, characterId: string, controllerId: string) => Promise<void>;
   fetchCharacterList: (base: string) => Promise<{ characters?: SheetCharacter[]; epoch?: number }>;
   fetchCharacterProfile: (base: string, characterId: string) => Promise<SheetProjection | null>;
+  fetchLlmControllers: (base: string) => Promise<LlmControllerOption[]>;
   formatPoints: (value: unknown) => string;
   initClientMenu: () => { close?: () => void } | void;
   initTheme: () => unknown;
@@ -141,7 +150,17 @@ function browserServices(): CharacterServices {
   const legacy = window as unknown as LegacyWindow;
   return {
     ...legacy.BunnylandPlay,
+    assignController: async (base, characterId, controllerId) => {
+      await legacy.BunnylandApi.sendJson(
+        base,
+        `/admin/characters/${encodeURIComponent(characterId)}/controller`,
+        { body: JSON.stringify({ controller_id: controllerId }), method: 'PUT' },
+      );
+    },
     fetchCharacterList: (base) => legacy.BunnylandPlay.fetchCharacterProfileList(base),
+    fetchLlmControllers: async (base) => parseLlmControllerOptions(
+      await legacy.BunnylandApi.sendJson(base, '/admin/world/snapshot'),
+    ),
     applyConfig: (options) => legacy.BunnylandApi.applyConfigToInput(options),
     initClientMenu: () => legacy.BunnylandUI.initClientMenu(),
     initTheme: () => legacy.BunnylandUI.initTheme(),
@@ -157,6 +176,31 @@ function browserServices(): CharacterServices {
 }
 
 const DEFAULT_BROWSER_SERVICES = browserServices();
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function parseLlmControllerOptions(snapshot: JsonObject): LlmControllerOption[] {
+  if (!Array.isArray(snapshot.entities)) throw new Error('World snapshot entities must be an array.');
+  const options: LlmControllerOption[] = [];
+  for (const value of snapshot.entities) {
+    if (!isJsonObject(value) || typeof value.id !== 'string' || !isJsonObject(value.components)) continue;
+    const component = value.components.LLMControllerComponent;
+    if (!isJsonObject(component)) continue;
+    const profile = typeof component.profile_name === 'string' && component.profile_name.trim()
+      ? component.profile_name.trim()
+      : 'default';
+    const provider = typeof component.provider === 'string' ? component.provider.trim() : '';
+    const model = typeof component.model === 'string' ? component.model.trim() : '';
+    options.push({
+      detail: [provider, model].filter(Boolean).join('/'),
+      id: value.id,
+      label: profile,
+    });
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -275,11 +319,16 @@ interface CharacterFacade {
 }
 
 export interface CharacterPageProps {
+  canAdminister?: boolean;
   onViewChange?: (view: CharacterView) => void;
   services?: CharacterServices;
 }
 
-export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICES }: CharacterPageProps) {
+export function CharacterPage({
+  canAdminister = false,
+  onViewChange,
+  services = DEFAULT_BROWSER_SERVICES,
+}: CharacterPageProps) {
   const [apiUrl, setApiUrl] = useState('/api/v1/');
   const [apiBase, setApiBase] = useState('');
   const [connected, setConnected] = useState(false);
@@ -297,6 +346,10 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
   const [chatStatus, setChatStatus] = useState('Select a character to start chatting.');
   const [chatDraft, setChatDraft] = useState('');
   const [chatClientId, setChatClientId] = useState('');
+  const [llmControllers, setLlmControllers] = useState<LlmControllerOption[]>([]);
+  const [selectedLlmController, setSelectedLlmController] = useState('');
+  const [controllerOptionsStatus, setControllerOptionsStatus] = useState('');
+  const [assigningController, setAssigningController] = useState(false);
   const [, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
   const [, forceRender] = useState(0);
@@ -544,6 +597,29 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
   }, [apiBase, connected, selectedId]);
 
   useEffect(() => {
+    if (!canAdminister || !connected || !apiBase || !selectedId || !projection?.characterId || projection.controller?.kind === 'llm') {
+      setLlmControllers([]);
+      setSelectedLlmController('');
+      setControllerOptionsStatus('');
+      return;
+    }
+    let cancelled = false;
+    setControllerOptionsStatus('Loading LLM controllers…');
+    void services.fetchLlmControllers(apiBase).then((options) => {
+      if (cancelled) return;
+      setLlmControllers(options);
+      setSelectedLlmController(options[0]?.id || '');
+      setControllerOptionsStatus(options.length ? '' : 'No LLM controllers are available to assign.');
+    }).catch((error) => {
+      if (cancelled) return;
+      setLlmControllers([]);
+      setSelectedLlmController('');
+      setControllerOptionsStatus(`Could not load LLM controllers: ${errorMessage(error)}`);
+    });
+    return () => { cancelled = true; };
+  }, [apiBase, canAdminister, connected, projection?.characterId, projection?.controller?.kind, selectedId, services]);
+
+  useEffect(() => {
     aliveRef.current = true;
     services.initTheme();
     const menu = services.initClientMenu();
@@ -697,7 +773,7 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
     const message = chatDraft.trim();
     const characterId = selectedIdRef.current;
     const base = apiBaseRef.current;
-    if (!message || !base || !characterId) return;
+    if (!message || !base || !characterId || projectionRef.current?.controller?.kind !== 'llm') return;
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
@@ -743,6 +819,33 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
       setApiStatus(`⚠ ${errorMessage(error)}`);
     }
   };
+
+  const assignLlmController = async (): Promise<void> => {
+    const base = apiBaseRef.current;
+    const characterId = selectedIdRef.current;
+    const controllerId = selectedLlmController;
+    if (!canAdminister || !base || !characterId || !controllerId || assigningController) return;
+    setAssigningController(true);
+    setChatStatus('Assigning LLM controller…');
+    try {
+      await services.assignController(base, characterId, controllerId);
+      if (!aliveRef.current || characterId !== selectedIdRef.current) return;
+      await refreshRef.current();
+      if (aliveRef.current && characterId === selectedIdRef.current) {
+        setChatStatus(`LLM controller assigned to ${characterName || characterId}.`);
+      }
+    } catch (error) {
+      if (aliveRef.current && characterId === selectedIdRef.current) {
+        setChatStatus(`Could not assign LLM controller: ${errorMessage(error)}`);
+      }
+    } finally {
+      if (aliveRef.current) setAssigningController(false);
+    }
+  };
+
+  const chatControllerReady = projection?.controller?.kind === 'llm';
+  const chatReadOnly = Boolean(selectedId && projection && !chatControllerReady);
+  const chatUnavailable = !connected || !selectedId || features?.character_chat === false;
 
   return <>
     <Toolbar id="toolbar">
@@ -791,13 +894,14 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
             role="tab"
           >Sheet</Button>
           <Button
+            aria-label={hasChatHistory ? 'Chat, history available' : 'Chat'}
             aria-selected={view === 'chat'}
             class={view === 'chat' ? 'active' : ''}
             disabled={features?.character_chat === false}
             id="tab-chat"
             onClick={(): void => selectView('chat')}
             role="tab"
-          >Chat</Button>
+          >Chat{hasChatHistory && <span aria-hidden="true" class="chat-history-marker" />}</Button>
         </div>
       </ToolbarRow>
     </Toolbar>
@@ -925,6 +1029,34 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
               items={transcriptItems}
             />
           </div>
+          {chatReadOnly && <div id="chat-read-only" role="status">
+            <span>
+              Chat is read-only because {characterName || selectedId} is not assigned to an LLM controller.
+            </span>
+            {canAdminister && <div id="llm-controller-assignment">
+              {llmControllers.length > 0 && <>
+                <label for="llm-controller-select">LLM controller</label>
+                <select
+                  disabled={assigningController}
+                  id="llm-controller-select"
+                  onChange={(event): void => setSelectedLlmController(event.currentTarget.value)}
+                  value={selectedLlmController}
+                >
+                  {llmControllers.map((controller) => <option key={controller.id} value={controller.id}>
+                    {controller.label}{controller.detail ? ` · ${controller.detail}` : ''}
+                  </option>)}
+                </select>
+                <Button
+                  disabled={!selectedLlmController || assigningController}
+                  id="btn-assign-llm-controller"
+                  onClick={(): void => { void assignLlmController(); }}
+                >{assigningController ? 'Assigning…' : 'Assign LLM Controller'}</Button>
+              </>}
+              {controllerOptionsStatus && <StatusText tone={controllerOptionsStatus.startsWith('Could not') ? 'error' : 'muted'}>
+                {controllerOptionsStatus}
+              </StatusText>}
+            </div>}
+          </div>}
           <div id="status-line">{chatStatus}</div>
           <form
             autocomplete="off"
@@ -933,7 +1065,8 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
           >
             <textarea
               aria-label="Message"
-              disabled={!connected || !selectedId || features?.character_chat === false}
+              aria-describedby={chatReadOnly ? 'chat-read-only' : undefined}
+              disabled={chatUnavailable}
               id="chat-input"
               onInput={(event): void => setChatDraft(event.currentTarget.value)}
               onKeyDown={(event): void => {
@@ -942,10 +1075,11 @@ export function CharacterPage({ onViewChange, services = DEFAULT_BROWSER_SERVICE
                 event.currentTarget.form?.requestSubmit();
               }}
               spellcheck
+              readOnly={chatReadOnly}
               value={chatDraft}
             />
             <Button
-              disabled={!chatDraft.trim() || !connected || !selectedId || features?.character_chat === false}
+              disabled={!chatDraft.trim() || chatUnavailable || !chatControllerReady}
               id="btn-send"
               type="submit"
             >Send</Button>
@@ -964,13 +1098,12 @@ if (root) {
     const selectScope = useCallback((view: CharacterView): void => {
       setScope(view === 'chat' ? 'character:chat' : 'character:profile');
     }, []);
+    const auth = useAuth();
     return (
-      <AuthProvider base={base}>
-        <AuthGate scopes={[scope]}>
-          <CharacterPage onViewChange={selectScope} />
-        </AuthGate>
-      </AuthProvider>
+      <AuthGate scopes={[scope]}>
+        <CharacterPage canAdminister={auth.hasScopes(['world:admin'])} onViewChange={selectScope} />
+      </AuthGate>
     );
   }
-  render(<CharacterEntry />, root);
+  render(<AuthProvider base={base}><CharacterEntry /></AuthProvider>, root);
 }

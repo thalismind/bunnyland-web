@@ -13,6 +13,20 @@
   color: var(--bl-text);
 }
 
+#tab-chat {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-history-marker {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bl-accent-strong);
+  box-shadow: 0 0 0 2px var(--bl-accent-wash-strong);
+}
+
 #main {
   display: grid;
   grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
@@ -182,6 +196,22 @@
 
 #transcript { flex: 1; min-height: 0; padding: 14px; overflow-y: auto; }
 
+#chat-read-only {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--bl-border);
+  background: color-mix(in srgb, var(--bl-warn) 10%, var(--bl-bg-strong));
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+}
+
+#llm-controller-assignment { display: inline-flex; gap: 8px; align-items: center; }
+#llm-controller-assignment label { white-space: nowrap; }
+#llm-controller-select { min-width: 180px; }
+
 .message {
   max-width: 760px;
   margin: 0 0 10px;
@@ -248,5 +278,7 @@
   .view-tabs { margin-left: 0; }
   #chat-tools { flex-wrap: wrap; align-items: flex-start; }
   #chat-actions { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+  #chat-read-only,
+  #llm-controller-assignment { flex-wrap: wrap; align-items: flex-start; }
   .client-menu-button { margin-left: 0; }
 }

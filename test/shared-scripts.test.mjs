@@ -197,6 +197,10 @@ test('web styles use defined shared tokens and retain accessible player-page rul
 
   assert.deepEqual([...used].filter(token => !defined.has(token)).sort(), []);
   assert.match(sharedCss, /:focus-visible/);
+  assert.match(sharedCss, /dialog\s*\{[\s\S]*position:\s*fixed[\s\S]*inset:\s*0[\s\S]*margin:\s*auto[\s\S]*padding:\s*14px/);
+  assert.match(sharedCss, /dialog::backdrop\s*\{\s*background:\s*var\(--bl-overlay\)/);
+  assert.match(sharedCss, /dialog\[open\]:not\(:modal\)[\s\S]*100vmax\s+var\(--bl-overlay\)/);
+  assert.match(sharedCss, /input\[type=password\]/);
   assert.match(sharedCss, /\.bl-page-web-tui[\s\S]*min-height:\s*44px/);
   assert.match(toonCss, /#stage:focus-visible/);
   assert.match(landing, /@media \(max-width: 620px\)[\s\S]*\.section-heading[\s\S]*flex-direction:\s*column/);

@@ -649,6 +649,7 @@ input, select, textarea, button { font-family: var(--bl-font-mono); }
 
 input[type=file],
 input[type=text],
+input[type=password],
 input[type=number],
 select,
 textarea {
@@ -689,6 +690,31 @@ button {
 button:hover:not(:disabled) { background: var(--bl-surface-hover); }
 button:disabled { opacity: 0.4; cursor: default; }
 
+dialog {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  width: min(460px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-md);
+  color: var(--bl-text);
+  background: var(--bl-bg-strong);
+  box-shadow: var(--bl-shadow-popover);
+}
+
+dialog::backdrop { background: var(--bl-overlay); }
+
+/* The Toon client and browser fallbacks can render with the open attribute
+   instead of showModal. Keep those dialogs modal-looking. */
+dialog[open]:not(:modal):not(.content-warning-dialog) {
+  box-shadow: 0 0 0 100vmax var(--bl-overlay), var(--bl-shadow-popover);
+}
+
 .bl-button-primary {
   color: var(--bl-text-inverse);
   background: var(--bl-accent);
@@ -726,8 +752,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   box-shadow: var(--bl-shadow-popover);
 }
 
-.bl-auth-dialog::backdrop { background: var(--bl-overlay); }
-
 .bl-auth-form,
 .bl-auth-form label {
   display: grid;
@@ -762,8 +786,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: var(--bl-bg-strong);
   box-shadow: var(--bl-shadow-popover);
 }
-
-.bl-dialog::backdrop { background: var(--bl-overlay); }
 
 .bl-dialog-form {
   display: flex;

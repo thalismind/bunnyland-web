@@ -5,13 +5,14 @@ import {
   CharacterPage,
   characterInitials,
   type CharacterServices,
+  parseLlmControllerOptions,
   type SheetProjection,
 } from '../src/character/page';
 
 const PROJECTION: SheetProjection = {
   characterId: 'character:one',
   characterName: 'Dr. Hazel',
-  controller: { controller_id: 'web:sheet', generation: 2, kind: 'web', name: 'Sheet' },
+  controller: { controller_id: 'llm:hazel', generation: 2, kind: 'llm', name: 'default' },
   points: { action: 4, action_max: 5, focus: 2, focus_max: 3 },
   portrait: { url: '/portrait.png' },
   room: {
@@ -48,10 +49,14 @@ function makeServices(projection: () => SheetProjection = () => structuredClone(
   const services: CharacterServices = {
     actionIcon: () => '💬',
     applyConfig: vi.fn(async () => ({})),
+    assignController: vi.fn(async () => undefined),
     fetchCharacterList: vi.fn(async () => ({
       characters: [{ id: 'character:one', kind: 'character', name: 'Hazel' }], epoch: 12,
     })),
     fetchCharacterProfile: vi.fn(async () => projection()),
+    fetchLlmControllers: vi.fn(async () => [{
+      detail: 'ollama/deepseek-v4-flash', id: 'llm:default', label: 'default',
+    }]),
     formatPoints: (value) => String(Number(value || 0)),
     initClientMenu: () => ({ close: closeMenu }),
     initTheme: vi.fn(),
@@ -87,6 +92,22 @@ afterEach(() => {
 });
 
 describe('full Character page', () => {
+  it('parses and sorts existing LLM controllers from an admin world snapshot', () => {
+    expect(parseLlmControllerOptions({ entities: [
+      { id: 'web:one', components: { WebControllerComponent: { label: 'Browser' } } },
+      { id: 'llm:two', components: { LLMControllerComponent: {
+        model: 'deepseek-v4-flash', profile_name: 'writer', provider: 'ollama',
+      } } },
+      { id: 'llm:one', components: { LLMControllerComponent: { profile_name: 'default' } } },
+    ] })).toEqual([
+      { detail: '', id: 'llm:one', label: 'default' },
+      { detail: 'ollama/deepseek-v4-flash', id: 'llm:two', label: 'writer' },
+    ]);
+    expect(() => parseLlmControllerOptions({ entities: {} })).toThrow(
+      'World snapshot entities must be an array.',
+    );
+  });
+
   it('projects keyed character stats in place without a claim', async () => {
     let current = PROJECTION;
     const runtime = makeServices(() => current);
@@ -140,6 +161,7 @@ describe('full Character page', () => {
     const runtime = makeServices();
     const view = render(<CharacterPage services={runtime.services} />);
     await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    expect(view.container.querySelector('#tab-chat .chat-history-marker')).toBeNull();
 
     fireEvent.click(view.container.querySelector('#tab-chat')!);
     expect(location.search).toBe('?server=%2Fapi&view=chat');
@@ -148,13 +170,87 @@ describe('full Character page', () => {
     fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Hello' } });
     fireEvent.click(view.container.querySelector('#btn-send')!);
     await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain('Hello back.'));
+    expect(view.container.querySelector('#tab-chat .chat-history-marker')).toBeTruthy();
+    expect(view.container.querySelector('#tab-chat')?.getAttribute('aria-label')).toBe('Chat, history available');
     expect(runtime.services.sendJson).toHaveBeenCalledWith(
       '/api', '/chat/characters/character%3Aone/jobs', expect.objectContaining({ method: 'POST' }),
     );
 
+    fireEvent.click(view.container.querySelector('#btn-clear-history')!);
+    expect(view.container.querySelector('#tab-chat .chat-history-marker')).toBeNull();
+    expect(view.container.querySelector('#tab-chat')?.getAttribute('aria-label')).toBe('Chat');
+
     fireEvent.click(view.container.querySelector('#tab-sheet')!);
     expect(location.search).toBe('?server=%2Fapi');
     expect(view.container.querySelector('#vitals')).toBeTruthy();
+  });
+
+  it('marks the Chat tab when the selected character has persisted history', async () => {
+    localStorage.setItem(
+      'bunnyland.characterChat.history.chat-test-client.character:one',
+      JSON.stringify({ messages: [{ role: 'user', text: 'Earlier hello' }], summary: '' }),
+    );
+    const runtime = makeServices();
+    const view = render(<CharacterPage services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#tab-chat .chat-history-marker')).toBeTruthy());
+    expect(view.container.querySelector('#tab-chat')?.textContent).toBe('Chat');
+    expect(view.container.querySelector('#tab-chat')?.getAttribute('aria-label')).toBe('Chat, history available');
+  });
+
+  it('keeps history available but makes non-LLM character chat read-only', async () => {
+    localStorage.setItem(
+      'bunnyland.characterChat.history.chat-test-client.character:one',
+      JSON.stringify({ messages: [{ role: 'character', text: 'Earlier reply' }], summary: '' }),
+    );
+    const runtime = makeServices(() => ({
+      ...structuredClone(PROJECTION),
+      controller: { controller_id: 'web:manual', generation: 3, kind: 'web', name: 'Manual' },
+    }));
+    const view = render(<CharacterPage services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    expect(view.container.querySelector('#transcript')?.textContent).toContain('Earlier reply');
+    expect(view.container.querySelector('#chat-read-only')?.textContent).toContain('not assigned to an LLM controller');
+    expect((view.container.querySelector('#chat-input') as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((view.container.querySelector('#btn-send') as HTMLButtonElement).disabled).toBe(true);
+    expect(view.container.querySelector('#llm-controller-assignment')).toBeNull();
+
+    fireEvent.click(view.container.querySelector('#btn-clear-history')!);
+    expect(view.container.querySelector('#transcript')?.textContent).toContain('No local chat history');
+  });
+
+  it('lets an admin assign an existing LLM controller and refreshes chat access', async () => {
+    let current: SheetProjection = {
+      ...structuredClone(PROJECTION),
+      controller: null,
+    };
+    const runtime = makeServices(() => structuredClone(current));
+    runtime.services.assignController = vi.fn(async (_base, characterId, controllerId) => {
+      current = {
+        ...current,
+        controller: { controller_id: controllerId, generation: 4, kind: 'llm', name: 'default' },
+      };
+      expect(characterId).toBe('character:one');
+    });
+    const view = render(<CharacterPage canAdminister services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    await waitFor(() => expect(view.container.querySelector('#btn-assign-llm-controller')).toBeTruthy());
+    expect((view.container.querySelector('#chat-input') as HTMLTextAreaElement).readOnly).toBe(true);
+    expect(view.container.querySelector('#llm-controller-select')?.textContent).toContain(
+      'default · ollama/deepseek-v4-flash',
+    );
+
+    fireEvent.click(view.container.querySelector('#btn-assign-llm-controller')!);
+    await waitFor(() => expect((view.container.querySelector('#chat-input') as HTMLTextAreaElement).readOnly).toBe(false));
+    expect(runtime.services.assignController).toHaveBeenCalledWith(
+      '/api', 'character:one', 'llm:default',
+    );
+    expect(view.container.querySelector('#chat-read-only')).toBeNull();
+    expect(view.container.querySelector('#status-line')?.textContent).toContain('LLM controller assigned');
   });
 
   it('uses connected polling without claim coordination', async () => {
