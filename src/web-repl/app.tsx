@@ -921,6 +921,10 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       if (!room?.id) write('No room.');
       else {
         const parts: ReplLogPart[] = [{ kind: 'strong', value: room.title || room.id }];
+        const description = String(
+          (room as CharacterProjection['room'] & { description?: string }).description || '',
+        );
+        if (description) parts.push({ kind: 'break' }, { kind: 'text', value: description });
         for (const entity of room.entities as Array<Record<string, unknown>>) {
           const label = String(entity.name || entity.id || '');
           parts.push({ kind: 'break' }, { kind: 'text', value: '  ' }, {

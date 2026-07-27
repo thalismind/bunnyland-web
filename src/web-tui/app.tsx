@@ -620,6 +620,7 @@ export function WebTuiPage() {
     </form></dialog>
     <div id="main" class="app-grid">
       <section id="world-pane" aria-label="World view"><div id="room-title" class="pane-title">{currentRoom?.title || 'Room'}</div>
+        {currentRoom?.description ? <div id="room-description">{String(currentRoom.description)}</div> : null}
         <div id="members" class="option-list"><MemberList empty="Select a character above to play as and see their room." items={members} onSelect={id => selectTarget(id)} /></div>
         <div id="doors-title" class="pane-title">Doors</div><div id="doors" class="option-list"><ExitList empty="No visible exits." items={exits} onSelect={value => { void moveExit(Number(value)); }} /></div>
         <div id="inventory-title" class="pane-title">Inventory</div><div id="inventory" class="option-list"><InventoryList empty={model.playerId ? 'Nothing carried.' : 'Select a character above.'}

@@ -277,8 +277,15 @@ def accept_content_warning(page: Page) -> None:
     try:
         dialog.wait_for(state="visible", timeout=3000)
     except PlaywrightTimeoutError:
+        pass
+    else:
+        page.get_by_role("button", name="Accept and Join").click()
+    introduction = page.locator(".world-intro-dialog")
+    try:
+        introduction.wait_for(state="visible", timeout=3000)
+    except PlaywrightTimeoutError:
         return
-    page.get_by_role("button", name="Accept and Join").click()
+    introduction.get_by_role("button", name="Continue").click()
 
 
 def connect_repl(page: Page, server: AppleServer) -> None:

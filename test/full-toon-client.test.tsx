@@ -118,6 +118,9 @@ describe('ToonPage', () => {
     expect(await view.findByRole('dialog', { name: 'Content warning' })).toBeTruthy();
     expect(test.claimWebController).not.toHaveBeenCalled();
     fireEvent.click(view.getByText('Accept and Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    expect(test.claimWebController).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(test.claimWebController).toHaveBeenCalledOnce());
   });
 
@@ -129,6 +132,7 @@ describe('ToonPage', () => {
     fireEvent.click(view.container.querySelector('#btn-connect')!);
     await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
     const pagePoll = setInterval.mock.calls.find(([, delay]) => delay === 2000)?.[0] as (() => void) | undefined;
     expect(pagePoll).toBeTruthy();
@@ -147,6 +151,7 @@ describe('ToonPage', () => {
     fireEvent.click(view.container.querySelector('#btn-connect')!);
     await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
     const app = (window as unknown as { app: { characterList: unknown[]; characterProjection: { characterId: string }; control: unknown; _playerInView(): boolean; _refresh(): Promise<void> } }).app;
     expect(app.characterList).toHaveLength(1);
@@ -168,6 +173,7 @@ describe('ToonPage', () => {
     fireEvent.click(view.container.querySelector('#btn-connect')!);
     await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
     fireEvent.click(view.container.querySelector('.verb[data-tool="say"]')!);
     expect(view.container.querySelectorAll('#action-form-overlay')).toHaveLength(1);
@@ -186,6 +192,7 @@ describe('ToonPage', () => {
     fireEvent.click(view.container.querySelector('#btn-connect')!);
     await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
     let rejectProjection: (reason: unknown) => void = () => undefined;
     const fetchClaimProjection = vi.mocked(
@@ -217,6 +224,7 @@ describe('ToonPage', () => {
     expect(new URLSearchParams(location.search).get('server')).toBe('/api');
 
     fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector(`[data-id="${OTHER}"].selected`)).toBeTruthy());
     fireEvent.click(view.container.querySelector('.inventory-item')!);
     expect(decodeURIComponent(location.hash.slice(1))).toBe(ITEM);

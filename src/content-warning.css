@@ -24,3 +24,8 @@
 .content-warning-dialog ul { padding-left: 24px; }
 .content-warning-dialog .content-warning-ignore { display: flex; gap: 8px; align-items: flex-start; }
 .content-warning-dialog .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.world-intro-dialog { padding: 20px; border-color: var(--bl-accent); }
+.world-intro-dialog h2 { color: var(--bl-accent); }
+.world-intro-description { white-space: pre-wrap; }
+.world-intro-options { display: grid; gap: 8px; margin: 20px 0 0; }
+.world-intro-options label { display: flex; gap: 8px; align-items: flex-start; }

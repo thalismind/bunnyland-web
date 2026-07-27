@@ -16,6 +16,7 @@ const projection = {
   inventory: [{ icon: '🥕', id: 'item:1', kind: 'item', label: 'Carrot' }],
   points: { action: 2, action_max: 3, focus: 1, focus_max: 2 },
   room: {
+    description: 'Paths leave the meadow in every direction.',
     entities: [character, { id: 'character:2', kind: 'character', name: 'Hazel' }],
     exits: [{ direction: 'north', id: 'room:2' }], id: 'room:1', title: 'Meadow',
   },
@@ -124,7 +125,12 @@ async function connectAndSelect(container: HTMLElement) {
   fireEvent.click(container.querySelector('#btn-connect')!);
   await waitFor(() => expect(container.querySelectorAll('#player-select option')).toHaveLength(2));
   fireEvent.change(container.querySelector('#player-select')!, { target: { value: character.id } });
+  await waitFor(() => expect(container.querySelector('#world-intro-title')).toBeTruthy());
+  fireEvent.click(container.querySelector('.world-intro-dialog .primary')!);
   await waitFor(() => expect(container.querySelector('#room-title')?.textContent).toBe('Meadow'));
+  expect(container.querySelector('#room-description')?.textContent).toBe(
+    'Paths leave the meadow in every direction.',
+  );
 }
 
 describe('WebTuiPage', () => {
@@ -142,6 +148,9 @@ describe('WebTuiPage', () => {
     expect(play.claimWebController).not.toHaveBeenCalled();
 
     fireEvent.click(view.getByText('Accept and Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    expect(play.claimWebController).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(play.claimWebController).toHaveBeenCalledOnce());
   });
 

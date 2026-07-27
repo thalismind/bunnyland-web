@@ -281,6 +281,9 @@ def connect_and_select(page) -> None:
     page.locator("#btn-connect").click()
     page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
     page.locator("#player-select").select_option(CHARACTER)
+    introduction = page.locator(".world-intro-dialog")
+    expect(introduction).to_be_visible()
+    introduction.get_by_role("button", name="Continue").click()
     page.wait_for_function(
         """(id) => (
             window.app?.projection?.characterId === id

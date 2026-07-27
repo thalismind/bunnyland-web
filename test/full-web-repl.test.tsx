@@ -38,8 +38,13 @@ const PROJECTION: CharacterProjection = {
   points: { action: 5, action_max: 5, focus: 3, focus_max: 3 },
   portrait: {},
   room: {
-    biome: 'inside', entities: [], exits: [], id: 'room:one', title: 'Parlor',
-  },
+    biome: 'inside',
+    description: 'A bright parlor with a route map.',
+    entities: [],
+    exits: [],
+    id: 'room:one',
+    title: 'Parlor',
+  } as CharacterProjection['room'] & { description: string },
   sheet: {},
   targetGroups: {},
   worldEpoch: 12,
@@ -138,6 +143,7 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
 async function selectPlayer(view: ReturnType<typeof render>): Promise<void> {
   await waitFor(() => expect(view.container.querySelector('#player-select option[value="character:one"]')).toBeTruthy());
   fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: 'character:one' } });
+  fireEvent.click(await view.findByText('Continue'));
   await waitFor(() => expect(view.container.querySelector('[data-action-key="world:say"]')).toBeTruthy());
 }
 
@@ -160,6 +166,9 @@ describe('full Web REPL page', () => {
     expect(await view.findByRole('dialog', { name: 'Content warning' })).toBeTruthy();
     expect(runtime.service.claimWebController).not.toHaveBeenCalled();
     fireEvent.click(view.getByText('Accept and Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    expect(runtime.service.claimWebController).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(runtime.service.claimWebController).toHaveBeenCalledOnce());
   });
 
@@ -183,6 +192,7 @@ describe('full Web REPL page', () => {
     history.replaceState(null, '', '/web-repl.html?server=%2Fapi#character%3Aone');
     const runtime = services();
     const view = render(<WebReplPage services={runtime.service} />);
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(facade()?.projection?.characterId).toBe('character:one'));
     expect(view.container.querySelector<HTMLSelectElement>('#player-select')?.value).toBe('character:one');
     expect(location.search).toBe('?server=%2Fapi');
@@ -211,6 +221,16 @@ describe('full Web REPL page', () => {
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     expect(input.value).toBe('say hello hooks');
+  });
+
+  it('includes the room description in local look output', async () => {
+    const runtime = services();
+    const view = render(<WebReplPage services={runtime.service} />);
+    await selectPlayer(view);
+    const input = view.container.querySelector('#repl-input') as HTMLInputElement;
+    fireEvent.input(input, { target: { value: 'look' } });
+    fireEvent.submit(view.container.querySelector('#prompt-row')!);
+    expect(view.getByText('A bright parlor with a route map.')).toBeTruthy();
   });
 
   it('clears an expired claim and leaves the selected character ready to reclaim', async () => {

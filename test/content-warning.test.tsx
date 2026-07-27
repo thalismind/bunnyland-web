@@ -53,6 +53,10 @@ describe('content warning gate', () => {
 
     fireEvent.click(view.getByLabelText(/Ignore these flags/));
     fireEvent.click(view.getByText('Accept and Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    expect(view.getByText('Mind the foxes after dark.')).toBeTruthy();
+    expect(joined).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(joined).toHaveBeenCalledOnce());
     expect(ignoredContentFlags()).toEqual(['adult:violence', 'pvp']);
   });
@@ -77,6 +81,8 @@ describe('content warning gate', () => {
       world_id: 'world-1', world_epoch: 1, title: 'Clover City', description: '', content_flags: [],
     });
     fireEvent.click(view.getByText('Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(joined).toHaveBeenCalledOnce());
     fireEvent.click(view.getByText('Join'));
     await waitFor(() => expect(joined).toHaveBeenCalledTimes(2));
@@ -113,6 +119,8 @@ describe('content warning gate', () => {
     expect(joined).not.toHaveBeenCalled();
 
     fireEvent.click(view.getByText('Accept and Join'));
+    expect(await view.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    fireEvent.click(view.getByText('Continue'));
     await waitFor(() => expect(joined).toHaveBeenCalledOnce());
   });
 
@@ -124,6 +132,7 @@ describe('content warning gate', () => {
     fireEvent.click(view.getByText('Join'));
     fireEvent.click(await view.findByLabelText(/Ignore these flags/));
     fireEvent.click(view.getByText('Accept and Join'));
+    fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(joined).toHaveBeenCalledOnce());
     fireEvent.click(view.getByText('Join'));
     await waitFor(() => expect(joined).toHaveBeenCalledTimes(2));
@@ -134,5 +143,34 @@ describe('content warning gate', () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
     expect(joined).toHaveBeenCalledTimes(2);
     expect(view.queryByRole('dialog')).toBeNull();
+  });
+
+  it('persists world/server and global introduction skip choices independently', async () => {
+    const joined = vi.fn();
+    const fetcher = vi.fn(async () => world([]));
+    const first = render(<Harness fetcher={fetcher} joined={joined} />);
+
+    fireEvent.click(first.getByText('Join'));
+    fireEvent.click(await first.findByLabelText(/this world and server/));
+    fireEvent.click(first.getByText('Continue'));
+    await waitFor(() => expect(joined).toHaveBeenCalledOnce());
+    first.unmount();
+
+    const second = render(<Harness fetcher={fetcher} joined={joined} />);
+    fireEvent.click(second.getByText('Join'));
+    await waitFor(() => expect(joined).toHaveBeenCalledTimes(2));
+    expect(second.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(second.getByText('Join other'));
+    expect(await second.findByRole('dialog', { name: 'Clover City' })).toBeTruthy();
+    fireEvent.click(second.getByLabelText(/all worlds and servers/));
+    fireEvent.click(second.getByText('Continue'));
+    await waitFor(() => expect(joined).toHaveBeenCalledTimes(3));
+    second.unmount();
+
+    const third = render(<Harness fetcher={fetcher} joined={joined} />);
+    fireEvent.click(third.getByText('Join other'));
+    await waitFor(() => expect(joined).toHaveBeenCalledTimes(4));
+    expect(third.queryByRole('dialog')).toBeNull();
   });
 });
