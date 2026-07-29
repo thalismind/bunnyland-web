@@ -24,6 +24,11 @@ import {
   saveChatState,
   type StoredMessage,
 } from './chat-state';
+import {
+  clearRememberedNarrative,
+  rememberOnThisDevice,
+  setRememberOnThisDevice,
+} from '../device-remembrance';
 import { MetricList, type SheetMetric } from './metrics';
 import { Overview, PillList, SheetList, type OverviewContent, type SheetRow } from './sections';
 import { Transcript, type TranscriptItem } from './transcript';
@@ -352,6 +357,7 @@ export function CharacterPage({
   const [assigningController, setAssigningController] = useState(false);
   const [, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
+  const [rememberDevice, setRememberDevice] = useState(() => rememberOnThisDevice());
   const [, forceRender] = useState(0);
   const aliveRef = useRef(true);
   const apiBaseRef = useRef('');
@@ -1008,6 +1014,23 @@ export function CharacterPage({
                   type="checkbox"
                 /> Markdown
               </label>
+              <label class="chat-toggle" for="remember-device-toggle">
+                <input
+                  checked={rememberDevice}
+                  id="remember-device-toggle"
+                  onChange={(event): void => {
+                    const remember = event.currentTarget.checked;
+                    setRememberDevice(remember);
+                    // Turning this off stops persisting transcripts and clears any already
+                    // cached narrative on this device.
+                    setRememberOnThisDevice(remember);
+                    if (!remember) {
+                      bumpHistory();
+                    }
+                  }}
+                  type="checkbox"
+                /> Remember on this device
+              </label>
               <Button
                 disabled={!selectedId || !hasChatHistory}
                 id="btn-clear-history"
@@ -1099,6 +1122,13 @@ if (root) {
       setScope(view === 'chat' ? 'character:chat' : 'character:profile');
     }, []);
     const auth = useAuth();
+    useEffect((): void => {
+      // Clear cached narrative when the session ends so it does not linger for the next
+      // user of a shared device.
+      if (auth.status === 'anonymous') {
+        clearRememberedNarrative();
+      }
+    }, [auth.status]);
     return (
       <AuthGate scopes={[scope]}>
         <CharacterPage canAdminister={auth.hasScopes(['world:admin'])} onViewChange={selectScope} />

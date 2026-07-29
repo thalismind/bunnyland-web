@@ -1,3 +1,5 @@
+import { rememberOnThisDevice } from '../device-remembrance';
+
 export type JsonObject = Record<string, unknown>;
 
 export interface ChatAction extends JsonObject {
@@ -138,6 +140,9 @@ export function loadChatState(clientId: string, characterId: string): ChatState 
 }
 
 export function saveChatState(clientId: string, characterId: string, state: ChatState): void {
+  if (!rememberOnThisDevice()) {
+    return;
+  }
   try {
     localStorage.setItem(chatStorageKey(clientId, characterId), JSON.stringify({
       summary: String(state.summary || ''),
