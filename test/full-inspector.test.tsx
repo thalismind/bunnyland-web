@@ -260,17 +260,27 @@ describe('full Inspector page', () => {
     facade()!._sendPatch = sendPatch;
 
     await waitFor(() => expect(
-      view.container.querySelector<HTMLInputElement>('#inspector-world-title')?.value,
-    ).toBe('Test World'));
+      view.container.querySelector<HTMLButtonElement>('#inspector-edit-world-details')?.disabled,
+    ).toBe(false));
+    expect(view.container.querySelector('#inspector-world-title')).toBeNull();
+    fireEvent.click(view.container.querySelector('#inspector-edit-world-details')!);
+    expect(
+      view.container.querySelector<HTMLInputElement>('#inspector-world-title')?.type,
+    ).toBe('text');
     fireEvent.input(view.container.querySelector('#inspector-world-title')!, {
       target: { value: 'Clover City' },
     });
     fireEvent.input(view.container.querySelector('#inspector-world-description')!, {
-      target: { value: 'Paths leave the meadow in every direction.' },
+      target: { value: 'Paths leave the **meadow** in every direction.' },
     });
+    expect(
+      view.container.querySelector('#inspector-world-description-preview strong')?.textContent,
+    ).toBe('meadow');
     fireEvent.input(view.container.querySelector('#inspector-world-content-flags')!, {
-      target: { value: 'adult:violence, pvp' },
+      target: { value: 'adult:violence' },
     });
+    fireEvent.click(view.container.querySelector('.world-details-flag-entry button')!);
+    fireEvent.click(view.container.querySelector('[data-content-flag="pvp"]')!);
     fireEvent.click(view.container.querySelector('#inspector-save-world-details')!);
 
     await waitFor(() => expect(sendPatch).toHaveBeenCalledWith([{
@@ -279,8 +289,8 @@ describe('full Inspector page', () => {
       component: {
         type: 'WorldInfoComponent',
         fields: {
-          content_flags: ['adult:violence', 'pvp'],
-          description: 'Paths leave the meadow in every direction.',
+          content_flags: ['adult:violence'],
+          description: 'Paths leave the **meadow** in every direction.',
           title: 'Clover City',
         },
       },

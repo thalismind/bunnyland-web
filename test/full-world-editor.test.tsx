@@ -161,22 +161,39 @@ describe('WorldEditorPage', () => {
 
   it('edits world details offline and includes them in exported JSON', async () => {
     const view = renderEditor();
+    expect(view.container.querySelector('#editor-world-title')).toBeNull();
+    fireEvent.click(view.container.querySelector('#editor-edit-world-details')!);
+    const title = view.container.querySelector<HTMLInputElement>('#editor-world-title')!;
+    expect(title.tagName).toBe('INPUT');
+    expect(title.type).toBe('text');
+    fireEvent.input(title, { target: { value: 'Clover\nCity' } });
+    expect(title.value).not.toMatch(/[\r\n]/);
     fireEvent.input(view.container.querySelector('#editor-world-title')!, {
       target: { value: 'Clover City' },
     });
     fireEvent.input(view.container.querySelector('#editor-world-description')!, {
-      target: { value: 'A cheerful city of gardens.' },
+      target: { value: 'A **cheerful** city of gardens.' },
     });
+    expect(
+      view.container.querySelector('#editor-world-description-preview strong')?.textContent,
+    ).toBe('cheerful');
     fireEvent.input(view.container.querySelector('#editor-world-content-flags')!, {
-      target: { value: 'pvp, adult:violence, pvp' },
+      target: { value: 'pvp' },
     });
+    fireEvent.click(view.container.querySelector('.world-details-flag-entry button')!);
+    fireEvent.input(view.container.querySelector('#editor-world-content-flags')!, {
+      target: { value: 'adult:violence' },
+    });
+    fireEvent.click(view.container.querySelector('.world-details-flag-entry button')!);
+    fireEvent.click(view.container.querySelector('[data-content-flag="pvp"]')!);
     fireEvent.click(view.container.querySelector('#editor-save-world-details')!);
 
     await waitFor(() => {
       const text = view.container.querySelector<HTMLTextAreaElement>('#json-output')!.value;
       expect(text).toContain('"title": "Clover City"');
-      expect(text).toContain('"description": "A cheerful city of gardens."');
+      expect(text).toContain('"description": "A **cheerful** city of gardens."');
       expect(text).toContain('"adult:violence"');
+      expect(text).not.toContain('"pvp"');
     });
     expect(view.container.querySelector('#status')?.textContent).toBe('World details updated');
   });
@@ -185,6 +202,7 @@ describe('WorldEditorPage', () => {
     window.history.replaceState(null, '', '/world-editor.html?server=%2Fapi');
     const view = renderEditor();
     await waitFor(() => expect(view.container.querySelector('#status')?.textContent).toContain('live patches enabled'));
+    fireEvent.click(view.container.querySelector('#editor-edit-world-details')!);
     fireEvent.input(view.container.querySelector('#editor-world-title')!, {
       target: { value: 'Live Clover City' },
     });

@@ -1,0 +1,132 @@
+.world-details-summary {
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+}
+
+.world-details-dialog {
+  width: min(780px, calc(100vw - 24px));
+}
+
+.world-details-body {
+  gap: 16px;
+}
+
+.world-details-title,
+.world-details-description {
+  width: 100%;
+}
+
+.world-details-description {
+  min-height: 190px;
+  resize: vertical;
+}
+
+.world-details-description-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.world-details-preview {
+  min-height: 190px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-sm);
+  background: var(--bl-bg-deep);
+  color: var(--bl-text-soft);
+  font-size: var(--bl-text-sm);
+  line-height: 1.5;
+}
+
+.world-details-preview-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--bl-text);
+  font-size: var(--bl-text-sm);
+  font-weight: bold;
+}
+
+.world-details-preview :first-child {
+  margin-top: 0;
+}
+
+.world-details-preview :last-child {
+  margin-bottom: 0;
+}
+
+.world-details-preview pre {
+  padding: 8px;
+  overflow-x: auto;
+  background: var(--bl-bg-strong);
+}
+
+.world-details-preview-empty,
+.world-details-flags-empty {
+  color: var(--bl-text-muted);
+  font-style: italic;
+}
+
+.world-details-flags {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--bl-border);
+  border-radius: var(--bl-radius-sm);
+}
+
+.world-details-flags legend {
+  padding: 0 4px;
+  font-weight: bold;
+}
+
+.world-details-flags p {
+  margin: 0;
+  color: var(--bl-text-muted);
+  font-size: var(--bl-text-sm);
+}
+
+.world-details-flag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 26px;
+}
+
+.world-details-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid var(--bl-border-control);
+  border-radius: var(--bl-radius-sm);
+  background: var(--bl-surface);
+  color: var(--bl-text);
+  cursor: pointer;
+  font-size: var(--bl-text-sm);
+}
+
+.world-details-flag:has(input:not(:checked)) {
+  color: var(--bl-text-muted);
+  text-decoration: line-through;
+}
+
+.world-details-flag-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.world-details-error {
+  color: var(--bl-error);
+  font-size: var(--bl-text-sm);
+}
+
+@media (max-width: 650px) {
+  .world-details-description-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

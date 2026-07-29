@@ -204,8 +204,19 @@ def main() -> None:
         ):
             raise AssertionError(f"unexpected inspector link: {inspector_href!r}")
 
+        page.locator("#editor-edit-world-details").click()
         assert page.locator("#editor-world-title").input_value() == "Test World"
+        assert page.locator("#editor-world-title").evaluate("(input) => input.tagName") == "INPUT"
         page.locator("#editor-world-title").fill("Clover City")
+        page.locator("#editor-world-description").fill(
+            "A world used by the **editor** regression."
+        )
+        page.wait_for_function(
+            "document.querySelector('#editor-world-description-preview strong')?.textContent === 'editor'"
+        )
+        page.locator("#editor-world-content-flags").fill("adult:violence")
+        page.locator(".world-details-flag-entry button").click()
+        page.locator('[data-content-flag="pvp"]').uncheck()
         page.locator("#editor-save-world-details").click()
         page.wait_for_function(
             "document.querySelector('#status').textContent === 'World details saved'"
@@ -220,8 +231,8 @@ def main() -> None:
                     "component": {
                         "type": "WorldInfoComponent",
                         "fields": {
-                            "content_flags": ["pvp"],
-                            "description": "A world used by the editor regression.",
+                            "content_flags": ["adult:violence"],
+                            "description": "A world used by the **editor** regression.",
                             "title": "Clover City",
                         },
                     },

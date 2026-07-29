@@ -172,10 +172,22 @@ def main() -> None:
             })
             """
         )
+        page.locator("#inspector-edit-world-details").click()
         page.wait_for_function(
             "document.querySelector('#inspector-world-title')?.value === 'Test World'"
         )
+        if page.locator("#inspector-world-title").evaluate("(input) => input.tagName") != "INPUT":
+            raise AssertionError("inspector world title editor should be a one-line input")
         page.locator("#inspector-world-title").fill("Clover City")
+        page.locator("#inspector-world-description").fill(
+            "A world used by the **inspector** regression."
+        )
+        page.wait_for_function(
+            "document.querySelector('#inspector-world-description-preview strong')?.textContent === 'inspector'"
+        )
+        page.locator("#inspector-world-content-flags").fill("adult:violence")
+        page.locator(".world-details-flag-entry button").click()
+        page.locator('[data-content-flag="pvp"]').uncheck()
         page.locator("#inspector-save-world-details").click()
         page.wait_for_function(
             "document.querySelector('#api-status').textContent === '● World details saved'"
@@ -189,8 +201,8 @@ def main() -> None:
                     "component": {
                         "type": "WorldInfoComponent",
                         "fields": {
-                            "content_flags": ["pvp"],
-                            "description": "A world used by the inspector regression.",
+                            "content_flags": ["adult:violence"],
+                            "description": "A world used by the **inspector** regression.",
                             "title": "Clover City",
                         },
                     },
