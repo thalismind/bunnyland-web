@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -32,6 +34,15 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Audit npm dependency graph
+        run: npm audit --audit-level=high
+
+      - name: Scan full history for exposed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
       - name: Run type, build, lint, and unit checks
         run: |
@@ -116,6 +127,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
 
       - name: Build and publish container
         uses: docker/build-push-action@v7
@@ -124,3 +136,16 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          load: ${{ github.event_name == 'pull_request' }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Scan exact web image
+        uses: anchore/scan-action@v7.4.0
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/bunnyland-web:sha-${{ github.sha }}
+          output-format: table
+          fail-build: true
+          only-fixed: true
+          severity-cutoff: high
+          by-cve: true

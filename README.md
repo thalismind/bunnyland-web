@@ -123,7 +123,7 @@ The published image serves the static client with nginx and proxies same-origin 
 requests to the Bunnyland server:
 
 ```bash
-docker run --rm -p 8080:80 \
+docker run --rm -p 8080:8080 \
   -e BUNNYLAND_API_UPSTREAM=http://host.docker.internal:8765 \
   ghcr.io/thalismind/bunnyland-web:main
 ```

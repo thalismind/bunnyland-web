@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
+import { AuthGate, AuthProvider } from '@bunnyland/ui-web/preact';
 import type { ComponentType } from 'preact';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -134,6 +135,81 @@ async function connectAndSelect(container: HTMLElement) {
 }
 
 describe('WebTuiPage', () => {
+  it('prompts for login and awaits the claim before starting the first live connection', async () => {
+    let resolveClaim: (value: Record<string, unknown>) => void = () => undefined;
+    play.claimWebController.mockImplementationOnce(() => new Promise(resolve => {
+      resolveClaim = resolve;
+    }));
+    const authSession = {
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      rotate_after: null,
+      rotation_eligible: false,
+      scopes: ['world:play'],
+      subject: 'player:juniper',
+    };
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => (
+      init?.method === 'POST'
+        ? new Response(JSON.stringify(authSession), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+        : new Response(JSON.stringify({ detail: 'login required' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 401,
+        })
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const view = render(
+      <AuthProvider base="/api/v1">
+        <AuthGate scopes={['world:play']}><WebTuiPage /></AuthGate>
+      </AuthProvider>,
+    );
+
+    expect(view.container.querySelector('#btn-connect')).toBeNull();
+    expect(play.claimWebController).not.toHaveBeenCalled();
+    expect(play.createPlayerLiveUpdates).not.toHaveBeenCalled();
+    fireEvent.click(await view.findByRole('button', { name: 'Login' }));
+    fireEvent.input(view.getByLabelText('Username'), { target: { value: 'juniper' } });
+    fireEvent.input(view.getByLabelText('Password'), { target: { value: 'correct horse' } });
+    fireEvent.submit(view.getByRole('button', { name: 'Sign in' }).closest('form')!);
+    await waitFor(() => expect(view.container.querySelector('#btn-connect')).toBeTruthy());
+    const loginCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(loginCall?.[0]).toBe('/api/v1/auth/session');
+    expect(loginCall?.[1]?.credentials).toBe('include');
+    expect(JSON.parse(String(loginCall?.[1]?.body))).toEqual({
+      delivery: 'cookie',
+      password: 'correct horse',
+      username: 'juniper',
+    });
+
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api/' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: character.id } });
+    await waitFor(() => expect(view.container.querySelector('#world-intro-title')).toBeTruthy());
+    fireEvent.click(view.container.querySelector('.world-intro-dialog .primary')!);
+    await waitFor(() => expect(play.claimWebController).toHaveBeenCalledOnce());
+
+    expect(play.claimWebController).toHaveBeenCalledWith('/api', expect.objectContaining({
+      character_id: character.id,
+      client_id: 'web-tui-client',
+      label: 'web-tui',
+    }), null);
+    expect(play.createPlayerLiveUpdates).not.toHaveBeenCalled();
+
+    resolveClaim({ id: control.claimId });
+    await waitFor(() => expect(play.createPlayerLiveUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        base: '/api',
+        characterId: character.id,
+        control,
+      }),
+    ));
+    expect(
+      play.claimWebController.mock.invocationCallOrder[0],
+    ).toBeLessThan(play.createPlayerLiveUpdates.mock.invocationCallOrder[0]);
+  });
+
   it('blocks a character claim until the player accepts remote content flags', async () => {
     bunnylandApi.sendJson.mockResolvedValue({
       world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: ['adult:violence'],

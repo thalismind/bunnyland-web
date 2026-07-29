@@ -703,6 +703,32 @@ test('BunnylandPlay keeps browser client ids in localStorage', () => {
   assert.equal(BunnylandPlay.iconPreference('bunnyland.test.icons'), false);
 });
 
+test('BunnylandPlay stores only public claim metadata and purges legacy secrets', () => {
+  const context = loadBrowserAssets([
+    'assets/bunnyland-api.js',
+    'assets/bunnyland-play.js',
+  ]);
+  const { BunnylandPlay } = context;
+  const control = {
+    characterId: 'character:1',
+    controllerId: 'controller:1',
+    generation: 2,
+    claimId: 'claim:1',
+    claimSecret: 'legacy-secret',
+    clientId: 'client:1',
+  };
+
+  BunnylandPlay.storeClaimControl('claims', control);
+  const storageKey = 'claims.claim.character:1';
+  assert.doesNotMatch(context.localStorage.getItem(storageKey), /secret/i);
+
+  context.localStorage.setItem(storageKey, JSON.stringify(control));
+  const restored = BunnylandPlay.storedClaimControl('claims', 'character:1');
+  assert.equal(restored.claimId, 'claim:1');
+  assert.equal('claimSecret' in restored, false);
+  assert.doesNotMatch(context.localStorage.getItem(storageKey), /secret/i);
+});
+
 test('BunnylandPlay parses queue timing and cancels commands with controller identity', async () => {
   const context = loadBrowserAssets([
     'assets/bunnyland-api.js',

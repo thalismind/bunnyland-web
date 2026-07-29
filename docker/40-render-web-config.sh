@@ -17,8 +17,8 @@ export BUNNYLAND_WEB_THEMES
 export BUNNYLAND_WEB_REPLACE_THEMES
 export BUNNYLAND_PLAYER_AUTH_REQUIRED
 
-template=/usr/share/nginx/config/config.json.template
-output=/usr/share/nginx/config/config.json
+template=/usr/share/nginx/bunnyland-config.json.template
+output=/tmp/bunnyland-config.json
 
 if [ -f "$template" ]; then
   envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_REPLACE_THEMES} ${BUNNYLAND_WEB_THEMES} ${BUNNYLAND_PLAYER_AUTH_REQUIRED}' < "$template" > "$output"

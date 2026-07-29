@@ -334,15 +334,16 @@
 
   function controlFromResponse(data, fallbackCharacterId = '', { active = true } = {}) {
     if (!data) return null;
-    return {
+    const control = {
       characterId: data.character_id || fallbackCharacterId,
       controllerId: data.controller_id,
       generation: Number(data.controller_generation ?? data.generation ?? 0),
       claimId: data.id || data.claim_id || '',
-      claimSecret: data.claim_secret || '',
       clientId: data.client_id || BunnylandApi.getClientId(),
       active,
     };
+    if (data.claim_secret) control.claimSecret = data.claim_secret;
+    return control;
   }
 
   function syncClaimControl(control, projection, playerId) {
@@ -353,11 +354,10 @@
       controllerId: projected.controller_id,
       generation: Number(projected.generation || 0),
       claimId: control.claimId || '',
-      claimSecret: control.claimSecret || '',
       clientId: control.clientId || BunnylandApi.getClientId(),
       active: projected.controller_id === control.controllerId && control.active !== false,
     };
-    if (next.claimId && next.claimSecret) return next;
+    if (next.claimId) return next;
     return projected.controller_id === control.controllerId ? next : null;
   }
 
@@ -385,30 +385,37 @@
 
   function storedClaimControl(key, characterId) {
     try {
-      const data = JSON.parse(localStorage.getItem(claimStorageKey(key, characterId)) || '{}');
-      if (!data.controllerId || !data.claimId || !data.claimSecret) return null;
-      return {
+      const storageKey = claimStorageKey(key, characterId);
+      const data = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      if (!data.controllerId || !data.claimId) {
+        localStorage.removeItem(storageKey);
+        return null;
+      }
+      const control = {
         characterId,
         controllerId: data.controllerId,
         generation: Number(data.generation || 0),
         claimId: data.claimId,
-        claimSecret: data.claimSecret,
         clientId: data.clientId || BunnylandApi.getClientId(),
         active: data.active !== false,
       };
+      if (data.claimSecret || data.claim_secret) {
+        localStorage.setItem(storageKey, JSON.stringify(control));
+      }
+      return control;
     } catch (_err) {
+      localStorage.removeItem(claimStorageKey(key, characterId));
       return null;
     }
   }
 
   function storeClaimControl(key, control) {
-    if (!key || !control?.characterId || !control?.claimId || !control?.claimSecret) return;
+    if (!key || !control?.characterId || !control?.claimId) return;
     try {
       localStorage.setItem(claimStorageKey(key, control.characterId), JSON.stringify({
         controllerId: control.controllerId,
         generation: control.generation,
         claimId: control.claimId,
-        claimSecret: control.claimSecret,
         clientId: control.clientId || BunnylandApi.getClientId(),
         active: control.active !== false,
       }));
@@ -434,7 +441,7 @@
 
   async function fetchClaimProjectionData(base, control) {
     const normalizedBase = BunnylandApi.assertSameOriginBase(base);
-    const key = `${normalizedBase}\0${control.claimId}\0${control.claimSecret || ''}`;
+    const key = `${normalizedBase}\0${control.claimId}`;
     const pending = claimProjectionRequests.get(key);
     if (pending) return pending;
     const request = BunnylandApi.sendJson(
@@ -584,7 +591,6 @@
             ? BunnylandApi.getPlayerAuth().slice(7)
             : null,
           client_id: control?.clientId || BunnylandApi.getClientId(),
-          claim_secret: control?.claimSecret || null,
         },
       }));
       onOpen();
@@ -836,12 +842,13 @@
     const claimId = control?.claimId || payload.claim_id || '';
     const request = async (resumeId, requestControl) => BunnylandApi.sendJsonWithResponse(
       base,
-      resumeId ? `/play/claims/${encodeURIComponent(resumeId)}` : '/play/claims',
+      resumeId ? `/play/claims/${encodeURIComponent(resumeId)}/recover` : '/play/claims',
       {
-        method: resumeId ? 'PUT' : 'POST',
+        method: 'POST',
         headers: BunnylandApi.claimHeaders(requestControl),
         body: resumeId ? null : JSON.stringify({
           character_id: payload.character_id,
+          delivery: 'cookie',
           label: payload.label,
           fallback_controller: payload.fallback_controller,
           fallback_reason: payload.fallback_reason,
@@ -853,19 +860,16 @@
       },
     );
     let result;
-    let priorSecret = control?.claimSecret || '';
     try {
       result = await request(claimId, control);
     } catch (error) {
       if (!claimId || !isClaimNotFoundError(error)) throw error;
       result = await request('', null);
-      priorSecret = '';
     }
-    const { data, response } = result;
+    const { data } = result;
     return {
       ...data,
       claim_id: data.id,
-      claim_secret: response.headers.get('X-Bunnyland-Claim-Secret') || priorSecret,
     };
   }
 
