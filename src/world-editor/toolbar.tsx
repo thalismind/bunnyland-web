@@ -2,6 +2,11 @@ import { Button, StatusText, Toolbar, ToolbarBrand, ToolbarRow } from '@bunnylan
 
 import { ControlledSearch, type Status } from './entity-editor';
 import type { EditorWorld, RuntimeState, WorldEntity, WorldFragment } from './models';
+import {
+  WorldDetailsEditor,
+  type WorldDetails,
+  type WorldDetailsTarget,
+} from '../world-details';
 
 interface EditorToolbarProps {
   apiUrl: string;
@@ -22,6 +27,7 @@ interface EditorToolbarProps {
   onNew: () => void;
   onRefreshLibrary: () => void;
   onSaveLive: () => void;
+  onWorldDetails: (details: WorldDetails) => Promise<void> | void;
   onToggleLive: () => void;
   onToggleSnapshot: () => void;
   runtime: RuntimeState;
@@ -29,6 +35,7 @@ interface EditorToolbarProps {
   snapshotVisible: boolean;
   status: Status;
   world: EditorWorld;
+  worldDetails: WorldDetailsTarget | null;
 }
 
 export function EditorToolbar(props: EditorToolbarProps) {
@@ -59,6 +66,13 @@ export function EditorToolbar(props: EditorToolbarProps) {
       <span class="toolbar-sep">|</span><Button id="btn-download" onClick={props.onDownload}>Download JSON</Button><Button id="btn-copy" onClick={props.onCopy}>Copy JSON</Button>
       <Button id="btn-toggle-snapshot" title={snapshotVisible ? 'Hide snapshot JSON pane' : 'Show snapshot JSON pane'} onClick={props.onToggleSnapshot}>{snapshotVisible ? 'Hide Snapshot' : 'Show Snapshot'}</Button>
       <span class="toolbar-sep">|</span><span id="world-info">{Object.keys(world.entities).length} entities · epoch {world.metadata.epoch}</span>
+    </ToolbarRow>
+    <ToolbarRow class="world-details-row" id="toolbar-row5">
+      <WorldDetailsEditor
+        idPrefix="editor"
+        onSave={props.onWorldDetails}
+        target={props.worldDetails}
+      />
     </ToolbarRow>
   </Toolbar>;
 }

@@ -247,7 +247,10 @@ export function emptyWorld(): EditorWorld {
     metadata: { version: '1.0', epoch: 0 },
     bunnyland: { schema_version: 1, seed: '', prompt: '', generator: '', plugins: [], saved_at_epoch: 0, saved_at: null },
     entities: { entity_1: { prefab: 'entity', created_epoch: 0 } },
-    components: { WorldClockComponent: { entity_1: { game_time_seconds: 0, tick_index: 0, time_scale: 1 } } },
+    components: {
+      WorldClockComponent: { entity_1: { game_time_seconds: 0, tick_index: 0, time_scale: 1 } },
+      WorldInfoComponent: { entity_1: { title: '', description: '', content_flags: [] } },
+    },
   });
 }
 

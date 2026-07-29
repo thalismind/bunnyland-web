@@ -11,7 +11,20 @@ import type { EditorWorld } from '../src/world-editor/models';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const snapshot: EditorWorld = {
   entities: {
-    clock: { id: 'clock', prefab: 'entity', created_epoch: 0, components: { WorldClockComponent: {} }, relationships: {} },
+    clock: {
+      id: 'clock',
+      prefab: 'entity',
+      created_epoch: 0,
+      components: {
+        WorldClockComponent: {},
+        WorldInfoComponent: {
+          content_flags: ['pvp'],
+          description: 'A test world.',
+          title: 'Test World',
+        },
+      },
+      relationships: {},
+    },
     target: { id: 'target', prefab: 'entity', created_epoch: 0, components: { IdentityComponent: { name: 'Target' } }, relationships: {} },
   },
   meta: { seed: 'test', generator: 'unit', saved_at_epoch: 2 },
@@ -144,5 +157,59 @@ describe('WorldEditorPage', () => {
     expect(text).toContain('"seed": "toolbar-seed"');
     expect(text).toContain('"generator": "toolbar-generator"');
     expect(text).toContain('"epoch": 42');
+  });
+
+  it('edits world details offline and includes them in exported JSON', async () => {
+    const view = renderEditor();
+    fireEvent.input(view.container.querySelector('#editor-world-title')!, {
+      target: { value: 'Clover City' },
+    });
+    fireEvent.input(view.container.querySelector('#editor-world-description')!, {
+      target: { value: 'A cheerful city of gardens.' },
+    });
+    fireEvent.input(view.container.querySelector('#editor-world-content-flags')!, {
+      target: { value: 'pvp, adult:violence, pvp' },
+    });
+    fireEvent.click(view.container.querySelector('#editor-save-world-details')!);
+
+    await waitFor(() => {
+      const text = view.container.querySelector<HTMLTextAreaElement>('#json-output')!.value;
+      expect(text).toContain('"title": "Clover City"');
+      expect(text).toContain('"description": "A cheerful city of gardens."');
+      expect(text).toContain('"adult:violence"');
+    });
+    expect(view.container.querySelector('#status')?.textContent).toBe('World details updated');
+  });
+
+  it('patches the singleton world info component when editing live details', async () => {
+    window.history.replaceState(null, '', '/world-editor.html?server=%2Fapi');
+    const view = renderEditor();
+    await waitFor(() => expect(view.container.querySelector('#status')?.textContent).toContain('live patches enabled'));
+    fireEvent.input(view.container.querySelector('#editor-world-title')!, {
+      target: { value: 'Live Clover City' },
+    });
+    fireEvent.click(view.container.querySelector('#editor-save-world-details')!);
+
+    await waitFor(() => expect(sendJsonMock).toHaveBeenCalledWith(
+      '/api',
+      '/admin/world',
+      expect.objectContaining({ method: 'PATCH' }),
+    ));
+    const patchCall = sendJsonMock.mock.calls.find((call) => call[1] === '/admin/world');
+    const init = patchCall?.[2] as RequestInit | undefined;
+    expect(JSON.parse(String(init?.body))).toEqual({
+      operations: [{
+        op: 'set_component',
+        entity_id: 'clock',
+        component: {
+          type: 'WorldInfoComponent',
+          fields: {
+            content_flags: ['pvp'],
+            description: 'A test world.',
+            title: 'Live Clover City',
+          },
+        },
+      }],
+    });
   });
 });

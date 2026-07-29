@@ -109,6 +109,22 @@ def main() -> None:
                             "components": {"IdentityComponent": {"name": "Other Entity"}},
                             "relationships": {},
                         },
+                        {
+                            "id": "world_state",
+                            "components": {
+                                "WorldClockComponent": {
+                                    "game_time_seconds": 2,
+                                    "tick_index": 1,
+                                    "time_scale": 1,
+                                },
+                                "WorldInfoComponent": {
+                                    "title": "Test World",
+                                    "description": "A world used by the editor regression.",
+                                    "content_flags": ["pvp"],
+                                },
+                            },
+                            "relationships": {},
+                        },
                     ],
                 },
             ),
@@ -187,6 +203,35 @@ def main() -> None:
             or "#map/linked_entity" not in inspector_href
         ):
             raise AssertionError(f"unexpected inspector link: {inspector_href!r}")
+
+        assert page.locator("#editor-world-title").input_value() == "Test World"
+        page.locator("#editor-world-title").fill("Clover City")
+        page.locator("#editor-save-world-details").click()
+        page.wait_for_function(
+            "document.querySelector('#status').textContent === 'World details saved'"
+        )
+        if not any(
+            call["path"] == "/admin/world"
+            and call["method"] == "PATCH"
+            and call["body"].get("operations") == [
+                {
+                    "op": "set_component",
+                    "entity_id": "world_state",
+                    "component": {
+                        "type": "WorldInfoComponent",
+                        "fields": {
+                            "content_flags": ["pvp"],
+                            "description": "A world used by the editor regression.",
+                            "title": "Clover City",
+                        },
+                    },
+                }
+            ]
+            for call in admin_calls
+        ):
+            raise AssertionError(
+                f"world title editor did not patch live WorldInfoComponent: {admin_calls!r}"
+            )
 
         page.locator("#btn-save-live").click()
         page.wait_for_function("document.querySelector('#status').textContent === 'World saved'")

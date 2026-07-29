@@ -75,7 +75,23 @@ def main() -> None:
             "subject": "admin", "scopes": ["world:admin"],
             "expires_at": 2000000000, "rotate_after": None, "rotation_eligible": False,
         }))
-        page.route("**/admin/world", lambda route: route.fulfill(status=200, json={"ok": True}))
+        admin_calls = []
+
+        def admin_world_handler(route):
+            request = route.request
+            body = json.loads(request.post_data or "{}")
+            admin_calls.append({"method": request.method, "body": body})
+            route.fulfill(
+                status=200,
+                json={
+                    "ok": True,
+                    "world_epoch": 2,
+                    "changed_entities": [],
+                    "deleted_entities": [],
+                },
+            )
+
+        page.route("**/admin/world", admin_world_handler)
         page.route("**/admin/world/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
         page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi%2Fv1", wait_until="domcontentloaded")
         page.wait_for_function("window.app && window.app._apiBase")
@@ -133,6 +149,58 @@ def main() -> None:
         prompt_calls = page.evaluate("window.__promptCalls")
         if prompt_calls:
             raise AssertionError(f"unexpected admin prompts during read-only connect: {prompt_calls!r}")
+
+        page.evaluate(
+            """
+            () => window.app.loadSnapshot({
+              metadata: { version: '1.0', epoch: 2 },
+              bunnyland: {},
+              entities: { world_state: { prefab: 'entity', created_epoch: 0 } },
+              components: {
+                WorldClockComponent: {
+                  world_state: { game_time_seconds: 2, tick_index: 1, time_scale: 1 },
+                },
+                WorldInfoComponent: {
+                  world_state: {
+                    title: 'Test World',
+                    description: 'A world used by the inspector regression.',
+                    content_flags: ['pvp'],
+                  },
+                },
+              },
+              relationships: {},
+            })
+            """
+        )
+        page.wait_for_function(
+            "document.querySelector('#inspector-world-title')?.value === 'Test World'"
+        )
+        page.locator("#inspector-world-title").fill("Clover City")
+        page.locator("#inspector-save-world-details").click()
+        page.wait_for_function(
+            "document.querySelector('#api-status').textContent === '● World details saved'"
+        )
+        if not any(
+            call["method"] == "PATCH"
+            and call["body"].get("operations") == [
+                {
+                    "op": "set_component",
+                    "entity_id": "world_state",
+                    "component": {
+                        "type": "WorldInfoComponent",
+                        "fields": {
+                            "content_flags": ["pvp"],
+                            "description": "A world used by the inspector regression.",
+                            "title": "Clover City",
+                        },
+                    },
+                }
+            ]
+            for call in admin_calls
+        ):
+            raise AssertionError(
+                f"inspector title editor did not patch WorldInfoComponent: {admin_calls!r}"
+            )
 
         auth_page = coverage.new_page(browser, viewport={"width": 800, "height": 600}, device_scale_factor=1)
         auth_page.add_init_script(

@@ -1,8 +1,18 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorApp, type InspectorFacade } from '../src/inspector/app';
+
+type InspectorEntity = NonNullable<InspectorFacade['world']>['entities'][string];
+type InspectorWorld = NonNullable<InspectorFacade['world']>;
+type SendAdminOptions = NonNullable<Parameters<InspectorFacade['_sendAdmin']>[1]>;
+
+interface FakeWidget {
+  callback: () => void;
+  name: string;
+  type: string;
+  value: unknown;
+}
 
 class FakeNode {
   entityId?: string;
@@ -10,10 +20,10 @@ class FakeNode {
   outputs = [{ links: [] as number[] }];
   pos = [0, 0];
   size = [240, 60];
-  widgets: any[] = [];
+  widgets: FakeWidget[] = [];
   addInput() {}
   addOutput() {}
-  addWidget(type: string, name: string, value: any, callback: () => void) {
+  addWidget(type: string, name: string, value: unknown, callback: () => void) {
     const widget = { callback, name, type, value };
     this.widgets.push(widget);
     return widget;
@@ -48,14 +58,14 @@ class FakeCanvas {
   stopRendering() {}
 }
 
-function entityType(entity: any): string {
+function entityType(entity: InspectorEntity): string {
   if (entity.components.RoomComponent) return 'room';
   if (entity.components.CharacterComponent) return 'character';
   if (entity.components.RegionComponent) return 'region';
   return 'other';
 }
 
-function makeWorld(epoch = 1, includeSecond = false): any {
+function makeWorld(epoch = 1, includeSecond = false): InspectorWorld {
   return {
     entities: {
       room: {
@@ -73,6 +83,18 @@ function makeWorld(epoch = 1, includeSecond = false): any {
         components: { CharacterComponent: { species: 'hare' }, NameComponent: { name: 'Hazel' } },
         relationships: {},
       },
+      clock: {
+        id: 'clock',
+        components: {
+          WorldClockComponent: {},
+          WorldInfoComponent: {
+            content_flags: ['pvp'],
+            description: 'A test world.',
+            title: 'Test World',
+          },
+        },
+        relationships: {},
+      },
       ...(includeSecond ? {
         'room:two': { id: 'room:two', components: { NameComponent: { name: 'Garden' }, RoomComponent: {} }, relationships: { ExitTo: [] } },
       } : {}),
@@ -84,6 +106,12 @@ function makeWorld(epoch = 1, includeSecond = false): any {
 
 function facade(): InspectorFacade | undefined {
   return (window as unknown as { app?: InspectorFacade }).app;
+}
+
+function sendAdminMock(): ReturnType<typeof vi.fn> {
+  return (window as unknown as {
+    BunnylandApi: { sendAdmin: ReturnType<typeof vi.fn> };
+  }).BunnylandApi.sendAdmin;
 }
 
 const closeMenu = vi.fn();
@@ -111,11 +139,11 @@ beforeEach(() => {
     BunnylandWorld: {
       controlInfo: () => null,
       controllerInfo: () => null,
-      entityDisplayName: (entity: any) => entity.components.NameComponent?.name || entity.id,
+      entityDisplayName: (entity: InspectorEntity) => entity.components.NameComponent?.name || entity.id,
       entityType,
-      parseApiSnapshot: (value: any) => value,
+      parseApiSnapshot: (value: unknown) => value as InspectorWorld,
       parseEntitySearch: (query: string) => ({ filters: [], text: query.toLowerCase() }),
-      parseSnapshot: (value: any) => value,
+      parseSnapshot: (value: unknown) => value as InspectorWorld,
     },
     LGraph: FakeGraph,
     LGraphCanvas: FakeCanvas,
@@ -184,8 +212,8 @@ describe('full Inspector page', () => {
     await waitFor(() => expect(facade()).toBeTruthy());
     facade()!.loadSnapshot(makeWorld());
     facade()!._apiBase = '/api/v1';
-    const sendAdmin = vi.fn(async (_path: string, options: any) => {
-      const body = JSON.parse(options.body);
+    const sendAdmin = vi.fn(async (_path: string, options: SendAdminOptions) => {
+      const body = JSON.parse(String(options.body));
       return { result: { patch: { operations: [{ op: 'add_entity', client_id: `$generated_${body.kind}`, components: [] }] } } };
     });
     const sendPatch = vi.fn(async () => ({ changed_entities: [], deleted_entities: [] }));
@@ -223,6 +251,43 @@ describe('full Inspector page', () => {
     view.unmount();
   });
 
+  it('edits world title, description, and content flags through a world info patch', async () => {
+    const view = render(<InspectorApp/>);
+    await waitFor(() => expect(facade()).toBeTruthy());
+    facade()!.loadSnapshot(makeWorld());
+    facade()!._apiBase = '/api/v1';
+    const sendPatch = vi.fn(async () => ({ changed_entities: [], deleted_entities: [] }));
+    facade()!._sendPatch = sendPatch;
+
+    await waitFor(() => expect(
+      view.container.querySelector<HTMLInputElement>('#inspector-world-title')?.value,
+    ).toBe('Test World'));
+    fireEvent.input(view.container.querySelector('#inspector-world-title')!, {
+      target: { value: 'Clover City' },
+    });
+    fireEvent.input(view.container.querySelector('#inspector-world-description')!, {
+      target: { value: 'Paths leave the meadow in every direction.' },
+    });
+    fireEvent.input(view.container.querySelector('#inspector-world-content-flags')!, {
+      target: { value: 'adult:violence, pvp' },
+    });
+    fireEvent.click(view.container.querySelector('#inspector-save-world-details')!);
+
+    await waitFor(() => expect(sendPatch).toHaveBeenCalledWith([{
+      op: 'set_component',
+      entity_id: 'clock',
+      component: {
+        type: 'WorldInfoComponent',
+        fields: {
+          content_flags: ['adult:violence', 'pvp'],
+          description: 'Paths leave the meadow in every direction.',
+          title: 'Clover City',
+        },
+      },
+    }], { status: '● World details saved' }));
+    view.unmount();
+  });
+
   it('applies hash navigation without reconnecting or replacing the server query', async () => {
     history.replaceState(null, '', '/inspector.html?server=%2Fapi#region/character');
     const view = render(<InspectorApp/>);
@@ -231,14 +296,14 @@ describe('full Inspector page', () => {
     const canvas = facade()!.lgcanvas;
     canvas.ds.scale = 1.4;
     canvas.ds.offset = [7, 12];
-    (window.BunnylandApi as any).sendAdmin.mockClear();
+    sendAdminMock().mockClear();
 
     history.pushState(null, '', '/inspector.html?server=%2Fapi#map/room');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     await waitFor(() => expect(view.container.querySelector('#inspector-name')?.textContent).toContain('Parlor'));
     expect(location.search).toBe('?server=%2Fapi');
     expect(canvas.ds).toEqual({ offset: [7, 12], scale: 1.4 });
-    expect((window.BunnylandApi as any).sendAdmin).not.toHaveBeenCalled();
+    expect(sendAdminMock()).not.toHaveBeenCalled();
     view.unmount();
   });
 

@@ -4,6 +4,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { confirmDialog } from '../dialogs';
+import { findWorldDetails, type WorldDetails } from '../world-details';
 import type { SendPatch, Status } from './entity-editor';
 import { defaultFor } from './fields';
 import { EditorLayout } from './layout';
@@ -306,6 +307,7 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
   const exported = exportWorld(world);
   const jsonText = JSON.stringify(exported, null, 2);
   const problems = validateWorld(exported);
+  const worldDetails = findWorldDetails(world.entities);
   const inspectorHref = selected ? (() => {
     const url = new URL('inspector.html', location.href);
     const base = liveBaseRef.current || servicesRef.current.normalizeBase(apiUrl);
@@ -417,8 +419,26 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
       onNew={() => { worldRef.current = emptyWorld(); selectedRef.current = 'entity_1'; liveBaseRef.current = ''; schemaRef.current = null; fragmentsRef.current = []; setFragmentId(''); setRuntime({ paused: null, running: false }); revise(); syncUrl(); setStatus({ kind: 'ok', text: 'New world created' }); }}
       onRefreshLibrary={() => { if (!liveBaseRef.current) { setStatus({ kind: 'err', text: 'Load a server snapshot before refreshing the library' }); return; } void servicesRef.current.sendJson(liveBaseRef.current, '/play/catalog').then(response => { const fragments = contentFragments(response); fragmentsRef.current = normalizeFragments(fragments.value, fragments.source); setFragmentId(''); revise(); setStatus({ kind: 'ok', text: `Loaded ${fragmentsRef.current.length} library fragments` }); }).catch(error => setStatus({ kind: 'err', text: `Library error: ${errorMessage(error)}` })); }}
       onSaveLive={() => { void requestJson('/admin/world/checkpoints', { method: 'POST' }).then(raw => { const data = parsePatchResult(raw); if (data.world_epoch != null) { world.metadata.epoch = data.world_epoch; world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch; revise(); } setStatus({ kind: 'ok', text: 'World saved' }); }).catch(error => setStatus({ kind: 'err', text: `Save error: ${errorMessage(error)}` })); }}
+      onWorldDetails={async (details: WorldDetails) => {
+        if (!worldDetails) throw new Error('World clock entity is missing');
+        const fields: JsonObject = {
+          content_flags: details.contentFlags,
+          description: details.description,
+          title: details.title,
+        };
+        world.entities[worldDetails.entityId]!.components.WorldInfoComponent = fields;
+        revise();
+        if (liveBaseRef.current) {
+          await sendPatch([{
+            op: 'set_component',
+            entity_id: worldDetails.entityId,
+            component: { type: 'WorldInfoComponent', fields },
+          }], false, 'World details saved');
+        } else setStatus({ kind: 'ok', text: 'World details updated' });
+      }}
       onToggleLive={() => { void requestJson('/admin/world/runtime', { method: 'PATCH', body: JSON.stringify({ paused: !runtime.paused }) }).then(raw => { const data = parseRuntimeState(raw); setRuntime(data); if (data.world_epoch != null) world.metadata.epoch = data.world_epoch; revise(); setStatus({ kind: 'ok', text: data.paused ? 'World paused' : 'World resumed' }); }).catch(error => setStatus({ kind: 'err', text: `Runtime error: ${errorMessage(error)}` })); }}
       onToggleSnapshot={() => { const next = !snapshotVisible; setSnapshotVisible(next); localStorage.setItem('bunnyland.editor.snapshotVisible', String(next)); }}
+      worldDetails={worldDetails}
     />
     <EditorLayout
       componentNames={componentNames} defaultComponent={defaultComponent} defaultEdge={defaultEdge} edgeNames={edgeNames} entities={entities} inspectorHref={inspectorHref} jsonText={jsonText} live={Boolean(liveBaseRef.current)}
