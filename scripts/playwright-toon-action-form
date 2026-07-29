@@ -159,15 +159,18 @@ def install_routes(page, posted: list[dict]) -> None:
     page.exposed_deleted_commands = deleted
 
     def assert_claim(route) -> None:
-        if route.request.headers.get("x-bunnyland-claim-secret") != CLAIM_SECRET:
-            raise AssertionError(f"missing claim secret header on {route.request.url}")
+        headers = route.request.all_headers()
+        if "x-bunnyland-claim-secret" in headers:
+            raise AssertionError(f"browser leaked a claim secret header on {route.request.url}")
+        if f"bunnyland_claim={CLAIM_SECRET}" not in headers.get("cookie", ""):
+            raise AssertionError(f"missing HttpOnly claim cookie on {route.request.url}")
         if f"/claims/{CLAIM_ID}" not in route.request.url:
             raise AssertionError(f"missing claim id on {route.request.url}")
 
     def commands_handler(route):
         request = route.request
+        assert_claim(route)
         if request.method == "POST":
-            assert_claim(route)
             posted.append(json.loads(request.post_data or "{}"))
             route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
         else:
@@ -183,16 +186,24 @@ def install_routes(page, posted: list[dict]) -> None:
         )
 
     def claim_handler(route):
+        if route.request.method == "POST" and route.request.url.endswith("/play/claims"):
+            request_body = json.loads(route.request.post_data or "{}")
+            if request_body.get("delivery") != "cookie":
+                raise AssertionError(f"browser claim did not request cookie delivery: {request_body!r}")
         route.fulfill(
             status=200, content_type="application/json",
-            headers={"X-Bunnyland-Claim-Secret": CLAIM_SECRET},
+            headers={
+                "Set-Cookie": (
+                    f"bunnyland_claim={CLAIM_SECRET}; Path=/api/v1/play; "
+                    "Secure; HttpOnly; SameSite=Strict"
+                ),
+            },
             body=json.dumps({
                 "id": CLAIM_ID,
                 "character_id": CHARACTER,
                 "controller_id": "web:1",
                 "generation": 1,
                 "claim_id": CLAIM_ID,
-                "claim_secret": CLAIM_SECRET,
             }),
         )
 
@@ -204,9 +215,13 @@ def install_routes(page, posted: list[dict]) -> None:
     # cross ``/``) rather than the literal id. More specific patterns are registered last
     # so Playwright (last-match-wins) prefers them.
     projection = {**CHARACTER_PROJECTION, **QUEUED, "scene": ROOM_PROJECTION}
+    def projection_handler(route):
+        assert_claim(route)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(projection))
+
     page.route("**/play/characters", json_route(CHARACTER_LIST))
     page.route("**/play/claims/**", claim_handler)
-    page.route("**/play/claims/**/projection", json_route(projection))
+    page.route("**/play/claims/**/projection", projection_handler)
     page.route("**/play/claims/**/events**", recent_events_handler)
     page.route("**/play/claims", claim_handler)
     page.route("**/play/claims/**/commands", commands_handler)
@@ -336,7 +351,8 @@ def check_say_text_field(page, posted: list[dict]) -> None:
         raise AssertionError(f"blank submit should not post a command; posted={posted!r}")
 
     overlay.locator('input.af-input[type="text"]').fill("hello toon")
-    overlay.locator(".af-submit").click()
+    with page.expect_response("**/play/claims/*/commands"):
+        overlay.locator(".af-submit").click()
     expect(overlay).to_have_count(0)
     if not posted or posted[-1]["command_type"] != "say":
         raise AssertionError(f"say command was not posted; posted={posted!r}")
@@ -345,7 +361,8 @@ def check_say_text_field(page, posted: list[dict]) -> None:
 
 
 def check_unavailable_action_can_queue(page, posted: list[dict]) -> None:
-    page.locator('.verb.unavailable.ready[data-tool="shout"]').click()
+    with page.expect_response("**/play/claims/*/commands"):
+        page.locator('.verb.unavailable.ready[data-tool="shout"]').click()
     if not posted or posted[-1]["command_type"] != "shout":
         raise AssertionError(f"unavailable action was not posted; posted={posted!r}")
     if posted[-1]["on_insufficient_points"] != "queue":
@@ -362,7 +379,8 @@ def check_tell_dropdown_and_text(page, posted: list[dict]) -> None:
 
     overlay.locator("select.af-input").select_option(OTHER)
     overlay.locator('input.af-input[type="text"]').fill("psst")
-    overlay.locator(".af-submit").click()
+    with page.expect_response("**/play/claims/*/commands"):
+        overlay.locator(".af-submit").click()
     expect(overlay).to_have_count(0)
     if not posted or posted[-1]["command_type"] != "tell":
         raise AssertionError(f"tell command was not posted; posted={posted!r}")

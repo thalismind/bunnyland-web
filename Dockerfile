@@ -17,7 +17,10 @@ ENV BUNNYLAND_API_UPSTREAM=http://server:8765 \
     BUNNYLAND_WEB_THEMES=[] \
     BUNNYLAND_WEB_REPLACE_THEMES=false
 
-RUN chown -R 101:101 /etc/nginx/conf.d /var/cache/nginx /var/run
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R 101:101 /etc/nginx/conf.d /var/cache/nginx /var/run
 
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 # config.json is rendered from this template at container start (docker-entrypoint.d) so

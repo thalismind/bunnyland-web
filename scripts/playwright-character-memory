@@ -18,7 +18,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-from playwright_container import container_cli, stop_container
+from playwright_container import container_cli, grant_container_user_access, stop_container
 from playwright_coverage import PlaywrightCoverage
 from playwright_server import ensure_web_server
 
@@ -203,6 +203,8 @@ def start_memory_api() -> tuple[str, subprocess.Popen | None]:
         encoding="utf-8",
     )
     users_file.chmod(0o600)
+    grant_container_user_access(TOKEN_DATA_DIR, "x")
+    grant_container_user_access(users_file, "r")
     proc = subprocess.Popen(
         [
             *runtime,

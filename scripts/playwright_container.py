@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shlex
 import shutil
 import subprocess
@@ -58,6 +59,26 @@ def container_cli() -> list[str]:
     raise RuntimeError(
         "container runtime CLI not found; install Docker, nerdctl, or Podman, "
         "or set BUNNYLAND_CONTAINER_CLI"
+    )
+
+
+def grant_container_user_access(
+    path: Path,
+    permissions: str,
+    *,
+    uid: int = 10001,
+) -> None:
+    """Grant the fixed non-root server identity access to a bind-mounted fixture."""
+    if path.is_symlink():
+        raise RuntimeError(f"container fixture must not be a symlink: {path}")
+    if not path.exists():
+        raise RuntimeError(f"container fixture does not exist: {path}")
+    setfacl = shutil.which("setfacl")
+    if setfacl is None:
+        raise RuntimeError("setfacl is required for fixed-UID container fixtures")
+    subprocess.run(
+        [setfacl, "-m", f"u:{uid}:{permissions}", str(path)],
+        check=True,
     )
 
 

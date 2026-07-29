@@ -56,6 +56,27 @@ class PlaywrightContainerTest(TestCase):
             with self.assertRaisesRegex(RuntimeError, "Docker, nerdctl, or Podman"):
                 playwright_container.container_cli()
 
+    def test_grant_container_user_access_uses_fixed_uid_acl(self) -> None:
+        fixture = Path("/tmp/auth-users.yml")
+        with (
+            patch.object(Path, "is_symlink", return_value=False),
+            patch.object(Path, "exists", return_value=True),
+            patch.object(playwright_container.shutil, "which", return_value="/usr/bin/setfacl"),
+            patch.object(playwright_container.subprocess, "run") as run,
+        ):
+            playwright_container.grant_container_user_access(fixture, "r")
+
+        run.assert_called_once_with(
+            ["/usr/bin/setfacl", "-m", "u:10001:r", str(fixture)],
+            check=True,
+        )
+
+    def test_grant_container_user_access_rejects_symlinks(self) -> None:
+        fixture = Path("/tmp/auth-users.yml")
+        with patch.object(Path, "is_symlink", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "must not be a symlink"):
+                playwright_container.grant_container_user_access(fixture, "r")
+
     def test_stop_container_stops_by_name_and_reaps_process(self) -> None:
         proc = Mock()
         with patch.object(playwright_container.subprocess, "run") as run:

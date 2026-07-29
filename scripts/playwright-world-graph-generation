@@ -21,12 +21,11 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 
-from playwright_container import container_cli, stop_container
+from playwright_container import container_cli, grant_container_user_access, stop_container
 from playwright_coverage import PlaywrightCoverage
 
 
@@ -38,7 +37,10 @@ SERVER_IMAGE = os.environ.get(
     "BUNNYLAND_WORLD_GRAPH_SERVER_IMAGE",
     "ghcr.io/thalismind/bunnyland-server:main",
 )
-PROXY_IMAGE = os.environ.get("BUNNYLAND_WORLD_GRAPH_PROXY_IMAGE", "nginx:1.27-bookworm")
+PROXY_IMAGE = os.environ.get(
+    "BUNNYLAND_WORLD_GRAPH_PROXY_IMAGE",
+    "nginx:1.30.4-trixie@sha256:5cf90903deda2c5981b8ad05e7617ac010e389f0dde0ac83487c02c509281de6",
+)
 USERNAME = "world-graph-playwright"
 CHARACTER_USERNAME = "character-playwright"
 PASSWORD = "world-graph-playwright-fixture-only"
@@ -51,6 +53,7 @@ NETWORK_NAME: str | None = None
 SERVER_CONTAINER_NAME: str | None = None
 PROXY_CONTAINER_NAME: str | None = None
 FIXTURE_DIR: Path | None = None
+JsonObject = dict[str, object]
 
 
 def free_port() -> int:
@@ -113,6 +116,8 @@ def prepare_fixture(runtime: list[str]) -> Path:
         encoding="utf-8",
     )
     users_file.chmod(0o600)
+    grant_container_user_access(FIXTURE_DIR, "x")
+    grant_container_user_access(users_file, "r")
 
     openssl = shutil.which("openssl")
     if not openssl:
@@ -264,18 +269,18 @@ def launch_browser(playwright):
         or shutil.which("chromium")
         or shutil.which("chromium-browser")
     )
-    kwargs: dict[str, Any] = {"headless": True}
+    kwargs: dict[str, object] = {"headless": True}
     if chrome:
         kwargs["executable_path"] = chrome
         kwargs["args"] = ["--no-sandbox"]
     return playwright.chromium.launch(**kwargs)
 
 
-def identity_name(entity: dict[str, Any]) -> str:
+def identity_name(entity: JsonObject) -> str:
     return str(entity.get("components", {}).get("IdentityComponent", {}).get("name") or "")
 
 
-def entity_named(world: dict[str, Any], name: str) -> dict[str, Any] | None:
+def entity_named(world: JsonObject, name: str) -> JsonObject | None:
     return next((entity for entity in world.get("entities", {}).values() if identity_name(entity) == name), None)
 
 
@@ -313,7 +318,7 @@ def install_fixture_door(page, room_id: str) -> str:
     return str(doors[0]["id"])
 
 
-def generate_and_assert(page, *, action, kind: str, expected_name: str) -> dict[str, Any]:
+def generate_and_assert(page, *, action, kind: str, expected_name: str) -> JsonObject:
     before_stream_count = page.evaluate("window.__worldStreamMessages.length")
     with page.expect_response(
         lambda response: response.request.method == "POST"

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
-from playwright_container import container_cli, stop_container
+from playwright_container import container_cli, grant_container_user_access, stop_container
 from playwright_coverage import PlaywrightCoverage
 
 
@@ -85,6 +85,8 @@ def prepare_container_auth(runtime: list[str]) -> Path:
         encoding="utf-8",
     )
     users_file.chmod(0o600)
+    grant_container_user_access(SERVER_AUTH_DIR, "x")
+    grant_container_user_access(users_file, "r")
 
     return users_file
 
@@ -254,6 +256,7 @@ def start_container_server() -> tuple[str, subprocess.Popen | None]:
     api_url = f"http://127.0.0.1:{port}/v1"
     SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
     OTEL_TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    grant_container_user_access(OTEL_TRACE_FILE.parent, "rwx")
     log = SERVER_LOG.open("w", encoding="utf-8")
     container_trace_file = f"/otel-artifacts/{OTEL_TRACE_FILE.name}"
     SERVER_CONTAINER_NAME = f"bunnyland-release-{port}"
@@ -351,7 +354,18 @@ def connect_page(page, page_name: str, api_url: str) -> None:
         target = f"{api_url}{path}"
         if parsed.query:
             target = f"{target}?{parsed.query}"
-        route.fulfill(response=route.fetch(url=target))
+        api_parts = urllib.parse.urlsplit(api_url)
+        request_headers = route.request.all_headers()
+        request_headers["origin"] = f"{api_parts.scheme}://{api_parts.netloc}"
+        response = route.fetch(url=target, headers=request_headers)
+        response_headers = dict(response.headers)
+        set_cookie = response_headers.get("set-cookie")
+        if set_cookie:
+            response_headers["set-cookie"] = set_cookie.replace(
+                "Path=/api/v1/play",
+                "Path=/api-release/play",
+            )
+        route.fulfill(response=response, headers=response_headers)
 
     page.route("**/api-release/**", proxy_api)
     auth = player_auth_header()
