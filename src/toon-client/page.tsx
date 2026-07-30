@@ -418,16 +418,21 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     if (id && projectionHasTarget(id)) selectTarget(id, false);
   }, [projection, projectionHasTarget, roomProjection, selectTarget]);
 
+  const controlSubscriptionKey = control
+    ? [control.claimId, control.clientId].join(':')
+    : '';
+
   useEffect(() => {
-    if (!connected || !playerId || !control) return;
+    const currentControl = controlRef.current;
+    if (!connected || !playerId || !controlSubscriptionKey || !currentControl) return;
     const live = playCall<{ close: () => void }>(runtime, 'createPlayerLiveUpdates', {
-      base: baseRef.current, characterId: playerId, control, refresh, onState: (state: string) => {
+      base: baseRef.current, characterId: playerId, control: currentControl, refresh, onState: (state: string) => {
         if (mounted.current && state === 'live') setStatus('● Live');
         else if (mounted.current && state !== 'closed') setStatus('◌ Reconnecting · polling');
       },
     });
     return () => live.close();
-  }, [connected, control, playerId, refresh, runtime]);
+  }, [connected, controlSubscriptionKey, playerId, refresh, runtime]);
 
   useEffect(() => {
     const facade = {

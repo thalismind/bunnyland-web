@@ -9,6 +9,7 @@ const ITEM = 'item:1';
 
 function harness(contentFlags: string[] = []) {
   const close = vi.fn();
+  const createPlayerLiveUpdates = vi.fn(() => ({ close }));
   const clearClaimControl = vi.fn();
   const submitted: Array<Record<string, unknown>> = [];
   let fetches = 0;
@@ -37,7 +38,7 @@ function harness(contentFlags: string[] = []) {
     drainNarratedEvents: (_messages, options) => ({ lines: [], seenIds: (options as { seenIds: Set<string> }).seenIds }),
     latestImageCompletion: () => null,
     isClaimNotFoundError: error => (error as { status?: number })?.status === 404,
-    syncClaimControl: control => control,
+    syncClaimControl: control => ({ ...(control as Record<string, unknown>) }),
     persistentClientId: async () => 'toon-client',
     storedClaimControl: () => null,
     claimSettings: () => ({}),
@@ -49,7 +50,7 @@ function harness(contentFlags: string[] = []) {
     releaseWebController: async () => ({ controller_id: 'idle:1', generation: 2, claim_id: 'claim' }),
     releaseWebClaim: async () => ({}),
     playerControl: control => control,
-    createPlayerLiveUpdates: () => ({ close }),
+    createPlayerLiveUpdates,
     actionTitle: action => (action as Record<string, string>).title,
     actionIcon: () => '✨',
     actionTool: action => (action as Record<string, string>).tool_name,
@@ -96,7 +97,15 @@ function harness(contentFlags: string[] = []) {
     play: functions,
     ui: { initClientMenu: () => undefined, initHelp: () => undefined },
   };
-  return { claimWebController, clearClaimControl, close, fetches: () => fetches, runtime, submitted };
+  return {
+    claimWebController,
+    clearClaimControl,
+    close,
+    createPlayerLiveUpdates,
+    fetches: () => fetches,
+    runtime,
+    submitted,
+  };
 }
 
 afterEach(() => {
@@ -142,6 +151,23 @@ describe('ToonPage', () => {
     await Promise.resolve();
 
     expect(test.fetches()).toBe(before);
+  });
+
+  it('keeps the claim WebSocket stable when a refresh replaces equivalent control data', async () => {
+    const test = harness();
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
+    await waitFor(() => expect(test.createPlayerLiveUpdates).toHaveBeenCalledOnce());
+    const app = (window as unknown as { app: { _refresh(): Promise<void> } }).app;
+
+    await app._refresh();
+
+    expect(test.createPlayerLiveUpdates).toHaveBeenCalledOnce();
+    expect(test.close).not.toHaveBeenCalled();
   });
 
   it('delegates its read-only facade and deletes it on unmount', async () => {
