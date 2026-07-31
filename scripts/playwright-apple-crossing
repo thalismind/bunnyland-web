@@ -19,6 +19,7 @@ import urllib.request
 
 from playwright.sync_api import (
     Browser,
+    BrowserContext,
     Page,
     Playwright,
     Route,
@@ -559,6 +560,8 @@ def run_journey(
     journey: Callable[[Page, AppleServer], None],
 ) -> None:
     server = AppleServer(runtime, users_file, name)
+    context: BrowserContext | None = None
+    page: Page | None = None
     try:
         server.start()
         context = browser.new_context(viewport={"width": 1280, "height": 820})
@@ -567,10 +570,17 @@ def run_journey(
         connect_repl(page, server)
         journey(page, server)
         page.screenshot(path=str(server.state_dir / "completed.png"), full_page=True)
-        coverage.close_page(page)
-        context.close()
     finally:
-        server.stop()
+        try:
+            if page is not None and not page.is_closed():
+                page.unroute_all(behavior="wait")
+                coverage.close_page(page)
+        finally:
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                server.stop()
 
 
 def main() -> None:
