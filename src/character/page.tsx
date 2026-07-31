@@ -89,6 +89,21 @@ export interface LlmControllerOption {
   label: string;
 }
 
+type CharacterChatLifecycle = 'dead' | 'downed' | 'sleeping' | 'suspended' | '';
+
+function characterChatLifecycle(projection: SheetProjection | null): CharacterChatLifecycle {
+  const statuses = new Set(
+    (projection?.sheet?.status || []).map((status) => (
+      status.split(' (', 1)[0] || ''
+    ).trim().toLowerCase()),
+  );
+  if (statuses.has('dead')) return 'dead';
+  if (statuses.has('downed')) return 'downed';
+  if (statuses.has('sleeping')) return 'sleeping';
+  if (statuses.has('suspended')) return 'suspended';
+  return '';
+}
+
 interface FeatureStatus {
   character_chat?: boolean;
   character_sheets?: boolean;
@@ -378,6 +393,7 @@ export function CharacterPage({
   selectedIdRef.current = selectedId;
   projectionRef.current = projection;
   chatClientIdRef.current = chatClientId;
+  const chatLifecycle = characterChatLifecycle(projection);
 
   const bumpHistory = useCallback((): void => setHistoryRevision((value) => value + 1), []);
 
@@ -603,7 +619,8 @@ export function CharacterPage({
   }, [apiBase, connected, selectedId]);
 
   useEffect(() => {
-    if (!canAdminister || !connected || !apiBase || !selectedId || !projection?.characterId || projection.controller?.kind === 'llm') {
+    if (!canAdminister || !connected || !apiBase || !selectedId || !projection?.characterId
+      || projection.controller?.kind === 'llm' || ['dead', 'downed', 'sleeping'].includes(chatLifecycle)) {
       setLlmControllers([]);
       setSelectedLlmController('');
       setControllerOptionsStatus('');
@@ -614,7 +631,8 @@ export function CharacterPage({
     void services.fetchLlmControllers(apiBase).then((options) => {
       if (cancelled) return;
       setLlmControllers(options);
-      setSelectedLlmController(options[0]?.id || '');
+      const defaultController = options.find((option) => option.label.trim().toLowerCase() === 'default');
+      setSelectedLlmController(defaultController?.id || options[0]?.id || '');
       setControllerOptionsStatus(options.length ? '' : 'No LLM controllers are available to assign.');
     }).catch((error) => {
       if (cancelled) return;
@@ -623,7 +641,7 @@ export function CharacterPage({
       setControllerOptionsStatus(`Could not load LLM controllers: ${errorMessage(error)}`);
     });
     return () => { cancelled = true; };
-  }, [apiBase, canAdminister, connected, projection?.characterId, projection?.controller?.kind, selectedId, services]);
+  }, [apiBase, canAdminister, chatLifecycle, connected, projection?.characterId, projection?.controller?.kind, selectedId, services]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -779,7 +797,8 @@ export function CharacterPage({
     const message = chatDraft.trim();
     const characterId = selectedIdRef.current;
     const base = apiBaseRef.current;
-    if (!message || !base || !characterId || projectionRef.current?.controller?.kind !== 'llm') return;
+    if (!message || !base || !characterId || projectionRef.current?.controller?.kind !== 'llm'
+      || ['dead', 'downed', 'sleeping'].includes(characterChatLifecycle(projectionRef.current))) return;
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
@@ -829,16 +848,25 @@ export function CharacterPage({
   const assignLlmController = async (): Promise<void> => {
     const base = apiBaseRef.current;
     const characterId = selectedIdRef.current;
-    const controllerId = selectedLlmController;
+    const defaultController = llmControllers.find(
+      (controller) => controller.label.trim().toLowerCase() === 'default',
+    );
+    const controllerId = chatLifecycle === 'suspended'
+      ? defaultController?.id || ''
+      : selectedLlmController;
     if (!canAdminister || !base || !characterId || !controllerId || assigningController) return;
     setAssigningController(true);
-    setChatStatus('Assigning LLM controller…');
+    setChatStatus(chatLifecycle === 'suspended'
+      ? 'Activating character on the default LLM controller…'
+      : 'Assigning LLM controller…');
     try {
       await services.assignController(base, characterId, controllerId);
       if (!aliveRef.current || characterId !== selectedIdRef.current) return;
       await refreshRef.current();
       if (aliveRef.current && characterId === selectedIdRef.current) {
-        setChatStatus(`LLM controller assigned to ${characterName || characterId}.`);
+        setChatStatus(chatLifecycle === 'suspended'
+          ? `${characterName || characterId} activated on the default LLM controller.`
+          : `LLM controller assigned to ${characterName || characterId}.`);
       }
     } catch (error) {
       if (aliveRef.current && characterId === selectedIdRef.current) {
@@ -850,8 +878,17 @@ export function CharacterPage({
   };
 
   const chatControllerReady = projection?.controller?.kind === 'llm';
-  const chatReadOnly = Boolean(selectedId && projection && !chatControllerReady);
-  const chatUnavailable = !connected || !selectedId || features?.character_chat === false;
+  const lifecycleUnavailable = ['dead', 'downed', 'sleeping'].includes(chatLifecycle);
+  const chatReadOnly = Boolean(selectedId && projection && !chatControllerReady && !lifecycleUnavailable);
+  const chatUnavailable = !connected || !selectedId || features?.character_chat === false
+    || lifecycleUnavailable;
+  const lifecycleUnavailableReason = chatLifecycle === 'dead'
+    ? `${characterName || selectedId} is dead and is not available to chat.`
+    : chatLifecycle === 'downed'
+      ? `${characterName || selectedId} is unconscious and is not available to chat.`
+      : chatLifecycle === 'sleeping'
+        ? `${characterName || selectedId} is sleeping and cannot be interrupted by chat.`
+        : '';
 
   return <>
     <Toolbar id="toolbar">
@@ -1052,11 +1089,11 @@ export function CharacterPage({
               items={transcriptItems}
             />
           </div>
-          {chatReadOnly && <div id="chat-read-only" role="status">
+          {(chatReadOnly || lifecycleUnavailable) && <div id="chat-read-only" role="status">
             <span>
-              Chat is read-only because {characterName || selectedId} is not assigned to an LLM controller.
+              {lifecycleUnavailableReason || `Chat is read-only because ${characterName || selectedId} is not assigned to an LLM controller.`}
             </span>
-            {canAdminister && <div id="llm-controller-assignment">
+            {canAdminister && !lifecycleUnavailable && <div id="llm-controller-assignment">
               {llmControllers.length > 0 && <>
                 <label for="llm-controller-select">LLM controller</label>
                 <select
@@ -1073,7 +1110,10 @@ export function CharacterPage({
                   disabled={!selectedLlmController || assigningController}
                   id="btn-assign-llm-controller"
                   onClick={(): void => { void assignLlmController(); }}
-                >{assigningController ? 'Assigning…' : 'Assign LLM Controller'}</Button>
+                >{assigningController
+                    ? (chatLifecycle === 'suspended' ? 'Activating…' : 'Assigning…')
+                    : (chatLifecycle === 'suspended' ? 'Activate with default LLM' : 'Assign LLM Controller')}
+                </Button>
               </>}
               {controllerOptionsStatus && <StatusText tone={controllerOptionsStatus.startsWith('Could not') ? 'error' : 'muted'}>
                 {controllerOptionsStatus}

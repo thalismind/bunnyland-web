@@ -253,6 +253,62 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#status-line')?.textContent).toContain('LLM controller assigned');
   });
 
+  it('activates a suspended character with the default LLM controller', async () => {
+    let current: SheetProjection = {
+      ...structuredClone(PROJECTION),
+      controller: { controller_id: 'suspended:one', generation: 3, kind: 'suspended', name: 'offline' },
+      sheet: { ...structuredClone(PROJECTION.sheet), status: ['suspended'] },
+    };
+    const runtime = makeServices(() => structuredClone(current));
+    runtime.services.fetchLlmControllers = vi.fn(async () => [
+      { detail: 'ollama/other', id: 'llm:other', label: 'writer' },
+      { detail: 'ollama/default', id: 'llm:default', label: 'default' },
+    ]);
+    runtime.services.assignController = vi.fn(async (_base, _characterId, controllerId) => {
+      current = {
+        ...current,
+        controller: { controller_id: controllerId, generation: 4, kind: 'llm', name: 'default' },
+        sheet: { ...current.sheet, status: ['active'] },
+      };
+    });
+    const view = render(<CharacterPage canAdminister services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    await waitFor(() => expect(view.container.querySelector('#btn-assign-llm-controller')?.textContent)
+      .toContain('Activate with default LLM'));
+    fireEvent.click(view.container.querySelector('#btn-assign-llm-controller')!);
+
+    await waitFor(() => expect(runtime.services.assignController).toHaveBeenCalledWith(
+      '/api', 'character:one', 'llm:default',
+    ));
+    await waitFor(() => expect(view.container.querySelector('#status-line')?.textContent).toContain(
+      'activated on the default LLM controller',
+    ));
+  });
+
+  it.each([
+    ['dead', 'dead and is not available to chat'],
+    ['downed', 'unconscious and is not available to chat'],
+    ['sleeping', 'sleeping and cannot be interrupted by chat'],
+  ])('does not offer chat or controller assignment when the character is %s', async (status, reason) => {
+    const runtime = makeServices(() => ({
+      ...structuredClone(PROJECTION),
+      controller: { controller_id: 'llm:hazel', generation: 2, kind: 'llm', name: 'default' },
+      sheet: { ...structuredClone(PROJECTION.sheet), status: [status] },
+    }));
+    const view = render(<CharacterPage canAdminister services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    expect(view.container.querySelector('#chat-read-only')?.textContent).toContain(reason);
+    expect((view.container.querySelector('#chat-input') as HTMLTextAreaElement).disabled).toBe(true);
+    expect((view.container.querySelector('#btn-send') as HTMLButtonElement).disabled).toBe(true);
+    expect(view.container.querySelector('#llm-controller-assignment')).toBeNull();
+    expect(runtime.services.fetchLlmControllers).not.toHaveBeenCalled();
+  });
+
   it('uses connected polling without claim coordination', async () => {
     history.replaceState(null, '', '/character.html?server=%2Fapi#character%3Aone');
     const runtime = makeServices();
