@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@bunnyland/ui-web": "0.2.4",
+    "litegraph.js": "0.7.13",
     "preact": "^10.29.0"
   },
   "devDependencies": {

@@ -190,7 +190,7 @@ def main() -> None:
             f"{BASE_URL}/world-editor.html?server=%2Fapi%2Fv1#map/linked_entity",
             wait_until="networkidle",
         )
-        page.wait_for_function("window.app && window.app.selectedId === 'linked_entity'")
+        page.wait_for_function("() => window.app && window.app.selectedId === 'linked_entity'")
         assert page.locator("#api-url").input_value() == "/api/v1"
         assert page.locator("#selected-label").text_content() == "linked_entity"
         assert page.evaluate("location.search") == "?server=%2Fapi%2Fv1"
@@ -212,14 +212,14 @@ def main() -> None:
             "A world used by the **editor** regression."
         )
         page.wait_for_function(
-            "document.querySelector('#editor-world-description-preview strong')?.textContent === 'editor'"
+            "() => document.querySelector('#editor-world-description-preview strong')?.textContent === 'editor'"
         )
         page.locator("#editor-world-content-flags").fill("adult:violence")
         page.locator(".world-details-flag-entry button").click()
         page.locator('[data-content-flag="pvp"]').uncheck()
         page.locator("#editor-save-world-details").click()
         page.wait_for_function(
-            "document.querySelector('#status').textContent === 'World details saved'"
+            "() => document.querySelector('#status').textContent === 'World details saved'"
         )
         if not any(
             call["path"] == "/admin/world"
@@ -245,13 +245,13 @@ def main() -> None:
             )
 
         page.locator("#btn-save-live").click()
-        page.wait_for_function("document.querySelector('#status').textContent === 'World saved'")
+        page.wait_for_function("() => document.querySelector('#status').textContent === 'World saved'")
         assert page.locator("#meta-epoch").input_value() == "5"
         page.locator("#btn-toggle-live").click()
-        page.wait_for_function("document.querySelector('#runtime-status').textContent === 'runtime: paused'")
+        page.wait_for_function("() => document.querySelector('#runtime-status').textContent === 'runtime: paused'")
         assert page.locator("#btn-toggle-live").text_content() == "▶"
         page.locator("#btn-toggle-live").click()
-        page.wait_for_function("document.querySelector('#runtime-status').textContent === 'runtime: playing'")
+        page.wait_for_function("() => document.querySelector('#runtime-status').textContent === 'runtime: playing'")
         assert page.locator("#btn-toggle-live").text_content() == "⏸"
 
         live_component_search = page.locator("#add-component-dropdown .search-dropdown-input")
@@ -278,12 +278,12 @@ def main() -> None:
         page.wait_for_timeout(450)
 
         page.locator("#btn-add-entity").click()
-        page.wait_for_function("window.app && window.app.selectedId === 'live_added'")
+        page.wait_for_function("() => window.app && window.app.selectedId === 'live_added'")
         assert page.locator("#selected-label").text_content() == "live_added"
         page.locator("#entity-id").fill("renamed_live")
         page.locator("#btn-rename-entity").click()
         page.wait_for_function(
-            "document.querySelector('#status').textContent === 'Live ECS entity IDs cannot be renamed'"
+            "() => document.querySelector('#status').textContent === 'Live ECS entity IDs cannot be renamed'"
         )
         live_paths = [call["path"] for call in admin_calls]
         for expected in ["/admin/world/checkpoints", "/admin/world/runtime", "/admin/world"]:
@@ -305,12 +305,12 @@ def main() -> None:
 
         page.goto(f"{BASE_URL}/world-editor.html", wait_until="networkidle")
         page.locator("#btn-add-entity").click()
-        page.wait_for_function("window.app && window.app.selectedId === 'entity_2'")
+        page.wait_for_function("() => window.app && window.app.selectedId === 'entity_2'")
         page.locator("#entity-id").fill("local_target")
         page.locator("#entity-prefab").fill("prop")
         page.locator("#entity-created").fill("7")
         page.locator("#btn-rename-entity").click()
-        page.wait_for_function("window.app && window.app.selectedId === 'local_target'")
+        page.wait_for_function("() => window.app && window.app.selectedId === 'local_target'")
         assert page.locator("#selected-label").text_content() == "local_target"
         local_json = page.locator("#json-output").input_value()
         if '"local_target"' not in local_json or '"created_epoch": 7' not in local_json:
@@ -332,7 +332,7 @@ def main() -> None:
         delete_dialog = page.locator("#bl-action-dialog[open]")
         delete_dialog.wait_for(state="visible")
         delete_dialog.locator(".bl-dialog-confirm").click()
-        page.wait_for_function("window.app && !window.app.world.entities.local_target")
+        page.wait_for_function("() => window.app && !window.app.world.entities.local_target")
         local_json = page.locator("#json-output").input_value()
         if "local_target" in local_json:
             raise AssertionError(f"local delete did not remove entity and incoming edges: {local_json}")

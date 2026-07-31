@@ -288,6 +288,7 @@ test('hostile entity and event identifiers use Preact handlers, not inline HTML'
     .join('\n');
 
   assert.doesNotMatch(inspector, /onclick=/i);
+  assert.doesNotMatch(inspector, /(?:href|src)="https?:\/\//i);
   assert.doesNotMatch(editor, /onclick=/i);
   assert.match(inspectorApp, /data-select-entity=/);
   assert.match(inspectorApp, /data-inspector-depth=/);

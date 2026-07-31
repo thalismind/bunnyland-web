@@ -1,4 +1,6 @@
 import { AuthProvider, useAuth } from '@bunnyland/ui-web/preact';
+import { LiteGraph as LiteGraphLibrary } from 'litegraph.js/build/litegraph.core.js';
+import 'litegraph.js/css/litegraph.css';
 import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -138,7 +140,31 @@ export interface InspectorFacade {
   readonly world: World | null;
 }
 
-const legacy = (): LegacyWindow => window as unknown as LegacyWindow;
+type LiteGraphBundle = LiteGraphRuntime['LiteGraph'] & Pick<LiteGraphRuntime, 'LGraph' | 'LGraphCanvas' | 'LGraphNode'>;
+
+function isLiteGraphBundle(value: unknown): value is LiteGraphBundle {
+  return (
+    typeof value === 'object' && value !== null
+    && 'LGraph' in value && typeof value.LGraph === 'function'
+    && 'LGraphCanvas' in value && typeof value.LGraphCanvas === 'function'
+    && 'LGraphNode' in value && typeof value.LGraphNode === 'function'
+    && 'NODE_WIDGET_HEIGHT' in value && typeof value.NODE_WIDGET_HEIGHT === 'number'
+    && 'createNode' in value && typeof value.createNode === 'function'
+    && 'registerNodeType' in value && typeof value.registerNodeType === 'function'
+  );
+}
+
+const liteGraphBundle: unknown = LiteGraphLibrary;
+if (!isLiteGraphBundle(liteGraphBundle)) {
+  throw new Error('Bundled LiteGraph runtime is incomplete');
+}
+const legacyWindow = window as unknown as LegacyWindow;
+legacyWindow.LGraph = liteGraphBundle.LGraph;
+legacyWindow.LGraphCanvas = liteGraphBundle.LGraphCanvas;
+legacyWindow.LGraphNode = liteGraphBundle.LGraphNode;
+legacyWindow.LiteGraph = liteGraphBundle;
+
+const legacy = (): LegacyWindow => legacyWindow;
 const CONTAINMENT_EDGES = ['Contains', 'Holding', 'Wearing'];
 const SOCIAL_EDGES: Record<string, { color: string; label: string }> = {
   PartnerOf: { color: '#f38ba8', label: 'partner' },

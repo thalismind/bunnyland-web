@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 from playwright_coverage import PlaywrightCoverage
 from playwright_server import ensure_web_server
@@ -15,6 +15,10 @@ from playwright_server import ensure_web_server
 BASE_URL = os.environ.get("BUNNYLAND_WEB_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
 SCREENSHOT_DIR = Path(os.environ.get("BUNNYLAND_PLAYWRIGHT_SCREENSHOT_DIR", "/tmp"))
 SCREENSHOT = SCREENSHOT_DIR / "bunnyland-web-node-readability.png"
+LOCAL_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; connect-src 'self'"
+)
 
 
 def assert_no_rect_overlaps(rects):
@@ -51,6 +55,17 @@ def main() -> None:
         coverage = PlaywrightCoverage("inspector")
         browser = launch_browser(playwright)
         page = coverage.new_page(browser, viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+        browser_errors = []
+        page.on(
+            "console",
+            lambda message: browser_errors.append(f"console {message.type}: {message.text}")
+            if message.type == "error"
+            else None,
+        )
+        page.on(
+            "pageerror",
+            lambda error: browser_errors.append(f"pageerror: {error}\n{error.stack}"),
+        )
         page.add_init_script(
             """
             window.__promptCalls = [];
@@ -93,8 +108,20 @@ def main() -> None:
 
         page.route("**/admin/world", admin_world_handler)
         page.route("**/admin/world/runtime", lambda route: route.fulfill(status=401, json={"detail": "locked"}))
+        if BASE_URL.startswith(("http://127.0.0.1", "http://localhost")):
+            def inspector_with_csp(route):
+                response = route.fetch()
+                route.fulfill(
+                    response=response,
+                    headers={**response.headers, "content-security-policy": LOCAL_CSP},
+                )
+
+            page.route("**/inspector.html*", inspector_with_csp)
         page.goto(f"{BASE_URL}/inspector.html?server=%2Fapi%2Fv1", wait_until="domcontentloaded")
-        page.wait_for_function("window.app && window.app._apiBase")
+        try:
+            page.wait_for_function("() => window.app && window.app._apiBase")
+        except PlaywrightTimeoutError as error:
+            raise AssertionError(f"inspector did not initialize: {browser_errors!r}") from error
         page.evaluate(
             """
             () => {
@@ -174,7 +201,7 @@ def main() -> None:
         )
         page.locator("#inspector-edit-world-details").click()
         page.wait_for_function(
-            "document.querySelector('#inspector-world-title')?.value === 'Test World'"
+            "() => document.querySelector('#inspector-world-title')?.value === 'Test World'"
         )
         if page.locator("#inspector-world-title").evaluate("(input) => input.tagName") != "INPUT":
             raise AssertionError("inspector world title editor should be a one-line input")
@@ -183,14 +210,14 @@ def main() -> None:
             "A world used by the **inspector** regression."
         )
         page.wait_for_function(
-            "document.querySelector('#inspector-world-description-preview strong')?.textContent === 'inspector'"
+            "() => document.querySelector('#inspector-world-description-preview strong')?.textContent === 'inspector'"
         )
         page.locator("#inspector-world-content-flags").fill("adult:violence")
         page.locator(".world-details-flag-entry button").click()
         page.locator('[data-content-flag="pvp"]').uncheck()
         page.locator("#inspector-save-world-details").click()
         page.wait_for_function(
-            "document.querySelector('#api-status').textContent === '● World details saved'"
+            "() => document.querySelector('#api-status').textContent === '● World details saved'"
         )
         if not any(
             call["method"] == "PATCH"
@@ -259,7 +286,7 @@ def main() -> None:
         auth_page.get_by_label("Username").fill("admin")
         auth_page.get_by_label("Password").fill("secret")
         auth_page.locator("button", has_text="Sign in").click()
-        auth_page.wait_for_function("window.__webSocketFrames.length > 0")
+        auth_page.wait_for_function("() => window.__webSocketFrames.length > 0")
         auth_result = auth_page.evaluate(
             """
             () => ({
@@ -481,14 +508,14 @@ def main() -> None:
             }
             """
         )
-        page.wait_for_function("window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
+        page.wait_for_function("() => window.app && window.app.lgraph && window.app.lgraph._nodes.length > 0")
         canvas_box = page.locator("#graph-canvas").bounding_box()
         if not canvas_box:
             raise AssertionError("graph canvas was not visible")
         page.mouse.click(canvas_box["x"] + 100, canvas_box["y"] + 100, button="right")
         assert page.locator(".litecontextmenu").count() == 0
         page.locator("#search-input").fill("component:RoomComponent")
-        page.wait_for_function("document.querySelectorAll('#search-results .search-item').length > 0")
+        page.wait_for_function("() => document.querySelectorAll('#search-results .search-item').length > 0")
         first_type = page.locator("#search-results .search-item .si-type").first.text_content()
         if "room" not in first_type:
             raise AssertionError(f"component filter did not return a room result: {first_type!r}")
@@ -673,14 +700,14 @@ def main() -> None:
                 raise AssertionError(f"room context menu missed {expected!r}: {room_menu_text!r}")
         page.evaluate("window.__promptResponses = ['a night courier']")
         page.locator('[data-menu-action="generate-character"]').dispatch_event("click")
-        page.wait_for_function("window.__generationCalls.length === 2")
+        page.wait_for_function("() => window.__generationCalls.length === 2")
         page.mouse.move(0, 0)
         page.evaluate("window.app._showContextMenu('room', 100, 100); window.__promptResponses = ['a brass key']")
         page.locator('[data-menu-action="generate-item"]').dispatch_event("click")
-        page.wait_for_function("window.__generationCalls.length === 4")
+        page.wait_for_function("() => window.__generationCalls.length === 4")
         page.evaluate("window.__promptResponses = ['door', 'east', 'a rain library']")
         page.locator("#btn-generate-room").click()
-        page.wait_for_function("window.__generationCalls.length === 6")
+        page.wait_for_function("() => window.__generationCalls.length === 6")
         generation_calls = page.evaluate("window.__generationCalls")
         expected_generation_bodies = [
             {"kind": "character", "prompt": "a night courier", "room_entity_id": "room"},
