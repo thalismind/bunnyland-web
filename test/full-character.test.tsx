@@ -44,7 +44,10 @@ function appFacade(): SheetFacade | undefined {
   return (window as unknown as { app?: SheetFacade }).app;
 }
 
-function makeServices(projection: () => SheetProjection = () => structuredClone(PROJECTION)) {
+function makeServices(
+  projection: () => SheetProjection = () => structuredClone(PROJECTION),
+  features: Record<string, boolean> = { character_chat: true, character_sheets: true },
+) {
   const closeMenu = vi.fn();
   const services: CharacterServices = {
     actionIcon: () => '💬',
@@ -65,7 +68,7 @@ function makeServices(projection: () => SheetProjection = () => structuredClone(
     persistentClientId: () => 'chat-test-client',
     portraitStatusMessage: (current) => current?.portrait?.url ? 'Portrait ready.' : 'Portrait pending.',
     sendJson: vi.fn(async (_base, path, options) => {
-      if (path.endsWith('/public/features')) return { character_chat: true, character_sheets: true };
+      if (path.endsWith('/public/features')) return features;
       if (path.endsWith('/jobs')) return {
         id: 'job:chat', status: 'succeeded', result: { reply: 'Hello back.' },
       };
@@ -307,6 +310,31 @@ describe('full Character page', () => {
     expect((view.container.querySelector('#btn-send') as HTMLButtonElement).disabled).toBe(true);
     expect(view.container.querySelector('#llm-controller-assignment')).toBeNull();
     expect(runtime.services.fetchLlmControllers).not.toHaveBeenCalled();
+  });
+
+  it('allows chat with a sleeping character when the server feature is enabled', async () => {
+    const runtime = makeServices(
+      () => ({
+        ...structuredClone(PROJECTION),
+        controller: { controller_id: 'llm:hazel', generation: 2, kind: 'llm', name: 'default' },
+        sheet: { ...structuredClone(PROJECTION.sheet), status: ['sleeping'] },
+      }),
+      {
+        allow_sleeping_character_chat: true,
+        character_chat: true,
+        character_sheets: true,
+      },
+    );
+    const view = render(<CharacterPage services={runtime.services} />);
+
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    expect(view.container.querySelector('#chat-read-only')).toBeNull();
+    expect((view.container.querySelector('#chat-input') as HTMLTextAreaElement).disabled).toBe(false);
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Can you hear me?' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+    await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain('Hello back.'));
   });
 
   it('uses connected polling without claim coordination', async () => {

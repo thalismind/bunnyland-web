@@ -104,8 +104,18 @@ function characterChatLifecycle(projection: SheetProjection | null): CharacterCh
   return '';
 }
 
+function characterChatLifecycleUnavailable(
+  lifecycle: CharacterChatLifecycle,
+  allowSleepingCharacterChat: boolean,
+): boolean {
+  return lifecycle === 'dead'
+    || lifecycle === 'downed'
+    || (lifecycle === 'sleeping' && !allowSleepingCharacterChat);
+}
+
 interface FeatureStatus {
   character_chat?: boolean;
+  allow_sleeping_character_chat?: boolean;
   character_sheets?: boolean;
 }
 
@@ -619,8 +629,12 @@ export function CharacterPage({
   }, [apiBase, connected, selectedId]);
 
   useEffect(() => {
+    const lifecycleUnavailable = characterChatLifecycleUnavailable(
+      chatLifecycle,
+      features?.allow_sleeping_character_chat === true,
+    );
     if (!canAdminister || !connected || !apiBase || !selectedId || !projection?.characterId
-      || projection.controller?.kind === 'llm' || ['dead', 'downed', 'sleeping'].includes(chatLifecycle)) {
+      || projection.controller?.kind === 'llm' || lifecycleUnavailable) {
       setLlmControllers([]);
       setSelectedLlmController('');
       setControllerOptionsStatus('');
@@ -641,7 +655,7 @@ export function CharacterPage({
       setControllerOptionsStatus(`Could not load LLM controllers: ${errorMessage(error)}`);
     });
     return () => { cancelled = true; };
-  }, [apiBase, canAdminister, chatLifecycle, connected, projection?.characterId, projection?.controller?.kind, selectedId, services]);
+  }, [apiBase, canAdminister, chatLifecycle, connected, features?.allow_sleeping_character_chat, projection?.characterId, projection?.controller?.kind, selectedId, services]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -797,8 +811,12 @@ export function CharacterPage({
     const message = chatDraft.trim();
     const characterId = selectedIdRef.current;
     const base = apiBaseRef.current;
+    const lifecycleUnavailable = characterChatLifecycleUnavailable(
+      characterChatLifecycle(projectionRef.current),
+      features?.allow_sleeping_character_chat === true,
+    );
     if (!message || !base || !characterId || projectionRef.current?.controller?.kind !== 'llm'
-      || ['dead', 'downed', 'sleeping'].includes(characterChatLifecycle(projectionRef.current))) return;
+      || lifecycleUnavailable) return;
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
@@ -878,7 +896,10 @@ export function CharacterPage({
   };
 
   const chatControllerReady = projection?.controller?.kind === 'llm';
-  const lifecycleUnavailable = ['dead', 'downed', 'sleeping'].includes(chatLifecycle);
+  const lifecycleUnavailable = characterChatLifecycleUnavailable(
+    chatLifecycle,
+    features?.allow_sleeping_character_chat === true,
+  );
   const chatReadOnly = Boolean(selectedId && projection && !chatControllerReady && !lifecycleUnavailable);
   const chatUnavailable = !connected || !selectedId || features?.character_chat === false
     || lifecycleUnavailable;
