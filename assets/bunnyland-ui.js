@@ -36,6 +36,8 @@
   const CLIENT_MENU_SEEN_KEY = 'bunnyland.clientMenu.seen';
   let actionDialogQueue = Promise.resolve();
   let clientMenuBaseUrl = '';
+  let clientMenuPreviousFocus = null;
+  let helpPreviousFocus = null;
   // Admin tools order: World Generator, World Graph, editor tools alphabetically, then miscellaneous tools.
   const CLIENT_MENU_ITEMS = [
     {
@@ -492,6 +494,41 @@
     return url.origin === location.origin ? '' : ' target="_blank" rel="noopener"';
   }
 
+  function optionalSameOriginUrl(value) {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    try {
+      const url = new URL(value.trim(), location.href);
+      if (url.origin !== location.origin || !/^https?:$/.test(url.protocol)) return '';
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function focusableElements(container) {
+    return [...container.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter(element => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+  }
+
+  function containDialogFocus(dialog, event) {
+    if (event.key !== 'Tab' || dialog.classList.contains('hidden')) return;
+    const focusable = focusableElements(dialog);
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function ensureActionDialog() {
     let dialog = document.getElementById('bl-action-dialog');
     if (dialog) return dialog;
@@ -638,10 +675,25 @@
     return dialog;
   }
 
-  function renderClientMenu(dialog, discordUrl = '') {
+  function renderClientMenu(dialog, config = {}) {
     const current = currentPageName();
     const theme = currentTheme();
     const colorScheme = currentColorScheme();
+    const discordUrl = typeof config?.discordUrl === 'string' ? config.discordUrl.trim() : '';
+    const player3dUrl = optionalSameOriginUrl(config?.['3dUrl']);
+    const items = player3dUrl ? [
+      ...CLIENT_MENU_ITEMS.slice(0, 4),
+      {
+        href: player3dUrl,
+        title: '3D Player',
+        label: '3D world view',
+        description: 'An alternative immersive player view with an accessible HUD.',
+        group: 'Player clients',
+        supportsFocus: false,
+        supportsServer: true,
+      },
+      ...CLIENT_MENU_ITEMS.slice(4),
+    ] : CLIENT_MENU_ITEMS;
     dialog.innerHTML = `
       <div class="client-menu-card">
         <div class="client-menu-header">
@@ -652,9 +704,9 @@
           <button class="client-menu-close" type="button" aria-label="Close client menu">x</button>
         </div>
         <div class="client-menu-list">
-          ${CLIENT_MENU_ITEMS.map((item, index) => {
+          ${items.map((item, index) => {
             const active = item.href === current || (current === '' && item.href === 'index.html');
-            const previousGroup = CLIENT_MENU_ITEMS[index - 1]?.group;
+            const previousGroup = items[index - 1]?.group;
             return `
               ${item.group !== previousGroup ? `<div class="client-menu-section-title">${escapeHtml(item.group)}</div>` : ''}
               <a class="client-menu-item ${active ? 'active' : ''}" href="${escapeHtml(clientHref(item))}"${clientTargetAttrs(item)}>
@@ -693,16 +745,17 @@
     `;
     dialog.querySelector('#client-menu-theme-select')?.addEventListener('change', (event) => {
       setTheme(event.target.value);
-      renderClientMenu(dialog, discordUrl);
+      renderClientMenu(dialog, config);
     });
     dialog.querySelector('#client-menu-color-scheme-select')?.addEventListener('change', (event) => {
       setColorScheme(event.target.value);
-      renderClientMenu(dialog, discordUrl);
+      renderClientMenu(dialog, config);
     });
   }
 
   function openClientMenu() {
     const dialog = ensureClientMenu();
+    clientMenuPreviousFocus = document.activeElement;
     renderClientMenu(dialog);
     dialog.classList.remove('hidden');
     const close = dialog.querySelector('.client-menu-close');
@@ -710,13 +763,16 @@
     // config.json arrives async; re-render in place once it does so the Discord link
     // appears without blocking the menu from opening immediately.
     loadConfig().then((config) => {
-      const url = typeof config?.discordUrl === 'string' ? config.discordUrl.trim() : '';
-      if (url && !dialog.classList.contains('hidden')) renderClientMenu(dialog, url);
+      if (!dialog.classList.contains('hidden')) renderClientMenu(dialog, config);
     });
   }
 
   function closeClientMenu() {
-    document.getElementById('client-menu-dialog')?.classList.add('hidden');
+    const dialog = document.getElementById('client-menu-dialog');
+    if (!dialog || dialog.classList.contains('hidden')) return;
+    dialog.classList.add('hidden');
+    clientMenuPreviousFocus?.focus?.();
+    clientMenuPreviousFocus = null;
   }
 
   function initClientMenu({ baseUrl = '', buttonId = 'btn-client-menu', showOnFirstLoad = false } = {}) {
@@ -734,7 +790,10 @@
       }
     });
     document.addEventListener('keydown', (event) => {
+      const dialog = document.getElementById('client-menu-dialog');
+      if (!dialog || dialog.classList.contains('hidden')) return;
       if (event.key === 'Escape') closeClientMenu();
+      else containDialogFocus(dialog, event);
     });
 
     if (showOnFirstLoad && storageGet(CLIENT_MENU_SEEN_KEY) !== '1') {
@@ -802,11 +861,18 @@
   function initHelp({ title, intro, sections = [], buttonId = 'btn-help' } = {}) {
     const open = () => {
       const dialog = ensureHelpDialog();
+      helpPreviousFocus = document.activeElement;
       renderHelp(dialog, { title, intro, sections });
       dialog.classList.remove('hidden');
       dialog.querySelector('.client-menu-close')?.focus();
     };
-    const close = () => document.getElementById('help-dialog')?.classList.add('hidden');
+    const close = () => {
+      const dialog = document.getElementById('help-dialog');
+      if (!dialog || dialog.classList.contains('hidden')) return;
+      dialog.classList.add('hidden');
+      helpPreviousFocus?.focus?.();
+      helpPreviousFocus = null;
+    };
 
     const button = document.getElementById(buttonId);
     if (button) button.addEventListener('click', () => open());
@@ -817,10 +883,13 @@
       if (event.target === dialog || event.target.closest('.client-menu-close')) close();
     });
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') { close(); return; }
+      const dialog = document.getElementById('help-dialog');
+      if (dialog && !dialog.classList.contains('hidden')) {
+        if (event.key === 'Escape') { close(); return; }
+        if (event.key === 'Tab') { containDialogFocus(dialog, event); return; }
+      }
       if (event.key !== '?' || isEditableTarget(event.target)) return;
       event.preventDefault();
-      const dialog = document.getElementById('help-dialog');
       if (dialog && !dialog.classList.contains('hidden')) close();
       else open();
     });

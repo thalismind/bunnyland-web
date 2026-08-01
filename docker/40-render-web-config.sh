@@ -12,14 +12,16 @@ set -eu
 : "${BUNNYLAND_WEB_THEMES:=[]}"
 : "${BUNNYLAND_WEB_REPLACE_THEMES:=false}"
 : "${BUNNYLAND_PLAYER_AUTH_REQUIRED:=false}"
+: "${BUNNYLAND_3D_URL:=}"
 export BUNNYLAND_WEB_THEME
 export BUNNYLAND_WEB_THEMES
 export BUNNYLAND_WEB_REPLACE_THEMES
 export BUNNYLAND_PLAYER_AUTH_REQUIRED
+export BUNNYLAND_3D_URL
 
 template=/usr/share/nginx/bunnyland-config.json.template
 output=/tmp/bunnyland-config.json
 
 if [ -f "$template" ]; then
-  envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_REPLACE_THEMES} ${BUNNYLAND_WEB_THEMES} ${BUNNYLAND_PLAYER_AUTH_REQUIRED}' < "$template" > "$output"
+  envsubst '${BUNNYLAND_DISCORD_URL} ${BUNNYLAND_3D_URL} ${BUNNYLAND_WEB_THEME} ${BUNNYLAND_WEB_REPLACE_THEMES} ${BUNNYLAND_WEB_THEMES} ${BUNNYLAND_PLAYER_AUTH_REQUIRED}' < "$template" > "$output"
 fi

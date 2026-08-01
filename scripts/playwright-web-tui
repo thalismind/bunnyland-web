@@ -171,11 +171,19 @@ def json_route(body):
     return handler
 
 
-def install_routes(page, posted: list[dict]) -> None:
+def install_routes(
+    page,
+    posted: list[dict],
+    content_flags: list[str] | None = None,
+    allow_missing_cookie_header: bool = False,
+) -> None:
     page.route("**/config.json", json_route({"serverUrl": "", "autoConnect": False}))
+    page.route("**/public/features", json_route({
+        "character_chat": True, "character_sheets": True,
+    }))
     page.route("**/public/world", json_route({
         "world_id": "world:test", "world_epoch": 1, "title": "Test World",
-        "description": "", "content_flags": [],
+        "description": "", "content_flags": content_flags or [],
     }))
     page.route("**/auth/session", json_route({
         "subject": "play-test", "scopes": ["world:play"],
@@ -198,7 +206,10 @@ def install_routes(page, posted: list[dict]) -> None:
         headers = route.request.all_headers()
         if "x-bunnyland-claim-secret" in headers:
             raise AssertionError(f"browser leaked a claim secret header on {route.request.url}")
-        if f"bunnyland_claim={CLAIM_SECRET}" not in headers.get("cookie", ""):
+        if (
+            not allow_missing_cookie_header
+            and f"bunnyland_claim={CLAIM_SECRET}" not in headers.get("cookie", "")
+        ):
             raise AssertionError(f"missing HttpOnly claim cookie on {route.request.url}")
         if f"/claims/{CLAIM_ID}" not in route.request.url:
             raise AssertionError(f"missing claim id on {route.request.url}")
@@ -233,7 +244,7 @@ def install_routes(page, posted: list[dict]) -> None:
             headers={
                 "Set-Cookie": (
                     f"bunnyland_claim={CLAIM_SECRET}; Path=/api/v1/play; "
-                    "Secure; HttpOnly; SameSite=Strict"
+                    "HttpOnly; SameSite=Strict"
                 ),
             },
             body=json.dumps(
@@ -312,7 +323,6 @@ def connect_and_select(page) -> None:
     expect(page.locator("#verbs")).to_contain_text("1 FP")
     expect(page.locator("#verbs")).to_contain_text("World actions")
     expect(page.locator("#verbs")).to_contain_text("Focus actions")
-    expect(page.locator("#verbs")).to_contain_text("not enough focus points")
     expect(page.locator("#queued")).to_contain_text("Remember")
     expect(page.locator("#queued")).to_contain_text("query: brass key")
     expect(page.locator("#queued")).to_contain_text("next tick in")
@@ -323,7 +333,11 @@ def connect_and_select(page) -> None:
         timeout=2000,
     )
     expect(page.locator("#verbs .option").nth(0)).to_contain_text("Move")
+    expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_have_count(0)
+    expect(page.locator(".unavailable-toggle")).to_contain_text("1 hidden")
+    page.locator("#show-unavailable-actions").check()
     expect(page.locator("#verbs .option.unavailable").filter(has_text="Shout")).to_be_visible()
+    expect(page.locator("#verbs")).to_contain_text("not enough focus points")
 
 
 def filter_actions(page) -> None:
@@ -370,11 +384,11 @@ def use_image_and_sheet_buttons(page) -> None:
 def submit_tell(page, posted: list[dict]) -> None:
     page.locator("#action-filter").fill("tell")
     page.locator("#verbs .option").filter(has_text="Tell").click()
-    page.locator("#action-form-overlay select.form-input").select_option(OTHER)
-    page.locator("#action-form-overlay input.form-input").fill("psst")
+    page.locator("#action-form-dialog select.form-input").select_option(OTHER)
+    page.locator("#action-form-dialog input.form-input").fill("psst")
     with page.expect_response("**/play/claims/*/commands"):
-        page.locator("#action-form-overlay .form-submit").click()
-    page.wait_for_function("() => !document.querySelector('#action-form-overlay')")
+        page.locator("#action-form-dialog .form-submit").click()
+    page.wait_for_function("() => !document.querySelector('#action-form-dialog')")
     if not posted:
         raise AssertionError("Web TUI did not post a command")
     expected = {
@@ -392,7 +406,7 @@ def preselect_selected_target(page) -> None:
     page.locator(f'#members .option[data-entity="{OTHER}"]').click()
     page.locator("#action-filter").fill("tell")
     page.locator("#verbs .option").filter(has_text="Tell").click()
-    overlay = page.locator("#action-form-overlay")
+    overlay = page.locator("#action-form-dialog")
     overlay.wait_for(state="visible")
     expect(overlay.locator("select.form-input")).to_have_value(OTHER)
     page.keyboard.press("Escape")
@@ -407,7 +421,7 @@ def preselect_inventory_target(page) -> None:
     expect(page.locator(f'#members .option.selected[data-entity="{OTHER}"]')).to_have_count(0)
     page.locator("#action-filter").fill("use")
     page.locator("#verbs .option").filter(has_text="Use Item").click()
-    overlay = page.locator("#action-form-overlay")
+    overlay = page.locator("#action-form-dialog")
     overlay.wait_for(state="visible")
     expect(overlay.locator("select.form-input")).to_have_value("item:1")
     page.keyboard.press("Escape")
@@ -418,6 +432,7 @@ def preselect_inventory_target(page) -> None:
 def update_fallback_and_release(page) -> None:
     page.locator("#btn-release-character").click()
     expect(page.locator("#claim-dialog")).to_be_visible()
+    page.locator(".claim-advanced summary").click()
     page.locator("#claim-timeout").fill("17")
     with page.expect_response("**/play/claims/*"):
         page.locator("#claim-fallback").select_option("llm")
@@ -467,7 +482,7 @@ def expire_and_reclaim(page) -> None:
     projection_requests = state["projection_requests"]
     page.evaluate("() => window.app.refresh()")
     expect(page.locator("#api-status")).to_contain_text("Claim expired")
-    expect(page.locator("#btn-release-character")).to_contain_text("Claim")
+    expect(page.locator("#btn-release-character")).to_contain_text("Play")
     page.wait_for_function("() => window.app?.control === null && window.app?.projection === null")
     stored = page.evaluate(
         "id => localStorage.getItem(`bunnyland.webTui.clientId.claim.${id}`)",

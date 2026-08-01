@@ -3,6 +3,7 @@
   "autoConnect": true,
   "playerAuthRequired": ${BUNNYLAND_PLAYER_AUTH_REQUIRED},
   "discordUrl": "${BUNNYLAND_DISCORD_URL}",
+  "3dUrl": "${BUNNYLAND_3D_URL}",
   "theme": "${BUNNYLAND_WEB_THEME}",
   "replaceThemes": ${BUNNYLAND_WEB_REPLACE_THEMES},
   "themes": ${BUNNYLAND_WEB_THEMES}

@@ -11,11 +11,12 @@
     "lint:html": "htmlhint \"**/*.html\"",
     "test": "node --test && vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-player-entry-budgets.mjs",
+    "check:player-budgets": "node scripts/check-player-entry-budgets.mjs",
     "check": "npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@bunnyland/ui-web": "0.2.4",
+    "@bunnyland/ui-web": "0.2.5",
     "litegraph.js": "0.7.13",
     "preact": "^10.29.0"
   },
@@ -24,9 +25,10 @@
     "@preact/preset-vite": "^2.10.0",
     "@testing-library/preact": "^3.2.0",
     "@types/node": "^24.0.0",
+    "axe-core": "^4.10.3",
     "eslint": "^10.7.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-html": "^8.1.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
     "htmlhint": "^1.9.2",
     "jsdom": "^29.1.1",

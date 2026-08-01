@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/preact';
+import { useState } from 'preact/hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -12,6 +13,13 @@ import {
   QueuedRows,
   type TuiActionRow,
 } from '../src/web-tui/live-projections';
+import { useSecondBoundaryTick } from '../src/use-second-boundary-tick';
+
+function TickProbe({ source }: { source: string }) {
+  const [ticks, setTicks] = useState(0);
+  useSecondBoundaryTick(() => setTicks(current => current + 1), source);
+  return <output>{ticks}</output>;
+}
 
 afterEach(() => {
   cleanup();
@@ -19,6 +27,29 @@ afterEach(() => {
 });
 
 describe('Web TUI live projections', () => {
+  it('ticks on second boundaries, pauses while hidden, and refreshes on visibility', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.100Z'));
+    let hidden = false;
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    const view = render(<TickProbe source="queue-1" />);
+    expect(view.container.textContent).toBe('1');
+
+    act(() => vi.advanceTimersByTime(899));
+    expect(view.container.textContent).toBe('1');
+    act(() => vi.advanceTimersByTime(1));
+    expect(view.container.textContent).toBe('2');
+    hidden = true;
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(view.container.textContent).toBe('2');
+    hidden = false;
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(view.container.textContent).toBe('3');
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('keeps activity, action, and queue nodes stable through projection updates', () => {
     const activity = render(<ActivityRows rows={[{
       icon: '👀', key: 'event-1', kind: 'event', text: 'Juniper looks around.',
@@ -74,7 +105,7 @@ describe('Web TUI live projections', () => {
     />);
     const originalQueue = view.container.querySelector('[data-cancel-command="command-1"]');
     countdown = 7;
-    act(() => vi.advanceTimersByTime(250));
+    act(() => vi.advanceTimersByTime(1000));
     expect(view.container.querySelector('#queued-title')?.textContent).toContain('7s');
     expect(view.container.querySelector('[data-cancel-command="command-1"]')).toBe(originalQueue);
     view.unmount();

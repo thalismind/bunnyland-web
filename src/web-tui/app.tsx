@@ -119,6 +119,7 @@ const play = globals.BunnylandPlay;
 const api = globals.BunnylandApi;
 const CLIENT_ID_KEY = 'bunnyland.webTui.clientId';
 const ICON_PREF_KEY = 'bunnyland.webTui.showIcons';
+const UNAVAILABLE_PREF_KEY = 'bunnyland.webTui.showUnavailable';
 const ACTIVITY_LIMIT = 8;
 
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
@@ -156,7 +157,11 @@ export function WebTuiPage() {
   const baseRef = useRef('');
   const [filter, setFilter] = useState('');
   const [showIcons, setShowIcons] = useState(() => Boolean(play.iconPreference(ICON_PREF_KEY, true)));
+  const [showUnavailable, setShowUnavailable] = useState(() => Boolean(play.iconPreference(UNAVAILABLE_PREF_KEY, false)));
+  const [mobilePane, setMobilePane] = useState<'actions' | 'world'>('world');
   const [form, setForm] = useState<FormState | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const [urgentAnnouncement, setUrgentAnnouncement] = useState('');
   const [claimFallback, setClaimFallback] = useState('suspend');
   const [claimController, setClaimController] = useState('');
   const [claimTimeout, setClaimTimeout] = useState('30');
@@ -164,7 +169,10 @@ export function WebTuiPage() {
     base => api.sendJson(base, '/public/world'),
   );
   const apiInputRef = useRef<HTMLInputElement>(null);
+  const actionDialogRef = useRef<HTMLDialogElement>(null);
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
   const claimDialogRef = useRef<HTMLDialogElement>(null);
+  const previousQueueSizeRef = useRef(0);
   const lobbyTimerRef = useRef<number | null>(null);
   const liveRef = useRef<{ close(): void } | null>(null);
   const liveTokenRef = useRef(0);
@@ -192,6 +200,10 @@ export function WebTuiPage() {
     ...current,
     activity: [...current.activity, { icon, key: `activity-${++activityKeyRef.current}`, kind, text }].slice(-ACTIVITY_LIMIT),
   }));
+  const announce = (text: string, urgent = false) => {
+    if (urgent) setUrgentAnnouncement(text);
+    else setAnnouncement(text);
+  };
   const projectionHasTarget = (id: string) => {
     const current = modelRef.current;
     if (!id || !current.projection) return false;
@@ -298,10 +310,13 @@ export function WebTuiPage() {
           control: null, projection: null, queued: [], queueProjection: null, selectedId: '',
           status: { kind: 'err', text: '⚠ Claim expired. Claim again to continue.' },
         });
+        announce('Your play session expired. Choose Play to continue.', true);
         startLobby();
         return;
       }
-      update({ status: { kind: 'err', text: `⚠ ${message(error)}` } });
+      const text = message(error);
+      update({ status: { kind: 'err', text: `⚠ ${text}` } });
+      announce(text, true);
     }
   };
   const refresh = () => {
@@ -353,6 +368,7 @@ export function WebTuiPage() {
     const base = String(api.normalizeBase(url));
     baseRef.current = base;
     update({ connected: true, status: { kind: 'live', text: '● Connected' } });
+    announce('Connected to Bunnyland. Choose a character to play.');
     api.setServerInUrl(base);
     startLobby();
   };
@@ -388,7 +404,9 @@ export function WebTuiPage() {
     if (!mountedRef.current || id !== modelRef.current.playerId) return;
     refreshTokenRef.current += 1;
     refreshPromiseRef.current = null;
-    update({ control }); startLive(); await refreshRef.current();
+    update({ control });
+    announce(`Playing as ${modelRef.current.characters.find(character => character.id === id)?.name ?? id}.`);
+    startLive(); await refreshRef.current();
   };
   function dropPlayer() {
     refreshTokenRef.current += 1;
@@ -459,18 +477,39 @@ export function WebTuiPage() {
     if (id && projectionHasTargetRef.current(id)) selectTargetRef.current(id, false);
   }, [model.projection]);
 
+  useEffect(() => {
+    const previous = previousQueueSizeRef.current;
+    const next = model.queued.length;
+    if (next > previous) announce(`${next - previous} action${next - previous === 1 ? '' : 's'} added to the queue.`);
+    else if (next < previous) announce(`${previous - next} queued action${previous - next === 1 ? '' : 's'} cleared.`);
+    previousQueueSizeRef.current = next;
+  }, [model.queued.length]);
+
   useLayoutEffect(() => {
     if (!form) return;
+    const dialog = actionDialogRef.current;
+    if (dialog && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setForm(null);
-      else if (event.key === 'Enter' && (event.target as HTMLElement).classList.contains('form-input')) submitFormRef.current();
+      if (event.key === 'Escape') { event.preventDefault(); closeAction(); return; }
+      if (event.key === 'Enter' && (event.target as HTMLElement).classList.contains('form-input')) submitFormRef.current();
+      if (event.key !== 'Tab' || !dialog || typeof dialog.showModal === 'function') return;
+      const fields = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const first = fields[0]; const last = fields.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', keydown);
-    document.querySelector<HTMLElement>('#action-form-overlay .form-input')?.focus();
-    return () => document.removeEventListener('keydown', keydown);
+    dialog?.querySelector<HTMLElement>('.form-input')?.focus();
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+    };
   }, [form]);
 
-  const actions = play.filterActions(model.projection?.actions ?? [], filter.trim().toLowerCase()) as Action[];
+  const filteredActions = play.filterActions(model.projection?.actions ?? [], filter.trim().toLowerCase()) as Action[];
+  const hiddenUnavailableCount = filteredActions.filter(action => !play.actionAvailable(action)).length;
+  const actions = showUnavailable ? filteredActions : filteredActions.filter(action => play.actionAvailable(action));
   const currentRoom = model.projection?.room;
   const inventory = play.inventoryEntries(model.projection) as JsonObject[];
   const allActions = model.projection?.actions ?? [];
@@ -490,7 +529,12 @@ export function WebTuiPage() {
     const values = Object.fromEntries(fields.map(field => [field.key,
       field.candidates?.some(candidate => candidate.value === modelRef.current.selectedId) ? modelRef.current.selectedId : '',
     ]));
+    actionTriggerRef.current = document.activeElement as HTMLElement | null;
     setForm({ action, error: '', fields, values });
+  };
+  const closeAction = () => {
+    setForm(null);
+    window.requestAnimationFrame(() => actionTriggerRef.current?.focus());
   };
   async function doAction(action: Action, payload: JsonObject) {
     const current = modelRef.current;
@@ -502,7 +546,11 @@ export function WebTuiPage() {
       controller_id: current.control.controllerId, cost, lane: play.actionLane(action),
       on_insufficient_points: 'queue', payload,
     }, current.control);
-    if (result?.queued === false) activity(result.reason || 'Command rejected.', 'rejection');
+    if (result?.queued === false) {
+      const reason = result.reason || 'Command rejected.';
+      activity(reason, 'rejection');
+      announce(reason, true);
+    }
     await refreshRef.current();
   }
   function submitForm() {
@@ -513,7 +561,7 @@ export function WebTuiPage() {
       }
     }
     const payload = Object.fromEntries(Object.entries(form.values).filter(([, value]) => value.trim()));
-    const action = form.action; setForm(null); void doAction(action, payload);
+    const action = form.action; closeAction(); void doAction(action, payload);
   }
 
   const moveExit = async (index: number) => {
@@ -589,66 +637,82 @@ export function WebTuiPage() {
   }));
 
   return <>
+    <div class="bl-visually-hidden" aria-live="polite" aria-atomic="true">{announcement}</div>
+    <div class="bl-visually-hidden" role="alert" aria-atomic="true">{urgentAnnouncement}</div>
     <div id="toolbar">
       <div class="toolbar-row toolbar-heading" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Web TUI</span>
         <button id="btn-client-menu" class="client-menu-button" type="button">Menu</button><button id="btn-help" type="button" title="Help — controls & commands (press ?)" aria-label="Help">?</button>
       </div>
-      <div class="toolbar-row" id="toolbar-row2"><label for="api-url">Server:</label><input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
-        <button id="btn-connect" onClick={() => model.connected ? disconnect() : connect(apiInputRef.current?.value.trim() ?? '')}>{model.connected ? 'Disconnect' : 'Connect Live'}</button>
-        <span id="api-status" class={model.status.kind}>{model.status.text}</span>
-      </div>
+      <details id="connection-details" open={!model.connected}>
+        <summary>{model.connected ? 'Connected · connection details' : 'Connect to a server'}</summary>
+        <div class="toolbar-row" id="toolbar-row2"><label for="api-url">Server:</label><input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
+          <button id="btn-connect" onClick={() => model.connected ? disconnect() : connect(apiInputRef.current?.value.trim() ?? '')}>{model.connected ? 'Disconnect' : 'Connect Live'}</button>
+          <span id="api-status" class={model.status.kind} role="status">{model.status.text}</span>
+        </div>
+      </details>
       <div class="toolbar-row" id="toolbar-row3"><label for="player-select">Character:</label>
         <select id="player-select" value={model.playerId} onChange={event => event.currentTarget.value ? void selectPlayer(event.currentTarget.value) : dropPlayer()}>
           <option value="">— select to play —</option>{model.characters.map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
         </select>
         <button id="btn-release-character" type="button" disabled={!model.playerId} onClick={() => claimDialogRef.current?.showModal()}>
-          {!model.playerId || !model.control ? 'Claim' : model.control.active === false ? 'Resume' : 'Idle'}
+          {!model.playerId || !model.control ? 'Play' : model.control.active === false ? 'Play' : 'Step away'}
         </button>
         <button id="btn-request-image" type="button" title="Request an image of your current scene" onClick={() => { void requestImage(); }}>📷 Image</button>
         <button id="btn-open-sheet" type="button" title="Open the selected or current character sheet" onClick={openSheet}>▣ Sheet</button>
       </div>
     </div>
-    <dialog id="claim-dialog" ref={claimDialogRef}><form method="dialog" class="claim-dialog-form"><h3>Claim</h3>
-      <label for="claim-fallback">Idle controller</label><select id="claim-fallback" value={claimFallback} onChange={event => setClaimFallback(event.currentTarget.value)}>
-        <option value="suspend">Suspended</option><option value="llm">LLM</option><option value="controller">Existing controller</option></select>
-      <label for="claim-fallback-controller">Idle controller ID</label><input type="text" id="claim-fallback-controller" spellcheck={false} placeholder="entity_..." value={claimController} onInput={event => setClaimController(event.currentTarget.value)} />
-      <label for="claim-timeout">Idle timeout minutes</label><input type="number" id="claim-timeout" min="5" max="60" step="1" value={claimTimeout} onInput={event => setClaimTimeout(event.currentTarget.value)} />
-      <div class="dialog-actions"><button id="btn-dialog-claim" type="button" onClick={() => { void selectPlayer(model.playerId); }}>Claim</button>
-        <button id="btn-dialog-save-fallback" type="button" onClick={() => { void saveFallback(); }}>Save Idle</button>
-        <button id="btn-dialog-release-controller" type="button" onClick={() => { void releaseController(); }}>Idle</button>
-        <button id="btn-dialog-release-claim" type="button" onClick={() => { void releaseClaim(); }}>Release</button><button type="submit">Close</button></div>
+    <dialog id="claim-dialog" ref={claimDialogRef} aria-labelledby="claim-dialog-title"><form method="dialog" class="claim-dialog-form"><h2 id="claim-dialog-title">Playing as this character</h2>
+      <p>Step away to keep this character reserved for you, or release it so someone else can play.</p>
+      <details class="claim-advanced"><summary>Advanced handoff settings</summary>
+        <label for="claim-fallback">When I step away</label><select id="claim-fallback" value={claimFallback} onChange={event => setClaimFallback(event.currentTarget.value)}>
+          <option value="suspend">Suspend the character</option><option value="llm">Hand off to an AI</option><option value="controller">Use a specific controller</option></select>
+        <label for="claim-fallback-controller">Controller ID</label><input type="text" id="claim-fallback-controller" spellcheck={false} placeholder="entity_..." value={claimController} onInput={event => setClaimController(event.currentTarget.value)} />
+        <label for="claim-timeout">Step-away timeout (minutes)</label><input type="number" id="claim-timeout" min="5" max="60" step="1" value={claimTimeout} onInput={event => setClaimTimeout(event.currentTarget.value)} />
+        <button id="btn-dialog-save-fallback" type="button" onClick={() => { void saveFallback(); }}>Save handoff settings</button>
+      </details>
+      <div class="dialog-actions"><button id="btn-dialog-claim" type="button" onClick={() => { void selectPlayer(model.playerId); }}>Play</button>
+        <button id="btn-dialog-release-controller" type="button" onClick={() => { void releaseController(); }}>Step away</button>
+        <button id="btn-dialog-release-claim" type="button" onClick={() => { void releaseClaim(); }}>Release character</button><button type="submit">Close</button></div>
     </form></dialog>
+    <div id="mobile-pane-tabs" role="tablist" aria-label="Player panes">
+      <button id="tab-world" type="button" role="tab" aria-controls="world-pane" aria-selected={mobilePane === 'world'} onClick={() => setMobilePane('world')}>World</button>
+      <button id="tab-actions" type="button" role="tab" aria-controls="actions-pane" aria-selected={mobilePane === 'actions'} onClick={() => setMobilePane('actions')}>Actions{model.queued.length ? ` (${model.queued.length})` : ''}</button>
+    </div>
     <div id="main" class="app-grid">
-      <section id="world-pane" aria-label="World view"><div id="room-title" class="pane-title">{currentRoom?.title || 'Room'}</div>
+      <section id="world-pane" role="tabpanel" aria-labelledby="tab-world" tabIndex={0} data-mobile-active={mobilePane === 'world'}><div id="room-title" class="pane-title">{currentRoom?.title || 'Room'}</div>
         {currentRoom?.description ? <div id="room-description">{String(currentRoom.description)}</div> : null}
-        <div id="members" class="option-list"><MemberList empty="Select a character above to play as and see their room." items={members} onSelect={id => selectTarget(id)} /></div>
-        <div id="doors-title" class="pane-title">Doors</div><div id="doors" class="option-list"><ExitList empty="No visible exits." items={exits} onSelect={value => { void moveExit(Number(value)); }} /></div>
-        <div id="inventory-title" class="pane-title">Inventory</div><div id="inventory" class="option-list"><InventoryList empty={model.playerId ? 'Nothing carried.' : 'Select a character above.'}
+        <div id="members" class="option-list" tabIndex={0} aria-labelledby="room-title"><MemberList empty="Select a character above to play as and see their room." items={members} onSelect={id => selectTarget(id)} /></div>
+        <div id="doors-title" class="pane-title">Doors</div><div id="doors" class="option-list" tabIndex={0} aria-labelledby="doors-title"><ExitList empty="No visible exits." items={exits} onSelect={value => { void moveExit(Number(value)); }} /></div>
+        <div id="inventory-title" class="pane-title">Inventory</div><div id="inventory" class="option-list" tabIndex={0} aria-labelledby="inventory-title"><InventoryList empty={model.playerId ? 'Nothing carried.' : 'Select a character above.'}
           items={inventory.map(item => ({ icon: item.icon || '', id: item.id || '', kind: item.kind || '', label: item.label || '', selected: item.id === model.selectedId }))} onSelect={id => selectTarget(id)} /></div>
-        <div id="activity-title" class="pane-title">Activity</div><div id="activity" class="option-list"><ActivityRows rows={model.activity.map(line => ({
+        <div id="activity-title" class="pane-title">Activity</div><div id="activity" class="option-list" tabIndex={0} aria-labelledby="activity-title"><ActivityRows rows={model.activity.map(line => ({
           icon: showIcons ? line.icon || '' : '', key: line.key, kind: line.kind || '', text: line.text,
         })) as TuiActivityRow[]} /></div>
       </section>
-      <aside id="actions-pane" aria-label="Actions"><div id="action-controls">
+      <aside id="actions-pane" role="tabpanel" aria-labelledby="tab-actions" data-mobile-active={mobilePane === 'actions'}><div id="action-controls">
         <div id="points-line">{model.playerId && model.projection ? <><span class="point ap"><span class={`point-pip${Number(points.action || 0) > 0 ? '' : ' zero'}`}>⚡</span> {play.formatPoints(points.action)} / {play.formatPoints(points.action_max)} AP</span>{'   '}<span class="point fp"><span class={`point-pip${Number(points.focus || 0) > 0 ? '' : ' zero'}`}>🔹</span> {play.formatPoints(points.focus)} / {play.formatPoints(points.focus_max)} FP</span></> : 'Select a character to play as and see their actions.'}</div>
         <div id="target-line"><span id="target-label">Target: {selectedLabel}</span><button id="btn-clear-target" type="button" title="Clear the selected action target" disabled={!model.selectedId} onClick={() => selectTarget('')}>Clear Target</button></div>
         <div id="action-filter-row"><input id="action-filter" type="text" placeholder="Search actions" spellcheck={false} value={filter} onInput={event => setFilter(event.currentTarget.value)} />
           <button id="action-filter-clear" type="button" onClick={() => setFilter('')}>Clear</button><label class="icon-toggle" title="Show action and activity icons"><input id="show-action-icons" type="checkbox" checked={showIcons}
             onChange={event => { setShowIcons(event.currentTarget.checked); play.setIconPreference(ICON_PREF_KEY, event.currentTarget.checked); }} /> Icons</label></div>
+        <label class="unavailable-toggle"><input id="show-unavailable-actions" type="checkbox" checked={showUnavailable}
+          onChange={event => { setShowUnavailable(event.currentTarget.checked); play.setIconPreference(UNAVAILABLE_PREF_KEY, event.currentTarget.checked); }} />
+          Show unavailable{!showUnavailable && hiddenUnavailableCount ? ` (${hiddenUnavailableCount} hidden)` : ''}</label>
       </div><div id="verbs"><ActionSections actions={actionRows} onAction={index => { const action = actions[index]; if (action) openAction(action); }} /></div>
         <div id="queued"><LiveQueuedRows countdownFor={() => play.queuedCountdownSeconds(model.queueProjection) as number | null} source={model.queueProjection} rows={model.queued.map(command => ({ id: command.command_id || '', label: play.queuedCommandLabel(command, allActions) }))}
           onCancel={async id => { try { await play.cancelQueuedCommand(baseRef.current, modelRef.current.playerId, id, modelRef.current.control); await refreshRef.current(); } catch (error) { update({ status: { kind: 'err', text: `⚠ ${message(error)}` } }); } }} /></div>
       </aside>
     </div>
-    {form ? <div id="action-form-overlay" onClick={event => { if (event.currentTarget === event.target) setForm(null); }}><div class="form-card">
-      <div class="form-title">{play.actionTitle(form.action)}</div><div class="form-body">{form.fields.map(field => <label class="form-field" key={field.key}><span>{field.label}{field.required ? ' *' : ''}</span>
+    {form ? <dialog id="action-form-dialog" ref={actionDialogRef} aria-labelledby="action-form-title" onCancel={event => { event.preventDefault(); closeAction(); }}>
+      <form method="dialog" class="form-card" onSubmit={event => { event.preventDefault(); submitForm(); }}>
+      <h2 id="action-form-title" class="form-title">{play.actionTitle(form.action)}</h2><div class="form-body">{form.fields.map(field => <label class="form-field" key={field.key}><span>{field.label}{field.required ? ' *' : ''}</span>
         {field.candidates ? <select class="form-input" value={form.values[field.key] ?? ''} onChange={event => setForm({ ...form, values: { ...form.values, [field.key]: event.currentTarget.value } })}>
           <option value="">— choose —</option>{field.candidates.map(candidate => <option value={candidate.value} key={candidate.value}>{candidate.icon} {candidate.label}</option>)}</select>
           : field.kind === 'boolean' ? <select class="form-input" value={form.values[field.key] ?? ''} onChange={event => setForm({ ...form, values: { ...form.values, [field.key]: event.currentTarget.value } })}>
             <option value="">— choose —</option><option value="true">yes</option><option value="false">no</option></select>
             : <input class="form-input" type={field.kind === 'number' ? 'number' : 'text'} value={form.values[field.key] ?? ''} onInput={event => setForm({ ...form, values: { ...form.values, [field.key]: event.currentTarget.value } })} />}</label>)}
-        <div class="form-error">{form.error}</div></div><div class="form-buttons"><button class="form-cancel" type="button" onClick={() => setForm(null)}>Cancel</button><button class="form-submit" type="button" onClick={submitForm}>Submit</button></div>
-    </div></div> : null}
+        <div class="form-error" role="alert">{form.error}</div></div><div class="form-buttons"><button class="form-cancel" type="button" onClick={closeAction}>Cancel</button><button class="form-submit" type="submit">Submit</button></div>
+    </form></dialog> : null}
     {warningDialog}
   </>;
 }

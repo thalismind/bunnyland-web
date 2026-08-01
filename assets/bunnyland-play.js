@@ -636,6 +636,7 @@
     let lastStreamSequence = 0;
     const seenEventIds = new Set();
     const seenEventOrder = [];
+    const pageHidden = () => typeof document !== 'undefined' && document.hidden;
     const setState = next => {
       if (state === next) return;
       state = next;
@@ -666,7 +667,7 @@
       }
     };
     const requestRefresh = (delay = 0) => {
-      if (closed) return;
+      if (closed || pageHidden()) return;
       if (refreshing) {
         refreshPending = true;
         return;
@@ -679,9 +680,19 @@
       pollTimer = null;
     };
     const startPolling = () => {
-      if (closed || pollTimer != null) return;
+      if (closed || pageHidden() || pollTimer != null) return;
       requestRefresh();
       pollTimer = setInterval(() => requestRefresh(), 2000);
+    };
+    const onVisibilityChange = () => {
+      if (pageHidden()) {
+        stopPolling();
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+        return;
+      }
+      requestRefresh();
+      if (state !== 'live') startPolling();
     };
     const scheduleHeartbeat = token => {
       clearHeartbeat();
@@ -778,6 +789,7 @@
       if (!opened) disconnected();
     };
     onState(state);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
     connect();
     return {
       close() {
@@ -790,6 +802,7 @@
         refreshTimer = null;
         stopPolling();
         clearHeartbeat();
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
         const current = socket;
         socket = null;
         current?.close();

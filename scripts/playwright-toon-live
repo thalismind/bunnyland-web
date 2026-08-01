@@ -186,9 +186,9 @@ def main() -> None:
 
         page.locator('.verb.ready[data-tool="move"]').click()
         # Move opens the unified action form; pick the first exit from its dropdown.
-        form_select = page.locator("#action-form-overlay select.af-input").first
+        form_select = page.locator("#action-form-dialog select.af-input").first
         form_select.select_option(index=1)
-        page.locator("#action-form-overlay .af-submit").click()
+        page.locator("#action-form-dialog .af-submit").click()
         moved = wait_for(
             page,
             "room movement through exit",

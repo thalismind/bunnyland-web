@@ -8,11 +8,15 @@ const control = {
   active: true, claimId: 'claim-web-tui', controllerId: 'web:tui', generation: 4,
 };
 const action = {
+  available: true,
   arguments: [{ key: 'text', kind: 'string', label: 'Message', required: true }],
   command_type: 'tell', cost: { action: 1, focus: 1 }, lane: 'world', title: 'Tell', tool: 'tell',
 };
+const unavailableAction = {
+  ...action, available: false, command_type: 'wait', title: 'Wait', tool: 'wait',
+};
 const projection = {
-  actions: [action],
+  actions: [action, unavailableAction],
   characterId: character.id,
   inventory: [{ icon: '🥕', id: 'item:1', kind: 'item', label: 'Carrot' }],
   points: { action: 2, action_max: 3, focus: 1, focus_max: 2 },
@@ -32,7 +36,7 @@ const submitCommand = vi.fn(async () => ({ queued: true }));
 const play = {
   IMAGE_AFFORDANCE: { DELIVER_EMOJI: '🖼', FAIL_EMOJI: '⚠', REQUEST_EMOJI: '📷' },
   actionArguments: vi.fn((value: typeof action) => value.arguments ?? []),
-  actionAvailable: vi.fn(() => true),
+  actionAvailable: vi.fn((value: { available?: boolean }) => value.available !== false),
   actionCommandType: vi.fn((value: typeof action) => value.command_type),
   actionCost: vi.fn((value: typeof action) => value.cost),
   actionFields: vi.fn((value: typeof action) => value.arguments),
@@ -40,7 +44,7 @@ const play = {
   actionLane: vi.fn((value: typeof action) => value.lane),
   actionTitle: vi.fn((value: typeof action) => value.title),
   actionTool: vi.fn((value: typeof action) => value.tool),
-  actionUnavailableReason: vi.fn(() => ''),
+  actionUnavailableReason: vi.fn((value: { available?: boolean }) => value.available === false ? 'Not ready.' : ''),
   allTargets: vi.fn(() => [{ label: 'Hazel', value: 'character:2' }]),
   cancelQueuedCommand: vi.fn(async () => undefined),
   characterHref: vi.fn(() => 'character.html?id=character%3A1'),
@@ -58,7 +62,7 @@ const play = {
   fetchCharacterRecentEvents: vi.fn(async () => ({ events: [] })),
   filterActions: vi.fn((values: unknown[]) => values),
   formatPoints: vi.fn((value: number) => String(value ?? 0)),
-  iconPreference: vi.fn(() => true),
+  iconPreference: vi.fn((_key: string, fallback: boolean) => fallback),
   imageRequestMessage: vi.fn(() => 'image requested'),
   inventoryEntries: vi.fn((value: typeof projection | null) => value?.inventory ?? []),
   isClaimNotFoundError: vi.fn((error: unknown) => (error as { status?: number })?.status === 404),
@@ -278,10 +282,38 @@ describe('WebTuiPage', () => {
   it('closes the action overlay on Escape', async () => {
     const view = render(<WebTuiPage />);
     await connectAndSelect(view.container);
-    fireEvent.click(view.container.querySelector('[data-action-key="world:tell:tell"]')!);
-    expect(view.container.querySelector('#action-form-overlay')).toBeTruthy();
+    const trigger = view.container.querySelector<HTMLElement>('[data-action-key="world:tell:tell"]')!;
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(view.container.querySelector('#action-form-dialog')).toBeTruthy();
+    expect(document.activeElement?.classList.contains('form-input')).toBe(true);
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(view.container.querySelector('#action-form-overlay')).toBeNull();
+    expect(view.container.querySelector('#action-form-dialog')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('hides unavailable actions by default and persists the opt-in toggle', async () => {
+    const view = render(<WebTuiPage />);
+    await connectAndSelect(view.container);
+
+    expect(view.container.querySelector('[data-action-key="world:wait:wait"]')).toBeNull();
+    expect(view.container.querySelector('.unavailable-toggle')?.textContent).toContain('1 hidden');
+    fireEvent.click(view.container.querySelector('#show-unavailable-actions')!);
+    expect(view.container.querySelector('[data-action-key="world:wait:wait"]')).toBeTruthy();
+    expect(play.setIconPreference).toHaveBeenCalledWith('bunnyland.webTui.showUnavailable', true);
+  });
+
+  it('keeps controller identifiers and handoff timing in advanced settings', async () => {
+    const view = render(<WebTuiPage />);
+    await connectAndSelect(view.container);
+    const dialog = view.container.querySelector<HTMLDialogElement>('#claim-dialog')!;
+    dialog.setAttribute('open', '');
+
+    expect(view.getByRole('heading', { name: 'Playing as this character' })).toBeTruthy();
+    expect(view.getByText('Advanced handoff settings')).toBeTruthy();
+    expect(dialog.querySelector('.claim-advanced:not([open]) #claim-fallback-controller')).toBeTruthy();
+    expect(dialog.querySelector('#btn-dialog-release-controller')?.textContent).toBe('Step away');
+    expect(dialog.querySelector('#btn-dialog-release-claim')?.textContent).toBe('Release character');
   });
 
   it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
@@ -297,7 +329,7 @@ describe('WebTuiPage', () => {
     rejectProjection(Object.assign(new Error('claim does not exist'), { status: 404 }));
     await Promise.all([first, second]);
 
-    await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Claim'));
+    await waitFor(() => expect(view.container.querySelector('#btn-release-character')?.textContent).toContain('Play'));
     expect(play.clearClaimControl).toHaveBeenCalledWith('bunnyland.webTui.clientId', character.id);
     expect((window as unknown as { app: TestFacade }).app.control).toBeNull();
     expect((window as unknown as { app: TestFacade }).app.projection).toBeNull();

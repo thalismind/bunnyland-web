@@ -431,8 +431,8 @@ def submit_toon_move(
 ) -> str:
     before = page_room_id(page)
     page.locator('.verb.ready[data-tool="move"]').click()
-    page.locator("#action-form-overlay select.af-input").first.select_option(index=1)
-    page.locator("#action-form-overlay .af-submit").click()
+    page.locator("#action-form-dialog select.af-input").first.select_option(index=1)
+    page.locator("#action-form-dialog .af-submit").click()
     return wait_for_room_change(page, before)
 
 
@@ -442,8 +442,8 @@ def submit_tui_move(
     before = page_room_id(page)
     page.locator("#action-filter").fill("move")
     page.locator("#verbs .option").filter(has_text="Move").first.click()
-    page.locator("#action-form-overlay select.form-input").first.select_option(index=1)
-    page.locator("#action-form-overlay .form-submit").click()
+    page.locator("#action-form-dialog select.form-input").first.select_option(index=1)
+    page.locator("#action-form-dialog .form-submit").click()
     return wait_for_room_change(page, before)
 
 

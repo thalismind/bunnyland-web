@@ -202,7 +202,7 @@ describe('ToonPage', () => {
     fireEvent.click(await view.findByText('Continue'));
     await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
     fireEvent.click(view.container.querySelector('.verb[data-tool="say"]')!);
-    expect(view.container.querySelectorAll('#action-form-overlay')).toHaveLength(1);
+    expect(view.container.querySelectorAll('#action-form-dialog')).toHaveLength(1);
     fireEvent.click(view.container.querySelector('.af-submit')!);
     expect(view.container.querySelector('.af-error')?.textContent).toContain('required');
     fireEvent.input(view.container.querySelector('.af-input')!, { target: { value: 'hello toon' } });

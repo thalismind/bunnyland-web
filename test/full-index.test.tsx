@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CopyCommand, LandingPage } from '../src/index/page';
+import { CopyCommand, LandingPage, optionalSameOriginUrl } from '../src/index/page';
 import { ToolLinks, type ToolLink } from '../src/index/tool-links';
 
 const api = {
@@ -35,6 +35,29 @@ afterEach(() => {
 });
 
 describe('LandingPage deployment state', () => {
+  it('accepts only same-origin HTTP 3D player URLs', () => {
+    expect(optionalSameOriginUrl('/3d/player.html', 'https://play.test/index.html')).toBe('/3d/player.html');
+    expect(optionalSameOriginUrl('https://play.test/3d/player.html?mode=touch', 'https://play.test/index.html')).toBe('/3d/player.html?mode=touch');
+    expect(optionalSameOriginUrl('https://elsewhere.test/3d/player.html', 'https://play.test/index.html')).toBe('');
+    expect(optionalSameOriginUrl('javascript:alert(1)', 'https://play.test/index.html')).toBe('');
+  });
+
+  it('shows a configured same-origin 3D player and omits a cross-origin one', async () => {
+    const fetchConfig = vi.fn(async () => configResponse({ '3dUrl': '/3d/player.html' }));
+    vi.stubGlobal('fetch', fetchConfig);
+    api.sendJson.mockResolvedValue({ character_chat: true, character_sheets: true });
+    const view = render(<LandingPage />);
+    const [link] = await view.findAllByRole('link', { name: /3D Player/ });
+    expect(new URL((link as HTMLAnchorElement).href).pathname).toBe('/3d/player.html');
+    expect(new URL((link as HTMLAnchorElement).href).searchParams.get('server')).toBe('/api/v1');
+    view.unmount();
+
+    fetchConfig.mockResolvedValue(configResponse({ '3dUrl': 'https://elsewhere.test/3d/player.html' }));
+    const crossOrigin = render(<LandingPage />);
+    await waitFor(() => expect(api.sendJson).toHaveBeenCalled());
+    expect(crossOrigin.queryByRole('link', { name: '3D Player' })).toBeNull();
+  });
+
   it('applies deployment config, Discord, absolute commands, and server features', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => configResponse({
       discordUrl: ' https://discord.gg/bunnyland ',
@@ -48,7 +71,7 @@ describe('LandingPage deployment state', () => {
     expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Welcome to Bunnyland');
     expect(view.getByRole('link', { name: 'Play in Web TUI' }).classList.contains('primary')).toBe(true);
     expect(view.container.querySelector<HTMLAnchorElement>('.play-list a')?.textContent).toBe('Open Web TUI');
-    expect(view.getByRole('link', { name: 'Toon Client' }).classList.contains('primary')).toBe(false);
+    expect(view.getByRole('link', { name: /Toon Client/ }).classList.contains('primary')).toBe(false);
     expect(view.getByText('Choose and claim an available character.')).toBeTruthy();
     expect(view.container.textContent).not.toMatch(/Moss|Juniper|Market Lane|post office|market apple/);
     const discord = view.container.querySelector<HTMLAnchorElement>('#discord-link')!;

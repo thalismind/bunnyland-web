@@ -22,6 +22,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { useContentWarningGate } from '../content-warning';
+import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 import { ActionRows, TargetRows, type ReplActionRow, type ReplTargetRow } from './context-lists';
 import {
   CompletionOptions,
@@ -628,17 +629,14 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     }
   }, [characters, connected, dropPlayer, focusedEntityId, playerId, selectPlayer]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
+  useSecondBoundaryTick(() => {
       const countdown = services.queuedCountdownSeconds(queueProjectionRef.current);
       if (countdown == null) return;
       setLogs((rows) => rows.map((row) => row.parts ? {
         ...row,
         parts: row.parts.map((part) => part.kind === 'countdown' ? { ...part, value: countdown } : part),
       } : row));
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [services]);
+  }, services);
 
   useEffect(() => {
     const last = logRef.current?.lastElementChild as HTMLElement | null;

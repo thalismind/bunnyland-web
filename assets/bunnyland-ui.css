@@ -29,7 +29,7 @@
 
   --bl-text: #cdd6f4;
   --bl-text-soft: #a6adc8;
-  --bl-text-muted: #585b70;
+  --bl-text-muted: #a6adc8;
   --bl-text-dim: #6c7086;
   --bl-text-inverse: #ffffff;
   --bl-accent: #89b4fa;
@@ -74,7 +74,7 @@
 
   --bl-light-text: #27231e;
   --bl-light-text-soft: #4f473f;
-  --bl-light-text-muted: #82786d;
+  --bl-light-text-muted: #4f473f;
   --bl-light-text-dim: #6a6158;
   --bl-light-text-inverse: #111111;
   --bl-light-accent: #2f66b1;
@@ -115,7 +115,7 @@
 
   --bl-text: #f5d7ea;
   --bl-text-soft: #dcaecf;
-  --bl-text-muted: #8f6683;
+  --bl-text-muted: #dcaecf;
   --bl-text-dim: #a07791;
   --bl-text-inverse: #ffffff;
   --bl-accent: #ff8fc7;
@@ -155,7 +155,7 @@
 
   --bl-light-text: #33212d;
   --bl-light-text-soft: #604657;
-  --bl-light-text-muted: #9a748b;
+  --bl-light-text-muted: #604657;
   --bl-light-text-dim: #7d5c71;
   --bl-light-text-inverse: #180d14;
   --bl-light-accent: #c9337f;
@@ -195,7 +195,7 @@
 
   --bl-text: #dce8d9;
   --bl-text-soft: #b8cbb4;
-  --bl-text-muted: #71836d;
+  --bl-text-muted: #b8cbb4;
   --bl-text-dim: #899b84;
   --bl-text-inverse: #ffffff;
   --bl-accent: #92d184;
@@ -234,7 +234,7 @@
 
   --bl-light-text: #222b21;
   --bl-light-text-soft: #44513f;
-  --bl-light-text-muted: #75836e;
+  --bl-light-text-muted: #44513f;
   --bl-light-text-dim: #5f7059;
   --bl-light-text-inverse: #10160f;
   --bl-light-accent: #3f8f4d;
@@ -274,7 +274,7 @@
 
   --bl-text: #d9f2f2;
   --bl-text-soft: #acd3d2;
-  --bl-text-muted: #709699;
+  --bl-text-muted: #acd3d2;
   --bl-text-dim: #89afb0;
   --bl-text-inverse: #ffffff;
   --bl-accent: #65d1cb;
@@ -313,7 +313,7 @@
 
   --bl-light-text: #183134;
   --bl-light-text-soft: #3d5c5e;
-  --bl-light-text-muted: #708b8b;
+  --bl-light-text-muted: #3d5c5e;
   --bl-light-text-dim: #587778;
   --bl-light-text-inverse: #071719;
   --bl-light-accent: #087f83;
@@ -353,7 +353,7 @@
 
   --bl-text: #f7e1db;
   --bl-text-soft: #ddbcb7;
-  --bl-text-muted: #9b7477;
+  --bl-text-muted: #ddbcb7;
   --bl-text-dim: #b18a89;
   --bl-text-inverse: #ffffff;
   --bl-accent: #ff9a62;
@@ -392,7 +392,7 @@
 
   --bl-light-text: #39241f;
   --bl-light-text-soft: #65483f;
-  --bl-light-text-muted: #96756d;
+  --bl-light-text-muted: #65483f;
   --bl-light-text-dim: #7d5d55;
   --bl-light-text-inverse: #1c0f0c;
   --bl-light-accent: #ad4f19;
@@ -432,7 +432,7 @@
 
   --bl-text: #ffffff;
   --bl-text-soft: #e2e2e2;
-  --bl-text-muted: #b8b8b8;
+  --bl-text-muted: #e2e2e2;
   --bl-text-dim: #cccccc;
   --bl-text-inverse: #000000;
   --bl-accent: #66e6ff;
@@ -471,7 +471,7 @@
 
   --bl-light-text: #000000;
   --bl-light-text-soft: #242424;
-  --bl-light-text-muted: #4f4f4f;
+  --bl-light-text-muted: #242424;
   --bl-light-text-dim: #383838;
   --bl-light-text-inverse: #ffffff;
   --bl-light-accent: #005fcc;
@@ -613,6 +613,18 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.bl-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 
 html {
   width: 100%;
@@ -1161,10 +1173,15 @@ dialog[open]:not(:modal):not(.content-warning-dialog) {
 
 #status.ok,
 #save-status.ok,
-#api-status.ok,
-#api-status.live,
 #problems.ok {
   color: var(--bl-ok);
+  font-weight: 700;
+}
+
+#api-status.ok,
+#api-status.live {
+  color: var(--bl-text);
+  font-weight: 700;
 }
 
 #status.err,
@@ -1458,7 +1475,7 @@ textarea::-webkit-scrollbar-thumb {
 }
 
 .section-title {
-  color: var(--bl-accent-strong);
+  color: var(--bl-text);
   font-size: var(--bl-text-sm);
   font-weight: bold;
   margin-bottom: 8px;
@@ -1771,5 +1788,25 @@ textarea {
 
   .field.wide {
     grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid Highlight;
+  }
+  .client-menu-item.active,
+  .option.selected,
+  [aria-selected="true"] {
+    outline: 2px solid SelectedItem;
   }
 }

@@ -560,7 +560,7 @@ def capture_toon_action_selector(
     connect_toon(page, web_url, api_url, character_id_value)
     opened = open_first_target_action(page, "#actions-body .verb.ready[data-tool]")
     if opened:
-        page.locator("#action-form-overlay").wait_for(state="visible", timeout=8000)
+        page.locator("#action-form-dialog").wait_for(state="visible", timeout=8000)
     clean_screenshot_overlays(page)
     page.screenshot(path=str(out_path), full_page=True)
 
@@ -868,7 +868,7 @@ def capture_terminal_tui(
         if open_target_action:
             opened = open_first_target_action(page, "#verbs .option")
             if opened:
-                page.locator("#action-form-overlay").wait_for(state="visible", timeout=8000)
+                page.locator("#action-form-dialog").wait_for(state="visible", timeout=8000)
         page.add_style_tag(
             content="""
             body::before {

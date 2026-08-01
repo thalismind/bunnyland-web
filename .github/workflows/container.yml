@@ -71,9 +71,9 @@ jobs:
       - name: Install Playwright browsers
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            python -m playwright install-deps chromium
+            python -m playwright install-deps chromium firefox webkit
           else
-            python -m playwright install --with-deps chromium
+            python -m playwright install --with-deps chromium firefox webkit
           fi
 
       - name: Run Playwright regressions

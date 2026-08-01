@@ -80,11 +80,24 @@ test('container config defaults every web client to the versioned API root', () 
   const template = fs.readFileSync('docker/config.json.template', 'utf8')
     .replace('${BUNNYLAND_PLAYER_AUTH_REQUIRED}', 'false')
     .replace('${BUNNYLAND_DISCORD_URL}', '')
+    .replace('${BUNNYLAND_3D_URL}', '')
     .replace('${BUNNYLAND_WEB_THEME}', '')
     .replace('${BUNNYLAND_WEB_REPLACE_THEMES}', 'false')
     .replace('${BUNNYLAND_WEB_THEMES}', '[]');
 
-  assert.equal(JSON.parse(template).serverUrl, '/api/v1/');
+  const config = JSON.parse(template);
+  assert.equal(config.serverUrl, '/api/v1/');
+  assert.equal(config['3dUrl'], '');
+});
+
+test('nginx compresses text, revalidates routes, and caches only hashed assets immutably', () => {
+  const nginx = fs.readFileSync('nginx/default.conf.template', 'utf8');
+
+  assert.match(nginx, /gzip on;/);
+  assert.match(nginx, /\/config\.json "no-store"/);
+  assert.match(nginx, /assets\/[\s\S]*max-age=31536000, immutable/);
+  assert.match(nginx, /default "no-cache"/);
+  assert.match(nginx, /add_header Cache-Control \$bunnyland_cache_control always/);
 });
 
 class MapStorage {

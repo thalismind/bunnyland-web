@@ -140,7 +140,7 @@
 
 .section { margin-bottom: 18px; }
 .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.section-title { margin-bottom: 8px; color: var(--bl-accent-strong); font-size: var(--bl-text-xs); letter-spacing: 0.5px; text-transform: uppercase; }
+.section-title { margin-bottom: 8px; color: var(--bl-text); font-size: var(--bl-text-xs); letter-spacing: 0.5px; text-transform: uppercase; }
 .sheet-list { display: grid; gap: 6px; }
 
 .sheet-row {

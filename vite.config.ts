@@ -28,6 +28,7 @@ export default defineConfig({
   ],
   build: {
     emptyOutDir: true,
+    manifest: true,
     rolldownOptions: { input: pages },
     // Do not publish original sources to the CDN in production builds.
     sourcemap: false,

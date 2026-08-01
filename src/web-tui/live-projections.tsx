@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useRef, useState } from 'preact/hooks';
+
+import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 
 export interface TuiActivityRow {
   icon: string;
@@ -115,12 +117,7 @@ export function LiveQueuedRows({ countdownFor, onCancel, rows, source }: {
   const countdownForRef = useRef(countdownFor);
   countdownForRef.current = countdownFor;
   const [countdown, setCountdown] = useState(() => countdownFor());
-  useEffect(() => {
-    const update = (): void => setCountdown(countdownForRef.current());
-    update();
-    const timer = window.setInterval(update, 250);
-    return () => window.clearInterval(timer);
-  }, [source]);
+  useSecondBoundaryTick(() => setCountdown(countdownForRef.current()), source);
   return <QueuedRows countdown={countdown} onCancel={onCancel} rows={rows} />;
 }
 

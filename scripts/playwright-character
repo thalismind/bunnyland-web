@@ -11,6 +11,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
+from playwright_accessibility import assert_accessible
 from playwright_coverage import PlaywrightCoverage
 from playwright_server import ensure_web_server
 
@@ -248,6 +249,7 @@ def main() -> None:
         page.get_by_label("Password").fill("correct horse")
         page.locator("button", has_text="Sign in").click()
         page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'", timeout=15000)
+        assert_accessible(page, "character profile")
 
         expect(page).to_have_title("Bunnyland Character: Bun")
         expect(page.locator("#character-name")).to_have_text("Bun")
@@ -337,6 +339,7 @@ def main() -> None:
         with page.expect_response("**/admin/characters/*/controller"):
             page.locator("#btn-assign-llm-controller").click()
         expect(page.locator("#chat-read-only")).to_have_count(0)
+        assert_accessible(page, "character chat")
         expect(page.locator("#status-line")).to_contain_text("LLM controller assigned")
         page.locator("#chat-input").fill("hello")
         with page.expect_response("**/chat/characters/*/jobs"):

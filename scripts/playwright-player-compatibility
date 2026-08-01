@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Release-critical Web TUI journey across desktop and mobile browser engines."""
+
+from __future__ import annotations
+
+import json
+import os
+import runpy
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+from playwright_accessibility import assert_accessible
+from playwright_server import ensure_web_server
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+WEB_TUI = runpy.run_path(str(SCRIPT_DIR / "playwright-web-tui"))
+BASE_URL = WEB_TUI["BASE_URL"]
+CHARACTER = WEB_TUI["CHARACTER"]
+OTHER = WEB_TUI["OTHER"]
+
+
+def install_diagnostics(page, errors: list[str]) -> None:
+    page.on(
+        "console",
+        lambda message: errors.append(f"console {message.type}: {message.text}")
+        if message.type == "error"
+        else None,
+    )
+    page.on("pageerror", lambda error: errors.append(f"pageerror: {error}"))
+    page.on(
+        "response",
+        lambda response: errors.append(f"HTTP {response.status}: {response.url}")
+        if response.url.startswith(BASE_URL) and response.status >= 400
+        else None,
+    )
+    page.on(
+        "requestfailed",
+        lambda request: errors.append(
+            f"failed request: {request.method} {request.url}: {request.failure}"
+        )
+        if request.url.startswith(BASE_URL)
+        else None,
+    )
+
+
+def install_vitals(page) -> None:
+    page.add_init_script("""
+      (() => {
+        window.__bunnylandVitals = {lcp: 0, cls: 0};
+        new PerformanceObserver(list => {
+          const entries = list.getEntries();
+          const latest = entries[entries.length - 1];
+          if (latest) window.__bunnylandVitals.lcp = latest.startTime;
+        }).observe({type: 'largest-contentful-paint', buffered: true});
+        new PerformanceObserver(list => {
+          for (const entry of list.getEntries()) {
+            if (!entry.hadRecentInput) window.__bunnylandVitals.cls += entry.value;
+          }
+        }).observe({type: 'layout-shift', buffered: true});
+      })();
+    """)
+
+
+def assert_vitals(page) -> None:
+    page.wait_for_timeout(500)
+    vitals = page.evaluate("() => window.__bunnylandVitals")
+    if vitals["lcp"] <= 0 or vitals["lcp"] > 2500:
+        raise AssertionError(f"landing LCP exceeded 2.5 seconds: {vitals!r}")
+    if vitals["cls"] > 0.1:
+        raise AssertionError(f"landing CLS exceeded 0.1: {vitals!r}")
+
+
+def journey(browser, name: str, mobile: bool) -> None:
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844} if mobile else {"width": 1280, "height": 800},
+        device_scale_factor=1,
+        has_touch=mobile,
+        is_mobile=mobile,
+    )
+    context.add_cookies([{
+        "name": "bunnyland_claim",
+        "value": WEB_TUI["CLAIM_SECRET"],
+        "url": f"{BASE_URL}/api/v1/play",
+        "httpOnly": True,
+        "sameSite": "Strict",
+    }])
+    page = context.new_page()
+    performance_session = None
+    if name == "chromium-desktop":
+        install_vitals(page)
+        performance_session = context.new_cdp_session(page)
+        performance_session.send("Network.enable")
+        performance_session.send("Network.emulateNetworkConditions", {
+            "offline": False,
+            "latency": 150,
+            "downloadThroughput": 200_000,
+            "uploadThroughput": 100_000,
+        })
+        performance_session.send("Emulation.setCPUThrottlingRate", {"rate": 4})
+    errors: list[str] = []
+    posted: list[dict] = []
+    install_diagnostics(page, errors)
+    WEB_TUI["install_routes"](
+        page,
+        posted,
+        ["adult:violence"],
+        name.startswith("webkit"),
+    )
+    def websocket_handler(socket) -> None:
+        def receive(message: str) -> None:
+            if json.loads(message).get("type") == "authenticate":
+                socket.send(json.dumps({
+                    "type": "ready",
+                    "data": {"character_id": CHARACTER, "world_epoch": 8},
+                    "protocol_version": 1,
+                    "stream_sequence": 1,
+                }))
+
+        socket.on_message(receive)
+
+    page.route_web_socket("**/stream", websocket_handler)
+
+    page.goto(f"{BASE_URL}/index.html", wait_until="domcontentloaded")
+    expect(page.get_by_role("link", name="Play in Web TUI")).to_be_visible()
+    assert_accessible(page, f"{name} landing")
+    if performance_session is not None:
+        assert_vitals(page)
+        performance_session.detach()
+
+    page.goto(f"{BASE_URL}/web-tui.html", wait_until="domcontentloaded")
+    page.locator("#api-url").fill("/api/v1")
+    page.locator("#btn-connect").click()
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
+    claim_cookies = [
+        cookie
+        for cookie in context.cookies()
+        if cookie["name"] == "bunnyland_claim"
+    ]
+    if len(claim_cookies) != 1 or not claim_cookies[0]["httpOnly"]:
+        raise AssertionError(f"{name} lost its HttpOnly claim state: {claim_cookies!r}")
+    assert_accessible(page, f"{name} Web TUI lobby")
+
+    page.locator("#player-select").select_option(CHARACTER)
+    warning = page.get_by_role("dialog", name="Content warning")
+    expect(warning).to_be_visible()
+    warning.get_by_role("button", name="Accept and Join").click()
+    introduction = page.locator(".world-intro-dialog")
+    expect(introduction).to_be_visible()
+    introduction.get_by_role("button", name="Continue").click()
+    page.wait_for_function(
+        "id => window.app?.projection?.characterId === id",
+        arg=CHARACTER,
+        timeout=15000,
+    )
+    assert_accessible(page, f"{name} Web TUI claimed")
+
+    if mobile:
+        page.locator("#tab-actions").click()
+        expect(page.locator("#actions-pane")).to_be_visible()
+    page.locator("#action-filter").fill("tell")
+    trigger = page.locator('#verbs .option[data-action-key="world:tell:tell"]')
+    trigger.focus()
+    trigger.click()
+    dialog = page.get_by_role("dialog", name="Tell")
+    expect(dialog).to_be_visible()
+    assert_accessible(page, f"{name} Web TUI action dialog")
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    expect(trigger).to_be_focused()
+
+    trigger.click()
+    page.locator("#action-form-dialog select.form-input").select_option(OTHER)
+    page.locator("#action-form-dialog input.form-input").fill("compatibility hello")
+    with page.expect_response("**/play/claims/*/commands"):
+        page.locator("#action-form-dialog .form-submit").click()
+    if not posted or posted[-1].get("command_type") != "tell":
+        raise AssertionError(f"{name} did not submit the action: {posted!r}")
+
+    if mobile:
+        page.locator("#tab-world").click()
+        expect(page.locator("#world-pane")).to_be_visible()
+    page.evaluate(
+        "() => { window.openedProfile = ''; window.open = (url) => { window.openedProfile = url; return {}; }; }"
+    )
+    page.locator("#btn-open-sheet").click()
+    if "character.html" not in page.evaluate("() => window.openedProfile"):
+        raise AssertionError(f"{name} could not open a character profile")
+
+    page.locator("#connection-details summary").click()
+    page.locator("#btn-connect").click()
+    expect(page.locator("#api-status")).to_contain_text("Offline")
+    page.locator("#btn-connect").click()
+    page.wait_for_function("() => window.app?.characters?.length > 0", timeout=15000)
+    if page.evaluate("() => document.documentElement.scrollWidth > innerWidth + 1"):
+        raise AssertionError(f"{name} has horizontal overflow")
+    if errors:
+        raise AssertionError(f"{name} browser errors: {errors!r}")
+    context.close()
+
+
+def main() -> None:
+    ensure_web_server(BASE_URL)
+    with sync_playwright() as playwright:
+        targets = (
+            ("chromium-desktop", playwright.chromium, False),
+            ("firefox-desktop", playwright.firefox, False),
+            ("webkit-desktop", playwright.webkit, False),
+            ("chromium-mobile", playwright.chromium, True),
+            ("webkit-mobile", playwright.webkit, True),
+        )
+        selected = {
+            value.strip()
+            for value in os.environ.get("BUNNYLAND_BROWSER_TARGETS", "").split(",")
+            if value.strip()
+        }
+        for name, browser_type, mobile in targets:
+            if selected and name not in selected:
+                continue
+            print(f"browser_target={name}", flush=True)
+            browser = browser_type.launch(headless=True)
+            try:
+                journey(browser, name, mobile)
+            finally:
+                browser.close()
+    print("player_compatibility=ok")
+
+
+if __name__ == "__main__":
+    main()

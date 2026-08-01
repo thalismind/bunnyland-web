@@ -4,6 +4,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import { useContentWarningGate } from '../content-warning';
+import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 import { StageItems } from './stage';
 import type { ToonDoor, ToonSprite } from '../types';
 import './toon.css';
@@ -76,6 +77,8 @@ interface ActionFormProps {
 }
 
 function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime }: ActionFormProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const previousFocusRef = useRef(document.activeElement as HTMLElement | null);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map(field => [
     field.key, field.candidates?.some(candidate => candidate.value === initialTarget) ? initialTarget : '',
   ])));
@@ -95,16 +98,24 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
   };
   submitRef.current = submit;
   useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    const previousFocus = previousFocusRef.current;
+    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog?.setAttribute('open', '');
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onCloseRef.current();
-      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) submitRef.current();
     };
     document.addEventListener('keydown', keydown);
-    return () => document.removeEventListener('keydown', keydown);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+      else dialog?.removeAttribute('open');
+      previousFocus?.focus();
+    };
   }, []);
-  return <div id="action-form-overlay" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div class="target-card">
-      <div class="target-card-header">{title}</div>
+  return <dialog id="action-form-dialog" ref={dialogRef} aria-labelledby="action-form-title" onCancel={event => { event.preventDefault(); onCloseRef.current(); }}>
+    <form method="dialog" class="target-card" onSubmit={event => { event.preventDefault(); submitRef.current(); }}>
+      <h2 id="action-form-title" class="target-card-header">{title}</h2>
       <div class="af-body">
         {fields.map((field, index) => <label class="af-field" key={field.key}>
           <span class="af-label">{field.label}{field.required ? ' *' : ''}</span>
@@ -115,11 +126,11 @@ function ActionForm({ action, fields, initialTarget, onClose, onSubmit, runtime 
             <option value="">— choose —</option><option value="true">yes</option><option value="false">no</option>
           </select> : <input autoFocus={index === 0} class="af-input" type={field.kind === 'number' ? 'number' : 'text'} value={values[field.key]} onInput={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))} />}
         </label>)}
-        <div class="af-error">{error}</div>
+        <div class="af-error" role="alert">{error}</div>
       </div>
-      <div class="target-card-footer"><Button class="af-cancel" onClick={onClose}>Cancel</Button><Button class="af-submit" onClick={submit}>Submit</Button></div>
-    </div>
-  </div>;
+      <div class="target-card-footer"><Button class="af-cancel" onClick={onClose}>Cancel</Button><Button class="af-submit" type="submit">Submit</Button></div>
+    </form>
+  </dialog>;
 }
 
 function QueuedCountdown({ projection, runtime }: {
@@ -136,12 +147,7 @@ function QueuedCountdown({ projection, runtime }: {
   const calculateRef = useRef(calculate);
   calculateRef.current = calculate;
   const [countdown, setCountdown] = useState(calculate);
-  useEffect(() => {
-    const update = (): void => setCountdown(calculateRef.current());
-    update();
-    const timer = window.setInterval(update, 250);
-    return () => window.clearInterval(timer);
-  }, [projection]);
+  useSecondBoundaryTick(() => setCountdown(calculateRef.current()), projection);
   return <>{countdown == null ? '' : ` · next tick in ${countdown}s`}</>;
 }
 

@@ -6,6 +6,7 @@ import { ToolLinks, toolLinks } from './tool-links';
 interface DeploymentConfig {
   discordUrl?: string;
   serverUrl?: string;
+  '3dUrl'?: string;
 }
 
 interface FeatureStatus {
@@ -34,9 +35,27 @@ function clientServer(serverUrl: string): string {
   return serverUrl.replace(/\/+$/, '') || '/api/v1';
 }
 
+export function optionalSameOriginUrl(value: unknown, base = location.href): string {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value.trim(), base);
+    if (url.origin !== new URL(base).origin || !/^https?:$/.test(url.protocol)) return '';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '';
+  }
+}
+
+function withServer(url: string, server: string): string {
+  const linked = new URL(url, location.href);
+  linked.searchParams.set('server', server);
+  return `${linked.pathname}${linked.search}${linked.hash}`;
+}
+
 function useDeployment() {
   const [serverUrl, setServerUrl] = useState('/api/v1/');
   const [discordUrl, setDiscordUrl] = useState('');
+  const [player3dUrl, setPlayer3dUrl] = useState('');
   const [availability, setAvailability] = useState<Record<'character_chat' | 'character_sheets', Availability>>({
     character_chat: 'checking',
     character_sheets: 'checking',
@@ -49,12 +68,14 @@ function useDeployment() {
       const linkedServer = landingGlobals.BunnylandApi.serverFromUrl();
       let nextServerUrl = linkedServer || '/api/v1/';
       let nextDiscordUrl = '';
+      let nextPlayer3dUrl = '';
       try {
         const response = await fetch('config.json', { cache: 'no-store', signal: controller.signal });
         if (response.ok) {
           const config = await response.json() as DeploymentConfig | null;
           if (!linkedServer && typeof config?.serverUrl === 'string' && config.serverUrl) nextServerUrl = config.serverUrl;
           if (typeof config?.discordUrl === 'string') nextDiscordUrl = config.discordUrl.trim();
+          nextPlayer3dUrl = optionalSameOriginUrl(config?.['3dUrl']);
         }
       } catch {
         if (controller.signal.aborted) return;
@@ -62,6 +83,7 @@ function useDeployment() {
       if (!active) return;
       setServerUrl(nextServerUrl);
       setDiscordUrl(nextDiscordUrl);
+      setPlayer3dUrl(nextPlayer3dUrl);
 
       try {
         const base = terminalBase(nextServerUrl);
@@ -82,7 +104,7 @@ function useDeployment() {
     };
   }, []);
 
-  return { availability, discordUrl, serverUrl };
+  return { availability, discordUrl, player3dUrl, serverUrl };
 }
 
 export function CopyCommand({ id, program, server }: { id: string; program: string; server: string }) {
@@ -150,7 +172,7 @@ function FeatureCard({
 }
 
 export function LandingPage() {
-  const { availability, discordUrl, serverUrl } = useDeployment();
+  const { availability, discordUrl, player3dUrl, serverUrl } = useDeployment();
   useEffect(() => { landingGlobals.BunnylandUI.initClientMenu(); }, []);
   const base = useMemo(() => terminalBase(serverUrl), [serverUrl]);
   const queryServer = clientServer(serverUrl);
@@ -179,8 +201,9 @@ export function LandingPage() {
             <a class="button-link primary" href={playerHref('web-tui.html')}>Play in Web TUI</a>
             <a id="discord-link" class="button-link discord" href={discordUrl || '#'} target="_blank" rel="noopener"
               style={{ display: discordUrl ? '' : 'none' }}>Discord</a>
-            <a class="button-link" href={playerHref('toon-client.html')}>Toon Client</a>
-            <a class="button-link" href={playerHref('web-repl.html')}>Web REPL</a>
+            <a class="button-link" href={playerHref('toon-client.html')}>Toon Client <span class="alternative-label">Alternative</span></a>
+            <a class="button-link" href={playerHref('web-repl.html')}>Web REPL <span class="alternative-label">Alternative</span></a>
+            {player3dUrl && <a id="3d-link" class="button-link" href={withServer(player3dUrl, queryServer)}>3D Player</a>}
             <a class="button-link" href="https://bunnyland.dev/guides/">Read the Guides</a>
           </div>
         </div>
@@ -214,13 +237,18 @@ export function LandingPage() {
             </div>
           </article>
           <article class="info-card">
-            <h3>Web REPL</h3>
+            <h3>Web REPL <span class="alternative-label">Alternative</span></h3>
             <p>A browser command line with player claiming, clickable visible names, command history, and live action suggestions.</p>
             <div class="info-actions">
               <a class="button-link primary" href={playerHref('web-repl.html')}>Open Web REPL</a>
               <a class="button-link" href="https://bunnyland.dev/guides/client-repl.html">Read Player Guide</a>
             </div>
           </article>
+          {player3dUrl && <article class="info-card">
+            <h3>3D Player <span class="alternative-label">Alternative</span></h3>
+            <p>An immersive room view with keyboard, touch, and a complete list-based HUD.</p>
+            <div class="info-actions"><a class="button-link" href={withServer(player3dUrl, queryServer)}>Open 3D Player</a></div>
+          </article>}
           <article class="info-card">
             <h3>Textual TUI</h3>
             <p>An ASCII-art interface you drive with the mouse: pick actions from menus and click targets in the room, with no command syntax to memorize.</p>
@@ -242,7 +270,7 @@ export function LandingPage() {
           <p>These clients use the live server API. Unavailable features stay visible but disabled.</p>
         </div>
         <div class="info-grid">
-          <FeatureCard title="Character Profile"
+          <FeatureCard title="Character Profile · alternative"
             description="Inspect a live character sheet and start an in-character conversation from one shared profile."
             label="Open Character Profile" href={characterHref} state={characterState} />
         </div>

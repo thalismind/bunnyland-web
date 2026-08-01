@@ -72,7 +72,9 @@ def assert_shell(page, name: str) -> None:
             toolbarClientWidth: toolbar?.clientWidth || 0,
             toolbarScrollWidth: toolbar?.scrollWidth || 0,
             toolbarWidth: toolbar?.getBoundingClientRect().width || 0,
-            toolbarRows: [...document.querySelectorAll('#toolbar > .toolbar-row, .bl-toolbar > .toolbar-row')]
+            toolbarRows: [...document.querySelectorAll(
+              '#toolbar > .toolbar-row, #toolbar > #connection-details > .toolbar-row, .bl-toolbar > .toolbar-row'
+            )]
               .map((row, index) => {
                 const rect = row.getBoundingClientRect();
                 const contentBottom = Math.max(rect.top, ...[...row.children].map((child) => child.getBoundingClientRect().bottom));
