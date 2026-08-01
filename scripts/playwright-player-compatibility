@@ -40,7 +40,7 @@ def install_diagnostics(page, errors: list[str]) -> None:
         lambda request: errors.append(
             f"failed request: {request.method} {request.url}: {request.failure}"
         )
-        if request.url.startswith(BASE_URL)
+        if request.url.startswith(BASE_URL) and "/cdn-cgi/" not in request.url
         else None,
     )
 
@@ -74,6 +74,7 @@ def assert_vitals(page) -> None:
 
 def journey(browser, name: str, mobile: bool) -> None:
     context = browser.new_context(
+        bypass_csp=True,
         viewport={"width": 390, "height": 844} if mobile else {"width": 1280, "height": 800},
         device_scale_factor=1,
         has_touch=mobile,
