@@ -224,6 +224,45 @@ def install_routes(page, state: dict) -> None:
     page.route("**/admin/characters/*/controller", assign_controller)
 
 
+def assert_mobile_chat_usable(page) -> None:
+    for viewport in ({"width": 390, "height": 760}, {"width": 320, "height": 568}):
+        page.set_viewport_size(viewport)
+        layout = page.evaluate(
+            """
+            () => {
+              const transcript = document.querySelector('#transcript').getBoundingClientRect();
+              const composer = document.querySelector('#composer').getBoundingClientRect();
+              const input = document.querySelector('#chat-input').getBoundingClientRect();
+              const toolbar = document.querySelector('#toolbar').getBoundingClientRect();
+              const main = document.querySelector('#main').getBoundingClientRect();
+              const chatTools = document.querySelector('#chat-tools').getBoundingClientRect();
+              const status = document.querySelector('#status-line').getBoundingClientRect();
+              return {
+                toolbarHeight: toolbar.height,
+                mainHeight: main.height,
+                chatToolsHeight: chatTools.height,
+                transcriptHeight: transcript.height,
+                statusHeight: status.height,
+                composerHeight: composer.height,
+                composerBottom: composer.bottom,
+                inputHeight: input.height,
+                viewportHeight: innerHeight,
+              };
+            }
+            """
+        )
+        if layout["transcriptHeight"] < 120:
+            raise AssertionError(f"mobile chat transcript is collapsed at {viewport!r}: {layout!r}")
+        if layout["composerBottom"] > layout["viewportHeight"] + 1:
+            raise AssertionError(f"mobile chat composer is outside {viewport!r}: {layout!r}")
+        if layout["inputHeight"] < 42:
+            raise AssertionError(f"mobile chat input is not usable at {viewport!r}: {layout!r}")
+        page.locator("#chat-input").fill("mobile draft")
+        expect(page.locator("#chat-input")).to_have_value("mobile draft")
+    page.screenshot(path=str(SCREENSHOT_DIR / "bunnyland-character-chat-mobile.png"))
+    page.set_viewport_size({"width": 1280, "height": 800})
+
+
 def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -349,6 +388,7 @@ def main() -> None:
         expect(page.locator("#tab-chat")).to_have_attribute("aria-label", "Chat, history available")
         if state["chat_payloads"][-1]["history"] != []:
             raise AssertionError(f"unexpected chat history payload: {state['chat_payloads']!r}")
+        assert_mobile_chat_usable(page)
         page.locator("#tab-sheet").click()
         expect(page.locator("#vitals")).to_contain_text("Health")
 
