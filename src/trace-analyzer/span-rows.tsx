@@ -1,3 +1,5 @@
+import { moveRovingSelection } from '../roving-selection';
+
 export interface TraceSpanRow {
   childCount: number;
   className: string;
@@ -25,10 +27,17 @@ export function SpanRows({ onSelect, rows }: SpanRowsProps) {
 
   return <>{rows.map((row) => (
     <div
+      aria-selected={row.selected}
       class={`span-row ${row.className}${row.selected ? ' selected' : ''}`}
       data-span-id={row.id}
       key={row.id}
       onClick={() => onSelect?.(row.id)}
+      onKeyDown={event => moveRovingSelection(event, '[role="option"]', element => {
+        const id = element.dataset.spanId;
+        if (id) onSelect?.(id);
+      })}
+      role="option"
+      tabIndex={row.selected || !rows.some(item => item.selected) && row === rows[0] ? 0 : -1}
     >
       <div class="span-label" style={{ paddingLeft: `${8 + Math.min(row.depth * 18, 180)}px` }}>
         <span class="span-service">{row.service}</span>

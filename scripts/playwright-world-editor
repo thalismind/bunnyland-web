@@ -312,6 +312,10 @@ def main() -> None:
         page.locator("#btn-rename-entity").click()
         page.wait_for_function("() => window.app && window.app.selectedId === 'local_target'")
         assert page.locator("#selected-label").text_content() == "local_target"
+        page.wait_for_function("""() => {
+            const snapshot = JSON.parse(document.querySelector('#json-output').value);
+            return snapshot.entities.local_target?.created_epoch === 7;
+        }""")
         local_json = page.locator("#json-output").input_value()
         if '"local_target"' not in local_json or '"created_epoch": 7' not in local_json:
             raise AssertionError(f"local rename did not update exported JSON: {local_json}")
@@ -333,6 +337,10 @@ def main() -> None:
         delete_dialog.wait_for(state="visible")
         delete_dialog.locator(".bl-dialog-confirm").click()
         page.wait_for_function("() => window.app && !window.app.world.entities.local_target")
+        page.wait_for_function("""() => {
+            const snapshot = JSON.parse(document.querySelector('#json-output').value);
+            return !snapshot.entities.local_target;
+        }""")
         local_json = page.locator("#json-output").input_value()
         if "local_target" in local_json:
             raise AssertionError(f"local delete did not remove entity and incoming edges: {local_json}")

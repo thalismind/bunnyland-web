@@ -1,6 +1,8 @@
 import { EmptyState } from '@bunnyland/ui-web/preact';
 import { useCallback } from 'preact/hooks';
 
+import { moveRovingSelection } from '../roving-selection';
+
 export interface ScriptBlockItem {
   key: string;
   meta: string;
@@ -23,10 +25,17 @@ export function BlockList({ blocks, onSelect, selectedIndex }: BlockListProps) {
   return <>
     {blocks.map((block, index) => (
       <div
+        aria-selected={index === selectedIndex}
         class={`block-row ${index === selectedIndex ? 'active' : ''}`}
         data-index={index}
         key={block.key}
         onClick={select}
+        onKeyDown={event => moveRovingSelection(event, '[role="option"]', element => {
+          const next = Number(element.dataset.index);
+          if (Number.isInteger(next)) onSelect(next);
+        })}
+        role="option"
+        tabIndex={index === selectedIndex || selectedIndex < 0 && index === 0 ? 0 : -1}
       >
         <div class="block-name">{block.name}</div>
         <div class="block-meta">{block.meta}</div>

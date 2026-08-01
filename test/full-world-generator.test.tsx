@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WorldGeneratorPage, generatorUsesSeed } from '../src/world-generator/app';
+import { expectNoSeriousAxeIssues } from './axe';
 
 const initialSnapshot = {
   entities: [{
@@ -96,6 +97,7 @@ describe('WorldGeneratorPage', () => {
     expect(api.sendAdmin).not.toHaveBeenCalledWith(
       expect.anything(), '/admin/world/generation-jobs', expect.anything(),
     );
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('retains keyed entity rows when a socket snapshot adds an entity', async () => {

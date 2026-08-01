@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorApp, type InspectorFacade } from '../src/inspector/app';
+import { expectNoSeriousAxeIssues } from './axe';
 
 type InspectorEntity = NonNullable<InspectorFacade['world']>['entities'][string];
 type InspectorWorld = NonNullable<InspectorFacade['world']>;
@@ -159,6 +160,7 @@ afterEach(() => {
   cleanup();
   history.replaceState(null, '', '/inspector.html');
   closeMenu.mockClear();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -205,6 +207,30 @@ describe('full Inspector page', () => {
     expect(facade()!.lgcanvas.selected_nodes.selected).toBe(roomNode);
     expect(facade()!._nodeMap['room:two']).toBeTruthy();
     view.unmount();
+  });
+
+  it('exposes combobox search and keyboard-accessible entity actions with focus return', async () => {
+    const view = render(<InspectorApp/>);
+    await waitFor(() => expect(facade()).toBeTruthy());
+    facade()!.loadSnapshot(makeWorld());
+    facade()!.selectEntity('character');
+    const search = view.container.querySelector<HTMLInputElement>('#search-input')!;
+    fireEvent.input(search, { target: { value: 'haz' } });
+    await waitFor(() => expect(search.getAttribute('aria-expanded')).toBe('true'));
+    expect(search.getAttribute('role')).toBe('combobox');
+    expect(search.getAttribute('aria-activedescendant')).toBe('search-option-0');
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(search.getAttribute('aria-expanded')).toBe('false');
+
+    const actions = view.container.querySelector<HTMLButtonElement>('#btn-entity-actions')!;
+    actions.focus();
+    fireEvent.click(actions);
+    const menu = await waitFor(() => view.container.querySelector<HTMLElement>('#graph-context-menu')!);
+    expect(menu.getAttribute('role')).toBe('menu');
+    await waitFor(() => expect(document.activeElement).toBe(menu.querySelector('[role="menuitem"]')));
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    await waitFor(() => expect(document.activeElement).toBe(actions));
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('generates and applies scoped LLM patches from graph actions', async () => {
@@ -338,5 +364,62 @@ describe('full Inspector page', () => {
 
     expect(closeCalls).toBe(1);
     view.unmount();
+  });
+
+  it('coalesces event bursts, permits one in-flight follow-up, and cancels on disconnect', async () => {
+    let socket: { event(epoch: number): void; snapshot(world: InspectorWorld): void } | undefined;
+    class BurstSocket {
+      onclose: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      constructor() {
+        socket = {
+          event: epoch => this.event(epoch),
+          snapshot: world => this.snapshot(world),
+        };
+      }
+      close() { this.onclose?.(new Event('close')); }
+      send() {}
+      event(epoch: number) {
+        this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({
+          type: 'event', data: { event_type: 'TickEvent', event: { world_epoch: epoch } },
+        }) }));
+      }
+      snapshot(world: InspectorWorld) {
+        this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'snapshot', data: world }) }));
+      }
+    }
+    vi.stubGlobal('WebSocket', BurstSocket);
+    history.replaceState(null, '', '/inspector.html?server=%2Fapi');
+    const view = render(<InspectorApp/>);
+    await waitFor(() => expect(socket).toBeTruthy());
+    await waitFor(() => expect(facade()).toBeTruthy());
+    socket!.snapshot(makeWorld());
+
+    let resolveFirst!: (value: InspectorWorld) => void;
+    const first = new Promise<InspectorWorld>(resolve => { resolveFirst = resolve; });
+    const refresh = vi.fn()
+      .mockImplementationOnce(() => first)
+      .mockResolvedValue(makeWorld(3));
+    facade()!._sendAdmin = refresh;
+    vi.useFakeTimers();
+    socket!.event(2);
+    socket!.event(2);
+    socket!.event(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    socket!.event(2);
+    socket!.event(2);
+    await act(async () => { resolveFirst(makeWorld(2)); await Promise.resolve(); });
+    expect(vi.getTimerCount()).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    socket!.event(4);
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 });

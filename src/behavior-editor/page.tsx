@@ -3,6 +3,7 @@ import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { NamedList } from './library-list';
+import { confirmDialog } from '../dialogs';
 
 type NodeKind = 'action' | 'condition' | 'selector' | 'sequence';
 type JsonObject = Record<string, unknown>;
@@ -185,7 +186,7 @@ export function TreeNode(props: TreeNodeProps) {
   return <div class={`bt-node kind-${node.kind}`} data-path={path} key={path || 'root'}>
     <div class="bt-head">
       <span class="bt-kind-badge">{node.kind}</span>
-      <select class="node-kind" value={node.kind} onChange={event => props.onKind(path, event.currentTarget.value as NodeKind)}>
+      <select aria-label={`Node kind for ${path ? `node ${path}` : 'root node'}`} class="node-kind" value={node.kind} onChange={event => props.onKind(path, event.currentTarget.value as NodeKind)}>
         {KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}
       </select>
       <span class="bt-spacer" />
@@ -208,11 +209,14 @@ export function TreeNode(props: TreeNodeProps) {
       </label>
       <label>Params (JSON)
         <textarea
+          aria-describedby={invalid.has(path) ? `params-error-${path || 'root'}` : undefined}
+          aria-invalid={invalid.has(path)}
           class={`node-params${invalid.has(path) ? ' bad-json' : ''}`}
           spellcheck={false}
           value={drafts[path] ?? JSON.stringify(node.params || {}, null, 2)}
           onInput={event => props.onParams(path, event.currentTarget.value)}
         />
+        {invalid.has(path) && <span class="json-error" id={`params-error-${path || 'root'}`} role="alert">Enter a valid JSON object.</span>}
       </label>
       {node.ref && PARAM_HINTS[node.ref] && <div class="param-hint">{PARAM_HINTS[node.ref]}</div>}
     </div>}
@@ -235,6 +239,12 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
   const [connected, setConnected] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: 'Ready', kind: '' });
   const [apiStatus, setApiStatus] = useState({ text: 'offline', kind: '' });
+  const [pending, setPending] = useState<'' | 'connect' | 'register'>('');
+  const [baseline, setBaseline] = useState(() => JSON.stringify({
+    name: DEFAULT_BEHAVIOR.name,
+    description: DEFAULT_BEHAVIOR.description,
+    root: exportNode(DEFAULT_BEHAVIOR.root),
+  }, null, 2));
   const baseRef = useRef('');
   const authRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
@@ -340,6 +350,7 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
     root: exportNode(behavior.root),
   }), [behavior]);
   const json = useMemo(() => JSON.stringify(spec, null, 2), [spec]);
+  const dirty = json !== baseline || badParams.size > 0;
   const problems = useMemo(
     () => validateBehavior(spec, badParams, connected, conditions, actions),
     [actions, badParams, conditions, connected, spec],
@@ -387,6 +398,7 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
     setBase(normalized);
     setApiUrl(normalized);
     setApiStatus({ text: 'connecting', kind: '' });
+    setPending('connect');
     try {
       await refreshFrom(normalized);
       if (!mountedRef.current || baseRef.current !== normalized) return;
@@ -401,6 +413,8 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
       setConnected(false);
       setApiStatus({ text: `error: ${errorMessage(error)}`, kind: 'err' });
       setSaveStatus({ text: `Connection error: ${errorMessage(error)}`, kind: 'err' });
+    } finally {
+      if (mountedRef.current) setPending('');
     }
   }, [refreshFrom, runtime]);
 
@@ -429,7 +443,18 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
     return () => { mountedRef.current = false; };
   }, [connect, runtime]);
 
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [dirty]);
+
   const register = async (): Promise<void> => {
+    if (pending) return;
     if (problems.length) {
       setSaveStatus({ text: 'Fix validation problems before registering', kind: 'err' });
       return;
@@ -443,6 +468,7 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
       setSaveStatus({ text: 'Sign in with world administration access first', kind: 'err' });
       return;
     }
+    setPending('register');
     try {
       const data = await send(
         base,
@@ -452,15 +478,21 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
       if (!mountedRef.current) return;
       const names = Array.isArray(data.behaviors) ? data.behaviors.filter(item => typeof item === 'string') as string[] : [];
       setServerBehaviors(names.sort());
+      setBaseline(json);
       setSaveStatus({ text: `Registered behavior '${spec.name}'`, kind: 'ok' });
     } catch (error) {
       if (mountedRef.current) setSaveStatus({ text: `Register failed: ${errorMessage(error)}`, kind: 'err' });
+    } finally {
+      if (mountedRef.current) setPending('');
     }
   };
 
   const loadFile = async (file: File): Promise<void> => {
+    if (dirty && !await confirmDialog('Discard unsaved behavior changes?', { title: 'Unsaved changes' })) return;
     try {
-      setBehavior(normalizeBehavior(JSON.parse(await file.text()) as unknown));
+      const next = normalizeBehavior(JSON.parse(await file.text()) as unknown);
+      setBehavior(next);
+      setBaseline(JSON.stringify({ name: next.name.trim(), description: next.description, root: exportNode(next.root) }, null, 2));
       setBadParams(new Set());
       setParamDrafts({});
       setSaveStatus({ text: 'Behavior loaded', kind: 'ok' });
@@ -478,7 +510,18 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
     anchor.click();
     URL.revokeObjectURL(url);
     anchor.remove();
+    setBaseline(json);
     setSaveStatus({ text: 'JSON downloaded', kind: 'ok' });
+  };
+
+  const newBehavior = async (): Promise<void> => {
+    if (dirty && !await confirmDialog('Discard unsaved behavior changes?', { title: 'Unsaved changes' })) return;
+    const next = cloneBehavior(DEFAULT_BEHAVIOR);
+    setBehavior(next);
+    setBaseline(JSON.stringify({ name: next.name, description: next.description, root: exportNode(next.root) }, null, 2));
+    setBadParams(new Set());
+    setParamDrafts({});
+    setSaveStatus({ text: 'New behavior', kind: 'ok' });
   };
 
   const copy = async (): Promise<void> => {
@@ -499,24 +542,21 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
       <div class="toolbar-row" id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
-        <Button id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{connected || base ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect'}</Button>
-        <span id="api-status" class={apiStatus.kind}>{apiStatus.text}</span>
+        <Button disabled={Boolean(pending)} id="btn-connect" onClick={() => connected || base ? disconnect() : void connect(apiUrl.trim())}>{pending === 'connect' ? 'Connecting…' : connected || base ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect'}</Button>
+        <span aria-live="polite" id="api-status" class={apiStatus.kind} role={apiStatus.kind === 'err' ? 'alert' : 'status'}>{apiStatus.text}</span>
       </div>
       <div class="toolbar-row" id="toolbar-row3">
         <label for="behavior-input">Behavior:</label>
         <input type="file" id="behavior-input" accept=".json,application/json" onChange={event => {
           const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
           if (file) void loadFile(file);
         }} />
-        <Button id="btn-new" onClick={() => {
-          setBehavior(cloneBehavior(DEFAULT_BEHAVIOR));
-          setBadParams(new Set());
-          setParamDrafts({});
-          setSaveStatus({ text: 'New behavior', kind: 'ok' });
-        }}>New</Button>
+        <Button id="btn-new" onClick={() => { void newBehavior(); }}>New</Button>
         <Button id="btn-download" onClick={download}>Download JSON</Button>
         <Button id="btn-copy" onClick={() => { void copy(); }}>Copy JSON</Button>
-        <span id="save-status" class={saveStatus.kind}>{saveStatus.text}</span>
+        <span aria-live="polite" id="save-status" class={saveStatus.kind} role={saveStatus.kind === 'err' ? 'alert' : 'status'}>{saveStatus.text}</span>
+        {dirty && <span id="dirty-status">unsaved changes</span>}
       </div>
       <div class="toolbar-row" id="toolbar-row4">
         <label for="behavior-name">Name:</label>
@@ -527,8 +567,8 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
     </div>
 
     <div id="main" class="app-grid">
-      <section class="pane" id="library-pane">
-        <div class="pane-header"><div class="pane-title">Leaf Library</div><span class="pane-count" id="library-source">{connected ? 'from server' : 'built-in'}</span></div>
+      <section aria-labelledby="leaf-library-title" class="pane" id="library-pane">
+        <div class="pane-header"><h2 class="pane-title" id="leaf-library-title">Leaf Library</h2><span class="pane-count" id="library-source">{connected ? 'from server' : 'built-in'}</span></div>
         <div class="pane-body">
           <div class="lib-section">
             <div class="lib-title">Conditions</div>
@@ -548,8 +588,8 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
         </div>
       </section>
 
-      <section class="pane" id="editor-pane">
-        <div class="pane-header"><div class="pane-title">Behavior Tree</div><span class="pane-count" id="node-count">{countNodes(behavior.root)} nodes</span></div>
+      <section aria-labelledby="behavior-tree-title" class="pane" id="editor-pane">
+        <div class="pane-header"><h2 class="pane-title" id="behavior-tree-title">Behavior Tree</h2><span class="pane-count" id="node-count">{countNodes(behavior.root)} nodes</span></div>
         <div class="editor-scroll" id="tree-scroll">
           <div id="tree-root"><TreeNode
             actions={actions} conditions={conditions} drafts={paramDrafts} invalid={badParams}
@@ -559,13 +599,13 @@ export function BehaviorEditorPage({ liveAuth, runtime }: { liveAuth?: LiveAuth;
         </div>
       </section>
 
-      <section class="pane" id="preview-pane">
+      <section aria-labelledby="behavior-json-title" class="pane" id="preview-pane">
         <div class="pane-header">
-          <div class="pane-title">JSON</div>
+          <h2 class="pane-title" id="behavior-json-title">JSON</h2>
           <span class="pane-count" id="json-size">{new Blob([json]).size} bytes</span>
-          <Button id="btn-register" class="push" disabled={!connected || problems.length > 0} onClick={() => { void register(); }}>Register on Server</Button>
+          <Button id="btn-register" class="push" disabled={!connected || problems.length > 0 || Boolean(pending)} onClick={() => { void register(); }}>{pending === 'register' ? 'Registering…' : 'Register on Server'}</Button>
         </div>
-        <textarea id="json-output" spellcheck={false} readOnly value={json} />
+        <textarea aria-label="Behavior JSON preview" id="json-output" spellcheck={false} readOnly value={json} />
         <div id="problems" class={problems.length ? '' : 'ok'}>
           {problems.length ? problems.map((problem, index) => <span key={problem}>{index > 0 && <br />}{problem}</span>) : 'Valid behavior JSON.'}
         </div>

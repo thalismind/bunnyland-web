@@ -33,12 +33,12 @@ export function EventList({ events, onToggle }: EventListProps) {
     >
       <summary>
         <span class="ev-epoch">{event.epoch}</span>
-        <span class="ev-icon">{event.icon}</span>
+        <span aria-hidden="true" class="ev-icon">{event.icon}</span>
         <span class="ev-type">{event.type}</span>
         <span class="ev-summary"><span class="ev-actor">{event.actor}</span> {event.summary}</span>
         <span class="ev-visibility">{event.visibility}</span>
       </summary>
-      <div class="event-detail">
+      {event.open && <div class="event-detail">
         <div class="detail-box">
           <div class="detail-title">Involved</div>
           <div class="entity-chip-list">
@@ -54,7 +54,7 @@ export function EventList({ events, onToggle }: EventListProps) {
           <div class="detail-title">Full Event JSON</div>
           <pre class="json-view">{event.json}</pre>
         </div>
-      </div>
+      </div>}
     </details>
   ))}</>;
 }

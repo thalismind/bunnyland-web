@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/preac
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EventStreamPage, type EventStreamRuntime } from '../src/event-stream/page';
+import { expectNoSeriousAxeIssues } from './axe';
 
 function event(eventId: string, eventType: string, text: string) {
   return {
@@ -89,6 +90,7 @@ describe('EventStreamPage', () => {
     fireEvent.input(view.container.querySelector('#event-search')!, { target: { value: 'black fern' } });
     expect(view.container.querySelectorAll('.event-record')).toHaveLength(1);
     expect((view.container.querySelector('[data-event-id="speech"]') as HTMLDetailsElement).open).toBe(true);
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('retains keyed event nodes when a refresh appends another record', async () => {
@@ -108,6 +110,14 @@ describe('EventStreamPage', () => {
     fireEvent.click(view.container.querySelector('#btn-refresh')!);
     await waitFor(() => expect(view.getByText('updated')).toBeTruthy());
     expect(view.container.querySelector('[data-event-id="speech"]')).toBe(original);
+  });
+
+  it('only renders pretty event JSON for expanded records', async () => {
+    const view = render(<EventStreamPage runtime={runtime({ autoConnect: true })} />);
+    await waitFor(() => expect(view.container.querySelector('.event-record')).toBeTruthy());
+    expect(view.container.querySelector('.json-view')).toBeNull();
+    fireEvent.click(view.container.querySelector('.event-record summary')!);
+    await waitFor(() => expect(view.container.querySelector('.json-view')?.textContent).toContain('"SpeechSaidEvent"'));
   });
 
   it('cleans up the polling timer when the page unmounts', async () => {

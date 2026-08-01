@@ -3,7 +3,8 @@ import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { BlockList, type ScriptBlockItem } from './block-list';
-import { promptDialog } from '../dialogs';
+import { confirmDialog, promptDialog } from '../dialogs';
+import { moveRovingSelection } from '../roving-selection';
 
 type JsonObject = Record<string, unknown>;
 
@@ -293,8 +294,9 @@ function TriggerEditor({ trigger, onChange }: { trigger: ScriptTrigger; onChange
         onInput={event => onChange({ event_fields: trigger.event_fields ?? {}, event_type: event.currentTarget.value.trim() || 'DomainEvent' })} />
     </label>
     <label class="field full">Event Fields / Raw Trigger
-      <textarea id="trigger-json" class={bad ? 'bad-json' : ''} spellcheck={false} value={json}
+      <textarea id="trigger-json" aria-describedby={bad ? 'trigger-json-error' : undefined} aria-invalid={bad} class={bad ? 'bad-json' : ''} spellcheck={false} value={json}
         onInput={event => updateJson(event.currentTarget.value)} />
+      {bad && <span class="json-error" id="trigger-json-error" role="alert">Enter a valid JSON object.</span>}
     </label>
   </div>;
 }
@@ -320,15 +322,16 @@ function ActionEditor({ action, index, onChange, onDelete }: {
 
   if (action.kind === 'patch_world') {
     return <div class="action-card" data-action={index}>
-      <div class="action-head">patch_world <button data-delete-action={index} onClick={onDelete}>Delete</button></div>
+      <div class="action-head">patch_world <button aria-label={`Delete patch_world action ${index + 1}`} data-delete-action={index} onClick={onDelete}>Delete</button></div>
       <div class="action-body"><label class="field full">Operations
-        <textarea class={`action-ops ${badPatch ? 'bad-json' : ''}`} spellcheck={false} value={patchText}
+        <textarea aria-describedby={badPatch ? `action-ops-error-${index}` : undefined} aria-invalid={badPatch} class={`action-ops ${badPatch ? 'bad-json' : ''}`} spellcheck={false} value={patchText}
           onInput={event => {
             const text = event.currentTarget.value;
             setPatchText(text);
             try { onChange({ ...action, operations: parseJsonArray(text, []) }); setBadPatch(false); }
             catch { setBadPatch(true); }
           }} />
+        {badPatch && <span class="json-error" id={`action-ops-error-${index}`} role="alert">Enter a valid JSON array.</span>}
       </label></div>
     </div>;
   }
@@ -336,7 +339,7 @@ function ActionEditor({ action, index, onChange, onDelete }: {
   const target = action.target ?? { bind: 'actor', mode: 'one', query: {} };
   const update = (patch: Partial<SubmitAction>) => onChange({ ...action, ...patch });
   return <div class="action-card" data-action={index}>
-    <div class="action-head">submit_command <button data-delete-action={index} onClick={onDelete}>Delete</button></div>
+    <div class="action-head">submit_command <button aria-label={`Delete submit_command action ${index + 1}`} data-delete-action={index} onClick={onDelete}>Delete</button></div>
     <div class="action-body"><div class="form-grid">
       <label class="field">Mode
         <select class="target-mode" value={target.mode ?? 'one'} onChange={event => update({ target: { ...target, mode: event.currentTarget.value } })}>
@@ -355,20 +358,20 @@ function ActionEditor({ action, index, onChange, onDelete }: {
         onInput={event => update({ cost: { ...action.cost, action: Number(event.currentTarget.value || 0) } })} /></label>
       <label class="field">Focus Cost<input class="cost-focus" type="number" min="0" value={action.cost?.focus ?? 0}
         onInput={event => update({ cost: { ...action.cost, focus: Number(event.currentTarget.value || 0) } })} /></label>
-      <label class="field full">Target Query<textarea class={`target-query ${badQuery ? 'bad-json' : ''}`} spellcheck={false} value={queryText}
+      <label class="field full">Target Query<textarea aria-describedby={badQuery ? `target-query-error-${index}` : undefined} aria-invalid={badQuery} class={`target-query ${badQuery ? 'bad-json' : ''}`} spellcheck={false} value={queryText}
         onInput={event => {
           const text = event.currentTarget.value;
           setQueryText(text);
           try { update({ target: { ...target, query: parseJsonObject(text, {}) } }); setBadQuery(false); }
           catch { setBadQuery(true); }
-        }}>{queryText}</textarea></label>
-      <label class="field full">Payload<textarea class={`command-payload ${badPayload ? 'bad-json' : ''}`} spellcheck={false} value={payloadText}
+        }}>{queryText}</textarea>{badQuery && <span class="json-error" id={`target-query-error-${index}`} role="alert">Enter a valid JSON object.</span>}</label>
+      <label class="field full">Payload<textarea aria-describedby={badPayload ? `payload-error-${index}` : undefined} aria-invalid={badPayload} class={`command-payload ${badPayload ? 'bad-json' : ''}`} spellcheck={false} value={payloadText}
         onInput={event => {
           const text = event.currentTarget.value;
           setPayloadText(text);
           try { update({ payload: parseJsonObject(text, {}) }); setBadPayload(false); }
           catch { setBadPayload(true); }
-        }} /></label>
+        }} />{badPayload && <span class="json-error" id={`payload-error-${index}`} role="alert">Enter a valid JSON object.</span>}</label>
     </div></div>
   </div>;
 }
@@ -414,6 +417,7 @@ export function ScriptEditorPage() {
   const [script, setScript] = useState<EditorScript>(makeDefaultScript);
   const [selectedBlock, setSelectedBlock] = useState(0);
   const [status, setStatus] = useState({ kind: '', text: 'Ready' });
+  const [baseline, setBaseline] = useState(() => JSON.stringify(scriptForExport(makeDefaultScript())));
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -437,6 +441,7 @@ export function ScriptEditorPage() {
   const currentBlock = script.blocks[selectedBlock];
   const exported = useMemo(() => scriptForExport(script), [script]);
   const json = useMemo(() => JSON.stringify(exported, null, 2), [exported]);
+  const dirty = JSON.stringify(exported) !== baseline;
   const problems = useMemo(() => validateScript(script), [script]);
   const blockItems = useMemo<ScriptBlockItem[]>(() => script.blocks.map(block => ({
     key: block._key, meta: `${triggerLabel(block.trigger)} · ${block.execution || 'once'}`, name: block.name,
@@ -460,16 +465,28 @@ export function ScriptEditorPage() {
   };
 
   const loadScript = async (file: File) => {
+    if (dirty && !await confirmDialog('Discard unsaved script changes?', { title: 'Unsaved changes' })) return;
     try {
       const next = normalizeScript(JSON.parse(await file.text()));
       if (!mountedRef.current) return;
       setScript(next);
+      setBaseline(JSON.stringify(scriptForExport(next)));
       setSelectedBlock(0);
       setStatus({ kind: 'ok', text: 'Script loaded' });
     } catch (error) {
       if (mountedRef.current) setStatus({ kind: 'err', text: `Script error: ${error instanceof Error ? error.message : String(error)}` });
     }
   };
+
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [dirty]);
 
   const applyEntityQuery = (query: JsonObject) => {
     if (!currentBlock) return;
@@ -502,12 +519,22 @@ export function ScriptEditorPage() {
     anchor.download = `${(script.id || 'script').replace(/[^a-zA-Z0-9_.-]+/g, '_')}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
+    setBaseline(JSON.stringify(exported));
     setStatus({ kind: 'ok', text: 'JSON downloaded' });
   };
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(json); if (mountedRef.current) setStatus({ kind: 'ok', text: 'JSON copied' }); }
     catch { if (mountedRef.current) setStatus({ kind: 'err', text: 'Clipboard unavailable' }); }
+  };
+
+  const newScript = async (): Promise<void> => {
+    if (dirty && !await confirmDialog('Discard unsaved script changes?', { title: 'Unsaved changes' })) return;
+    const next = makeDefaultScript();
+    setScript(next);
+    setBaseline(JSON.stringify(scriptForExport(next)));
+    setSelectedBlock(0);
+    setStatus({ kind: 'ok', text: 'New script' });
   };
 
   const worldInfo = world
@@ -528,12 +555,13 @@ export function ScriptEditorPage() {
         <span class="toolbar-sep">|</span>
         <label for="script-input">Script:</label>
         <input type="file" id="script-input" accept=".json,application/json" onChange={event => {
-          const file = event.currentTarget.files?.[0]; if (file) void loadScript(file);
+          const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void loadScript(file);
         }} />
-        <button id="btn-new" onClick={() => { setScript(makeDefaultScript()); setSelectedBlock(0); setStatus({ kind: 'ok', text: 'New script' }); }}>New</button>
+        <button id="btn-new" onClick={() => { void newScript(); }}>New</button>
         <button id="btn-download" onClick={download}>Download JSON</button>
         <button id="btn-copy" onClick={() => { void copy(); }}>Copy JSON</button>
-        <span id="save-status" class={status.kind}>{status.text}</span>
+        <span aria-live="polite" id="save-status" class={status.kind} role={status.kind === 'err' ? 'alert' : 'status'}>{status.text}</span>
+        {dirty && <span id="dirty-status">unsaved changes</span>}
       </div>
       <div class="toolbar-row" id="toolbar-row3">
         <label for="script-id">ID:</label><input type="text" id="script-id" value={script.id} spellcheck={false}
@@ -547,16 +575,17 @@ export function ScriptEditorPage() {
     </div>
 
     <div id="main" class="app-grid">
-      <section class="pane" id="library-pane">
-        <div class="pane-header"><div class="pane-title">Entity Library</div><span class="pane-count" id="entity-count">{filteredEntities.length}/{entities.length}</span></div>
+      <section aria-labelledby="entity-library-title" class="pane" id="library-pane">
+        <div class="pane-header"><h2 class="pane-title" id="entity-library-title">Entity Library</h2><span class="pane-count" id="entity-count">{filteredEntities.length}/{entities.length}</span></div>
         <div class="pane-body">
-          <input type="text" id="entity-search" placeholder="find entity..." spellcheck={false} autocomplete="off" value={entitySearch}
+          <input aria-label="Search entity library" type="text" id="entity-search" placeholder="find entity..." spellcheck={false} autocomplete="off" value={entitySearch}
             onInput={event => setEntitySearch(event.currentTarget.value)} />
-          <div id="entity-list">{filteredEntities.length === 0
+          <div aria-label="Entity library" id="entity-list" role="listbox">{filteredEntities.length === 0
             ? <EmptyState>{world ? 'No matching entities.' : 'Load a snapshot.'}</EmptyState>
-            : filteredEntities.map(entity => <div class={`entity-row ${entity.id === selectedEntityId ? 'active' : ''}`} data-id={entity.id} key={entity.id}
-              onClick={() => setSelectedEntityId(entity.id)}>
-              <div>{scriptGlobals.BunnylandWorld.entityIcon(entity)}</div><div>
+            : filteredEntities.map((entity, index) => <div aria-selected={entity.id === selectedEntityId} class={`entity-row ${entity.id === selectedEntityId ? 'active' : ''}`} data-id={entity.id} key={entity.id}
+              onClick={() => setSelectedEntityId(entity.id)} onKeyDown={event => moveRovingSelection(event, '[role="option"]', element => { const id = element.dataset.id; if (id) setSelectedEntityId(id); })}
+              role="option" tabIndex={entity.id === selectedEntityId || !selectedEntityId && index === 0 ? 0 : -1}>
+              <div aria-hidden="true">{scriptGlobals.BunnylandWorld.entityIcon(entity)}</div><div>
                 <div class="entity-name">{entityName(entity)}</div>
                 <div class="entity-meta">{scriptGlobals.BunnylandWorld.entityType(entity)}{world && entitySubtitle(entity, world) ? ` · ${entitySubtitle(entity, world)}` : ''}</div>
               </div>
@@ -584,29 +613,29 @@ export function ScriptEditorPage() {
         </div>
       </section>
 
-      <section class="pane" id="editor-pane">
-        <div class="pane-header"><div class="pane-title">Blocks</div><span class="pane-count" id="block-count">{script.blocks.length}</span>
+      <section aria-labelledby="blocks-title" class="pane" id="editor-pane">
+        <div class="pane-header"><h2 class="pane-title" id="blocks-title">Blocks</h2><span class="pane-count" id="block-count">{script.blocks.length}</span>
           <button id="btn-add-block" onClick={() => {
             const block = makeDefaultBlock(script.blocks.length + 1);
             setScript(current => ({ ...current, blocks: [...current.blocks, block] }));
             setSelectedBlock(script.blocks.length);
           }}>Add Block</button>
-          <button id="btn-delete-block" disabled={script.blocks.length === 0} onClick={() => {
+          <button aria-label="Delete selected block" id="btn-delete-block" disabled={script.blocks.length === 0} onClick={() => {
             setScript(current => ({ ...current, blocks: current.blocks.filter((_, index) => index !== selectedBlock) }));
             setSelectedBlock(Math.max(0, Math.min(selectedBlock, script.blocks.length - 2)));
           }}>Delete</button>
         </div>
         <div id="editor-grid">
-          <div id="block-list"><BlockList blocks={blockItems} selectedIndex={selectedBlock} onSelect={setSelectedBlock} /></div>
+          <div aria-label="Script blocks" id="block-list" role="listbox"><BlockList blocks={blockItems} selectedIndex={selectedBlock} onSelect={setSelectedBlock} /></div>
           <div class="editor-scroll" id="block-editor">{currentBlock
             ? <BlockEditor block={currentBlock} onChange={updateBlock} />
             : <EmptyState>Add or select a block.</EmptyState>}</div>
         </div>
       </section>
 
-      <section class="pane" id="preview-pane">
-        <div class="pane-header"><div class="pane-title">JSON</div><span class="pane-count" id="json-size">{new Blob([json]).size} bytes</span></div>
-        <textarea id="json-output" spellcheck={false} readOnly value={json} />
+      <section aria-labelledby="script-preview-title" class="pane" id="preview-pane">
+        <div class="pane-header"><h2 class="pane-title" id="script-preview-title">JSON</h2><span class="pane-count" id="json-size">{new Blob([json]).size} bytes</span></div>
+        <textarea aria-label="Script JSON preview" id="json-output" spellcheck={false} readOnly value={json} />
         <div id="problems" class={problems.length ? '' : 'ok'}>{problems.length
           ? problems.map(problem => <div key={problem}>{problem}</div>) : 'Valid script JSON.'}</div>
       </section>

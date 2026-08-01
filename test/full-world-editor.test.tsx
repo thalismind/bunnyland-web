@@ -7,6 +7,7 @@ import {
   type WorldEditorServices,
 } from '../src/world-editor/app';
 import type { EditorWorld } from '../src/world-editor/models';
+import { expectNoSeriousAxeIssues } from './axe';
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const snapshot: EditorWorld = {
@@ -145,7 +146,7 @@ describe('WorldEditorPage', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it('toggles the snapshot pane and keeps metadata controls in exported JSON', () => {
+  it('skips the hidden snapshot preview and derives current JSON when shown again', async () => {
     const view = renderEditor();
     fireEvent.click(view.container.querySelector('#btn-toggle-snapshot')!);
     expect(view.container.querySelector('#main')?.classList.contains('snapshot-hidden')).toBe(true);
@@ -153,7 +154,13 @@ describe('WorldEditorPage', () => {
     fireEvent.input(view.container.querySelector('#meta-seed')!, { target: { value: 'toolbar-seed' } });
     fireEvent.input(view.container.querySelector('#meta-generator')!, { target: { value: 'toolbar-generator' } });
     fireEvent.input(view.container.querySelector('#meta-epoch')!, { target: { value: '42' } });
-    const text = view.container.querySelector<HTMLTextAreaElement>('#json-output')!.value;
+    expect(view.container.querySelector('#json-output')).toBeNull();
+    fireEvent.click(view.container.querySelector('#btn-toggle-snapshot')!);
+    const text = await waitFor(() => {
+      const value = view.container.querySelector<HTMLTextAreaElement>('#json-output')?.value || '';
+      expect(value).toContain('"epoch": 42');
+      return value;
+    });
     expect(text).toContain('"seed": "toolbar-seed"');
     expect(text).toContain('"generator": "toolbar-generator"');
     expect(text).toContain('"epoch": 42');
@@ -229,5 +236,6 @@ describe('WorldEditorPage', () => {
         },
       }],
     });
+    await expectNoSeriousAxeIssues(view.container);
   });
 });

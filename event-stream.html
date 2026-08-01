@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="assets/bunnyland-themes.css">
   <link rel="stylesheet" href="assets/bunnyland-responsive.css">
   <style>
+    .pane-title { margin: 0; }
     #api-url { width: 240px; }
     #poll-interval { width: 72px; }
     #event-search { width: 100%; }
@@ -67,6 +68,9 @@
     .event-record {
       border-bottom: 1px solid var(--bl-border-muted);
       background: var(--bl-bg-strong);
+      contain: layout paint style;
+      content-visibility: auto;
+      contain-intrinsic-size: auto 36px;
     }
 
     .event-record[open] { background: var(--bl-bg); }

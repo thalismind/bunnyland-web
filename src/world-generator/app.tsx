@@ -125,6 +125,7 @@ export function WorldGeneratorPage() {
   const [save, setSave] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState<'' | 'connect' | 'refresh'>('');
   const [entities, setEntities] = useState<WorldEntity[]>([]);
   const [lastAdded, setLastAdded] = useState<Set<string>>(new Set());
   const [snapshot, setSnapshot] = useState<WorldSnapshot>({});
@@ -133,6 +134,7 @@ export function WorldGeneratorPage() {
   const baseRef = useRef('');
   const entitiesRef = useRef<WorldEntity[]>([]);
   const busyRef = useRef(false);
+  const loadingRef = useRef(false);
   const socketRef = useRef<WebSocket | null>(null);
   const generationRef = useRef<AbortController | null>(null);
   const activityIdRef = useRef(0);
@@ -209,6 +211,8 @@ export function WorldGeneratorPage() {
     baseRef.current = '';
     setBase('');
     setBusy(false);
+    loadingRef.current = false;
+    setLoading('');
     setStatus({ kind: '', text: 'offline' });
     if (sync) BunnylandApi.setServerInUrl('');
   }, [stopAsyncWork]);
@@ -256,12 +260,15 @@ export function WorldGeneratorPage() {
   }, [applySnapshot, fetchSnapshot, log]);
 
   const connect = useCallback(async (url: string) => {
+    if (loadingRef.current) return;
     disconnect(false);
     const server = BunnylandApi.normalizeBase(url);
     if (!server) return;
     baseRef.current = server;
     setBase(server);
     setStatus({ kind: '', text: 'connecting' });
+    loadingRef.current = true;
+    setLoading('connect');
     try {
       await refreshAt(server);
       if (server !== baseRef.current) return;
@@ -272,6 +279,11 @@ export function WorldGeneratorPage() {
       if (server !== baseRef.current) return;
       setStatus({ kind: 'err', text: `error: ${errorMessage(error)}` });
       log(`Connection error: ${errorMessage(error)}`, 'error');
+    } finally {
+      if (server === baseRef.current && mountedRef.current) {
+        loadingRef.current = false;
+        setLoading('');
+      }
     }
   }, [disconnect, log, openSocket, refreshAt]);
 
@@ -290,12 +302,19 @@ export function WorldGeneratorPage() {
   }, [connect, stopAsyncWork]);
 
   const refresh = useCallback(async () => {
-    if (!baseRef.current) return;
+    if (!baseRef.current || loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading('refresh');
     try {
       await refreshAt(baseRef.current);
     } catch (error) {
       setStatus({ kind: 'err', text: `error: ${errorMessage(error)}` });
       log(`Refresh error: ${errorMessage(error)}`, 'error');
+    } finally {
+      if (mountedRef.current) {
+        loadingRef.current = false;
+        setLoading('');
+      }
     }
   }, [log, refreshAt]);
 
@@ -392,18 +411,18 @@ export function WorldGeneratorPage() {
       <div class="toolbar-row" id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input ref={apiInputRef} type="text" id="api-url" defaultValue="/api/v1/" spellcheck={false} />
-        <button id="btn-connect" onClick={() => base ? disconnect() : void connect(apiInputRef.current?.value.trim() ?? '')}>
-          {base ? 'Disconnect' : 'Connect'}
+        <button disabled={Boolean(loading)} id="btn-connect" onClick={() => base ? disconnect() : void connect(apiInputRef.current?.value.trim() ?? '')}>
+          {loading === 'connect' ? 'Connecting…' : base ? 'Disconnect' : 'Connect'}
         </button>
-        <button id="btn-refresh" disabled={!base} onClick={() => { void refresh(); }}>Refresh</button>
-        <span id="api-status" class={status.kind}>{status.text}</span>
+        <button id="btn-refresh" disabled={!base || Boolean(loading)} onClick={() => { void refresh(); }}>{loading === 'refresh' ? 'Refreshing…' : 'Refresh'}</button>
+        <span aria-live="polite" id="api-status" class={status.kind} role={status.kind === 'err' ? 'alert' : 'status'}>{status.text}</span>
       </div>
     </div>
 
     <div id="main" class="app-grid">
-      <section class="pane">
+      <section aria-labelledby="generate-world-title" class="pane">
         <div class="pane-header">
-          <div class="pane-title">Generate World</div>
+          <h2 class="pane-title" id="generate-world-title">Generate World</h2>
           <span class="pane-count" id="generator-count">{generators.length} generator{generators.length === 1 ? '' : 's'}</span>
         </div>
         <div class="pane-body">
@@ -442,14 +461,14 @@ export function WorldGeneratorPage() {
               <div class="hint">This replaces the live ECS world and clears queued commands. Use Save when the server was started with a save path.</div>
             </div>
 
-            <button id="btn-generate" disabled={!base || busy} onClick={() => { void generate(); }}>Generate New World</button>
+            <button id="btn-generate" disabled={!base || busy} onClick={() => { void generate(); }}>{busy ? 'Generating…' : 'Generate New World'}</button>
           </div>
         </div>
       </section>
 
-      <section class="pane">
+      <section aria-labelledby="generation-progress-title" class="pane">
         <div class="pane-header">
-          <div class="pane-title">Progress</div>
+          <h2 class="pane-title" id="generation-progress-title">Progress</h2>
           <span class="pane-count" id="world-summary">
             {entities.length === 0 && snapshot.world_epoch === undefined
               ? 'No world loaded'
@@ -465,7 +484,7 @@ export function WorldGeneratorPage() {
               <div class="metric"><div class="metric-value" id="metric-new">{lastAdded.size}</div><div class="metric-label">new in last snapshot</div></div>
             </div>
           </div>
-          <div id="activity-list">
+          <div aria-live="polite" id="activity-list" role="status">
             {activities.length === 0
               ? <EmptyState id="empty-activity">Connect to a server to load generators and stream world updates.</EmptyState>
               : activities.map(activity => <div class={`activity-row ${activity.kind ? `kind-${activity.kind}` : ''}`} key={activity.id}>
@@ -475,9 +494,9 @@ export function WorldGeneratorPage() {
         </div>
       </section>
 
-      <section class="pane" id="entity-pane">
+      <section aria-labelledby="generated-entities-title" class="pane" id="entity-pane">
         <div class="pane-header">
-          <div class="pane-title">Generated Entities</div>
+          <h2 class="pane-title" id="generated-entities-title">Generated Entities</h2>
           <span class="pane-count" id="entity-count">{entities.length}</span>
         </div>
         <div class="pane-body"><div id="entity-list"><GeneratedEntityList entities={sortedEntities} /></div></div>

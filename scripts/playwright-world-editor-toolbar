@@ -269,6 +269,13 @@ def main() -> None:
         page.locator("#meta-seed").fill("toolbar-seed")
         page.locator("#meta-generator").fill("toolbar-generator")
         page.locator("#meta-epoch").fill("42")
+        page.wait_for_function("""() => {
+            const snapshot = JSON.parse(document.querySelector('#json-output').value);
+            return snapshot.bunnyland.seed === 'toolbar-seed'
+                && snapshot.bunnyland.generator === 'toolbar-generator'
+                && snapshot.metadata.epoch === 42
+                && snapshot.bunnyland.saved_at_epoch === 42;
+        }""")
         snapshot = json.loads(page.locator("#json-output").input_value())
         meta = {
             "seed": snapshot["bunnyland"]["seed"],

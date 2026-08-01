@@ -138,6 +138,7 @@ export function MemoryTagEditor({ disabled, onChange, value }: MemoryTagEditorPr
       </div>
       <div class="tag-entry">
         <input
+          aria-label="New tag"
           class="tag-input"
           disabled={disabled}
           onInput={(event): void => setDraft(event.currentTarget.value)}
@@ -222,13 +223,18 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<EditorDraft>(EMPTY_DRAFT);
   const [editorNotice, setEditorNotice] = useState('');
+  const [pending, setPendingState] = useState('');
   const baseRef = useRef('');
   const aliveRef = useRef(true);
   const requestGeneration = useRef(0);
   const documentTextRef = useRef<HTMLTextAreaElement>(null);
+  const newDocumentButtonRef = useRef<HTMLButtonElement>(null);
+  const changedRef = useRef(false);
+  const pendingRef = useRef('');
 
   const metadata = useMemo(() => parseMetadata(draft.metadata), [draft.metadata]);
   const changed = draft.text !== draft.originalText || draft.metadata !== draft.originalMetadata;
+  changedRef.current = changed;
   const hasDocument = selectedDocument !== null;
   const editorStatus = editorNotice || (
     !hasDocument ? 'Select a document.'
@@ -243,7 +249,13 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
     setEditorNotice('');
   }, []);
 
-  const disconnect = useCallback((sync = true): void => {
+  const setPending = useCallback((value: string): void => {
+    pendingRef.current = value;
+    setPendingState(value);
+  }, []);
+
+  const disconnect = useCallback(async (sync = true): Promise<void> => {
+    if (changedRef.current && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' })) return;
     requestGeneration.current += 1;
     baseRef.current = '';
     setBase('');
@@ -256,6 +268,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   }, [clearEditor, services]);
 
   const connect = useCallback(async (url: string): Promise<void> => {
+    if (pendingRef.current) return;
+    if (changedRef.current && !await confirmDialog('Discard unsaved changes?', { title: 'Unsaved changes' })) return;
     const normalized = services.normalizeBase(url);
     requestGeneration.current += 1;
     const generation = requestGeneration.current;
@@ -271,6 +285,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       return;
     }
     setApiStatus('connecting');
+    setPending('connect');
     try {
       const response = await services.sendAdmin(normalized, '/admin/memory/collections');
       if (!aliveRef.current || requestGeneration.current !== generation) return;
@@ -283,8 +298,20 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       baseRef.current = '';
       setBase('');
       setApiStatus(`error: ${errorMessage(error)}`);
+    } finally {
+      if (aliveRef.current && requestGeneration.current === generation) setPending('');
     }
-  }, [clearEditor, services]);
+  }, [clearEditor, services, setPending]);
+
+  useEffect(() => {
+    if (!changed) return;
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [changed]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -310,7 +337,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   }, [connect, services]);
 
   const refresh = async (): Promise<void> => {
-    if (!base) return;
+    if (!base || pendingRef.current) return;
+    setPending('refresh');
     const generation = ++requestGeneration.current;
     try {
       const response = await services.sendAdmin(base, '/admin/memory/collections');
@@ -327,6 +355,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       clearEditor();
     } catch (error) {
       if (aliveRef.current) setApiStatus(`error: ${errorMessage(error)}`);
+    } finally {
+      if (aliveRef.current) setPending('');
     }
   };
 
@@ -372,7 +402,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
   };
 
   const saveDocument = async (): Promise<void> => {
-    if (!selectedDocument || !collection || !metadata.ok) return;
+    if (!selectedDocument || !collection || !metadata.ok || pendingRef.current) return;
+    setPending('save');
     const generation = requestGeneration.current;
     const path = creatingDocument
       ? `/admin/memory/collections/${encodeURIComponent(collection)}/documents`
@@ -393,15 +424,18 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       setEditorNotice('');
     } catch (error) {
       if (aliveRef.current) setEditorNotice(`Error: ${errorMessage(error)}`);
+    } finally {
+      if (aliveRef.current) setPending('');
     }
   };
 
   const deleteDocument = async (): Promise<void> => {
-    if (!selectedDocument || !collection || creatingDocument) return;
+    if (!selectedDocument || !collection || creatingDocument || pendingRef.current) return;
     const id = selectedDocument.id;
     if (!await confirmDialog(`Delete memory document ${id}?`, {
       confirmLabel: 'Delete', title: 'Delete memory document', tone: 'danger',
     })) return;
+    setPending('delete');
     const generation = requestGeneration.current;
     try {
       await services.sendAdmin(
@@ -412,8 +446,11 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
       if (!aliveRef.current || requestGeneration.current !== generation) return;
       setDocuments((current) => current.filter((item) => item.id !== id));
       clearEditor();
+      requestAnimationFrame(() => newDocumentButtonRef.current?.focus());
     } catch (error) {
       if (aliveRef.current) setEditorNotice(`Error: ${errorMessage(error)}`);
+    } finally {
+      if (aliveRef.current) setPending('');
     }
   };
 
@@ -461,12 +498,12 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
           type="text"
           value={apiUrl}
         />
-        <Button id="btn-connect" onClick={(): void => {
-          if (base) disconnect();
+        <Button disabled={Boolean(pending)} id="btn-connect" onClick={(): void => {
+          if (base) void disconnect();
           else void connect(apiUrl.trim());
-        }}>{base ? 'Disconnect' : 'Connect'}</Button>
-        <Button disabled={!base} id="btn-refresh" onClick={(): void => { void refresh(); }}>Refresh</Button>
-        <StatusText class={statusTone === 'ok' ? 'ok' : statusTone === 'error' ? 'err' : ''} id="api-status" tone={statusTone}>{apiStatus}</StatusText>
+        }}>{pending === 'connect' ? 'Connecting…' : base ? 'Disconnect' : 'Connect'}</Button>
+        <Button disabled={!base || Boolean(pending)} id="btn-refresh" onClick={(): void => { void refresh(); }}>{pending === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button>
+        <StatusText aria-live="polite" class={statusTone === 'ok' ? 'ok' : statusTone === 'error' ? 'err' : ''} id="api-status" role={statusTone === 'error' ? 'alert' : 'status'} tone={statusTone}>{apiStatus}</StatusText>
       </ToolbarRow>
     </Toolbar>
 
@@ -494,6 +531,7 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
         <div class="pane-body">
           <div class="control-stack">
             <input
+              aria-label="Search memory documents"
               id="memory-search"
               onInput={(event): void => setQuery(event.currentTarget.value)}
               placeholder="Search id, source, tags, or text"
@@ -523,6 +561,8 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
         <div id="document-editor">
           <label for="document-text">Document
             <textarea
+              aria-describedby={!metadata.ok ? 'metadata-error' : undefined}
+              aria-invalid={!metadata.ok}
               disabled={!hasDocument}
               id="document-text"
               onInput={(event): void => {
@@ -556,21 +596,21 @@ export function CharacterMemoryPage({ services = DEFAULT_BROWSER_SERVICES }: Cha
               value={draft.metadata}
             />
           </label>
-          <div id="metadata-error">{metadata.ok ? '' : metadata.error}</div>
+          <div aria-live="polite" id="metadata-error" role={!metadata.ok ? 'alert' : undefined}>{metadata.ok ? '' : metadata.error}</div>
           <div id="editor-actions">
-            <Button disabled={!collection} id="btn-new-document" onClick={(): void => { void newDocument(); }}>New</Button>
+            <Button disabled={!collection || Boolean(pending)} id="btn-new-document" onClick={(): void => { void newDocument(); }} ref={newDocumentButtonRef}>New</Button>
             <Button
-              disabled={!hasDocument || !changed || !metadata.ok}
+              disabled={!hasDocument || !changed || !metadata.ok || Boolean(pending)}
               id="btn-save-document"
               onClick={(): void => { void saveDocument(); }}
-            >Save</Button>
+            >{pending === 'save' ? 'Saving…' : 'Save'}</Button>
             <Button
-              disabled={!hasDocument || creatingDocument}
+              disabled={!hasDocument || creatingDocument || Boolean(pending)}
               id="btn-delete-document"
               onClick={(): void => { void deleteDocument(); }}
               variant="danger"
-            >Delete</Button>
-            <span id="editor-status">{editorStatus}</span>
+            >{pending === 'delete' ? 'Deleting…' : 'Delete'}</Button>
+            <span aria-live="polite" id="editor-status" role={editorStatus.startsWith('Error:') ? 'alert' : 'status'}>{editorStatus}</span>
           </div>
         </div>
       </Pane>

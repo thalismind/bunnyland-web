@@ -7,10 +7,12 @@ import {
   type CharacterMemoryServices,
   type MemoryDocument,
 } from '../src/character-memory/app';
+import { expectNoSeriousAxeIssues } from './axe';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const DOCUMENT: MemoryDocument = {
@@ -134,6 +136,7 @@ describe('full Character Memory page', () => {
       metadata: { source: 'note', tags: ['forage'] },
     });
     await waitFor(() => expect(view.container.querySelector('#editor-status')?.textContent).toBe('Ready.'));
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('invalidates pending requests and closes the client menu on unmount', async () => {
@@ -149,5 +152,27 @@ describe('full Character Memory page', () => {
     resolveRequest?.({ characters: [{ character_id: 'late', name: 'Late' }] });
     await pending;
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('guards disconnect and browser unload while a memory draft is dirty', async () => {
+    const confirmDialog = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.stubGlobal('BunnylandUI', { confirmDialog });
+    const sendAdmin = vi.fn(async (_base: string, path: string) => {
+      if (path.endsWith('/memory/collections')) return {
+        characters: [{ character_id: 'character:hazel', name: 'Hazel', private_collection: 'memory-hazel' }],
+      };
+      return { documents: [DOCUMENT] };
+    });
+    const view = render(<CharacterMemoryPage services={services(sendAdmin)} />);
+    const editor = await openDocument(view);
+    fireEvent.input(editor, { target: { value: 'Unsaved draft.' } });
+    expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false);
+
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    expect((view.container.querySelector('#document-text') as HTMLTextAreaElement).value).toBe('Unsaved draft.');
+    expect(view.container.querySelector('#btn-connect')?.textContent).toBe('Disconnect');
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelector('#btn-connect')?.textContent).toBe('Connect'));
   });
 });

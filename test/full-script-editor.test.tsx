@@ -2,9 +2,11 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ScriptEditorPage, normalizeScript, validateScript } from '../src/script-editor/app';
+import { expectNoSeriousAxeIssues } from './axe';
 
 const initClientMenu = vi.fn();
 const promptDialog = vi.fn(async () => null);
+const confirmDialog = vi.fn(async () => true);
 const world = {
   controlInfo: vi.fn(() => null),
   entityDisplayName: vi.fn((entity: { components: Record<string, { name?: string }>; id: string }) =>
@@ -28,7 +30,7 @@ const world = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('BunnylandUI', { initClientMenu, promptDialog });
+  vi.stubGlobal('BunnylandUI', { confirmDialog, initClientMenu, promptDialog });
   vi.stubGlobal('BunnylandWorld', world);
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -87,6 +89,7 @@ describe('ScriptEditorPage', () => {
 
     expect(view.getByText('Target query updated')).toBeTruthy();
     expect(view.container.querySelector<HTMLTextAreaElement>('.target-query')?.value).toContain('entity_juniper');
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('revokes the temporary object URL after downloading JSON', () => {
@@ -101,6 +104,37 @@ describe('ScriptEditorPage', () => {
     expect(click).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:script-json');
     expect(view.getByText('JSON downloaded')).toBeTruthy();
+  });
+
+  it('guards New and browser unload while script changes are unsaved', async () => {
+    confirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const view = render(<ScriptEditorPage />);
+    fireEvent.click(view.getByText('Add Block'));
+    expect(view.container.querySelectorAll('.block-row')).toHaveLength(1);
+    const unload = new Event('beforeunload', { cancelable: true });
+    expect(window.dispatchEvent(unload)).toBe(false);
+
+    fireEvent.click(view.container.querySelector('#btn-new')!);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    expect(view.container.querySelectorAll('.block-row')).toHaveLength(1);
+    fireEvent.click(view.container.querySelector('#btn-new')!);
+    await waitFor(() => expect(view.container.querySelectorAll('.block-row')).toHaveLength(0));
+    expect(view.container.querySelector('#dirty-status')).toBeNull();
+  });
+
+  it('guards script file replacement and permits retrying the same file after Cancel', async () => {
+    confirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const view = render(<ScriptEditorPage />);
+    fireEvent.click(view.getByText('Add Block'));
+    const file = new File(['{}'], 'replacement.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: vi.fn(async () => JSON.stringify({ id: 'loaded-script' })) });
+    const input = view.container.querySelector<HTMLInputElement>('#script-input')!;
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    expect((view.container.querySelector('#script-id') as HTMLInputElement).value).toBe('local.script');
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect((view.container.querySelector('#script-id') as HTMLInputElement).value).toBe('loaded-script'));
   });
 });
 

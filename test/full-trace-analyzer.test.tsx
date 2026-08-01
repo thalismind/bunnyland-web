@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TraceAnalyzerPage } from '../src/trace-analyzer/app';
+import { expectNoSeriousAxeIssues } from './axe';
 
 const rootSpan = {
   attributes: { release: 'test' }, children: [] as unknown[], depth: 0, durationNs: 50_000_000,
@@ -79,6 +80,7 @@ describe('TraceAnalyzerPage', () => {
     fireEvent.click(view.getByText('Span ID'));
     await waitFor(() => expect(view.getByText('Copied')).toBeTruthy());
     expect(writeText).toHaveBeenCalledWith('cccccccccccccccc');
+    await expectNoSeriousAxeIssues(view.container);
     view.unmount();
     expect(clearTimeout).toHaveBeenCalled();
   });

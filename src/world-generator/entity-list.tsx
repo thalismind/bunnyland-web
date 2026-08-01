@@ -21,7 +21,7 @@ export function GeneratedEntityList({ entities }: GeneratedEntityListProps) {
         data-id={entity.id}
         key={entity.id}
       >
-        <div>{entity.icon}</div>
+        <div aria-hidden="true">{entity.icon}</div>
         <div>
           <div class="entity-name">{entity.name}</div>
           <div class="entity-meta">{entity.kind} · {entity.id}</div>
