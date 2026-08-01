@@ -382,4 +382,33 @@ describe('full Character page', () => {
     expect(runtime.services.fetchCharacterList).toHaveBeenCalled();
     expect(runtime.services.fetchCharacterProfile).toHaveBeenCalled();
   });
+
+  it('preserves a manually scrolled chat position across profile refreshes', async () => {
+    localStorage.setItem(
+      'bunnyland.characterChat.history.chat-test-client.character:one',
+      JSON.stringify({
+        messages: Array.from({ length: 20 }, (_, index) => ({
+          role: index % 2 ? 'character' : 'user',
+          text: `Earlier message ${index}`,
+        })),
+        summary: '',
+      }),
+    );
+    const runtime = makeServices();
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    const transcript = view.container.querySelector('#transcript') as HTMLDivElement;
+    Object.defineProperties(transcript, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 1000 },
+    });
+    transcript.scrollTop = 240;
+    fireEvent.scroll(transcript);
+
+    await appFacade()?.refresh();
+    await waitFor(() => expect(runtime.services.fetchCharacterProfile).toHaveBeenCalledTimes(2));
+    expect(transcript.scrollTop).toBe(240);
+  });
 });

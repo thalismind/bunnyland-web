@@ -381,7 +381,7 @@ export function CharacterPage({
   const [selectedLlmController, setSelectedLlmController] = useState('');
   const [controllerOptionsStatus, setControllerOptionsStatus] = useState('');
   const [assigningController, setAssigningController] = useState(false);
-  const [, setHistoryRevision] = useState(0);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
   const [rememberDevice, setRememberDevice] = useState(() => rememberOnThisDevice());
   const [, forceRender] = useState(0);
@@ -398,6 +398,7 @@ export function CharacterPage({
   const portraitUploadRef = useRef<HTMLInputElement>(null);
   const spriteUploadRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const followTranscriptRef = useRef(true);
 
   apiBaseRef.current = apiBase;
   connectedRef.current = connected;
@@ -557,6 +558,7 @@ export function CharacterPage({
     setUploadState('');
     setUploadingPurpose('');
     setChatDraft('');
+    followTranscriptRef.current = true;
     setChatStatus(next ? 'Loading character…' : 'Select a character to start chatting.');
     if (options.updateHash) {
       const url = new URL(location.href);
@@ -819,10 +821,10 @@ export function CharacterPage({
   }, [markdownEnabled, selectedChatState.messages, services]);
 
   useLayoutEffect(() => {
-    if (view === 'chat' && transcriptRef.current) {
+    if (view === 'chat' && transcriptRef.current && followTranscriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
-  }, [chatTyping, transcriptItems, view]);
+  }, [chatClientId, chatTyping, historyRevision, markdownEnabled, selectedId, view]);
 
   const submitChat = async (): Promise<void> => {
     const message = chatDraft.trim();
@@ -836,6 +838,7 @@ export function CharacterPage({
       || lifecycleUnavailable) return;
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
+    followTranscriptRef.current = true;
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
     setCharacterTyping(characterId, true);
     setChatStatus('Waiting for reply…');
@@ -1124,7 +1127,15 @@ export function CharacterPage({
               >Clear History</Button>
             </div>
           </div>
-          <div id="transcript" ref={transcriptRef}>
+          <div
+            id="transcript"
+            onScroll={(event): void => {
+              const transcript = event.currentTarget;
+              followTranscriptRef.current = transcript.scrollHeight
+                - transcript.scrollTop - transcript.clientHeight <= 48;
+            }}
+            ref={transcriptRef}
+          >
             <Transcript
               emptyMessage={selectedId
                 ? 'No local chat history for this character.'

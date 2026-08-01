@@ -263,6 +263,44 @@ def assert_mobile_chat_usable(page) -> None:
     page.set_viewport_size({"width": 1280, "height": 800})
 
 
+def assert_mobile_chat_scroll_stable(page) -> None:
+    page.evaluate(
+        """
+        () => localStorage.setItem(
+          'bunnyland.characterChat.history.character-chat-client.character:1',
+          JSON.stringify({
+            messages: Array.from({ length: 20 }, (_, index) => ({
+              role: index % 2 ? 'character' : 'user',
+              text: `Earlier mobile message ${index}`,
+            })),
+            summary: '',
+          }),
+        )
+        """
+    )
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("() => window.app?.projection?.characterId === 'character:1'")
+    page.set_viewport_size({"width": 390, "height": 760})
+    page.wait_for_function(
+        "() => document.querySelector('#transcript').scrollHeight > document.querySelector('#transcript').clientHeight"
+    )
+    before = page.locator("#transcript").evaluate(
+        """
+        transcript => {
+          transcript.scrollTop = Math.floor(transcript.scrollHeight / 2);
+          transcript.dispatchEvent(new Event('scroll'));
+          return transcript.scrollTop;
+        }
+        """
+    )
+    with page.expect_response("**/profile/characters/*", timeout=5000):
+        pass
+    after = page.locator("#transcript").evaluate("transcript => transcript.scrollTop")
+    if after != before:
+        raise AssertionError(f"mobile chat polling changed scroll position: {before} -> {after}")
+    page.set_viewport_size({"width": 1280, "height": 800})
+
+
 def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -389,6 +427,7 @@ def main() -> None:
         if state["chat_payloads"][-1]["history"] != []:
             raise AssertionError(f"unexpected chat history payload: {state['chat_payloads']!r}")
         assert_mobile_chat_usable(page)
+        assert_mobile_chat_scroll_stable(page)
         page.locator("#tab-sheet").click()
         expect(page.locator("#vitals")).to_contain_text("Health")
 
