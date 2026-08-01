@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { contentFlagsFromResource, ignoredContentFlags, useContentWarningGate } from '../src/content-warning';
+import {
+  contentFlagsFromResource,
+  hasWorldIntroduction,
+  ignoredContentFlags,
+  useContentWarningGate,
+} from '../src/content-warning';
 
 function Harness({ fetcher, joined }: {
   fetcher: (base: string) => Promise<unknown>;
@@ -86,6 +91,46 @@ describe('content warning gate', () => {
     await waitFor(() => expect(joined).toHaveBeenCalledOnce());
     fireEvent.click(view.getByText('Join'));
     await waitFor(() => expect(joined).toHaveBeenCalledTimes(2));
+  });
+
+  it('enters immediately when all entry content is empty or ignored', async () => {
+    const joined = vi.fn();
+    const fetcher = vi.fn(async () => ({
+      ...world(['adult:violence']), title: '  ', description: '\n',
+    }));
+    localStorage.setItem('bunnyland.contentFlags.ignore', JSON.stringify(['adult:violence']));
+    const view = render(<Harness fetcher={fetcher} joined={joined} />);
+
+    fireEvent.click(view.getByText('Join'));
+    await waitFor(() => expect(joined).toHaveBeenCalledOnce());
+    expect(view.queryByRole('dialog')).toBeNull();
+  });
+
+  it('continues directly after accepting a warning when the introduction is empty', async () => {
+    const joined = vi.fn();
+    const view = render(<Harness
+      fetcher={async () => ({
+        ...world(['adult:violence']), title: '', description: '',
+      })}
+      joined={joined}
+    />);
+
+    fireEvent.click(view.getByText('Join'));
+    fireEvent.click(await view.findByText('Accept and Join'));
+    await waitFor(() => expect(joined).toHaveBeenCalledOnce());
+    expect(view.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows introductions with either a title or a description', () => {
+    expect(hasWorldIntroduction({
+      contentFlags: [], description: '', title: 'Clover City', worldEpoch: 1, worldId: 'world-1',
+    })).toBe(true);
+    expect(hasWorldIntroduction({
+      contentFlags: [], description: 'Welcome.', title: '', worldEpoch: 1, worldId: 'world-1',
+    })).toBe(true);
+    expect(hasWorldIntroduction({
+      contentFlags: [], description: '\n', title: '  ', worldEpoch: 1, worldId: 'world-1',
+    })).toBe(false);
   });
 
   it('rejects malformed resource shapes and flags', () => {

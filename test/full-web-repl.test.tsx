@@ -154,6 +154,19 @@ afterEach(() => {
 });
 
 describe('full Web REPL page', () => {
+  it('claims immediately when the world has no entry content', async () => {
+    const runtime = services();
+    vi.mocked(runtime.service.fetchContentFlags).mockResolvedValue({
+      world_id: 'world-1', world_epoch: 7, title: '  ', description: '\n', content_flags: [],
+    });
+    const view = render(<WebReplPage services={runtime.service} />);
+    await waitFor(() => expect(view.container.querySelector('#player-select option[value="character:one"]')).toBeTruthy());
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: 'character:one' } });
+    await waitFor(() => expect(runtime.service.claimWebController).toHaveBeenCalledOnce());
+    expect(view.queryByRole('dialog')).toBeNull();
+  });
+
   it('blocks claiming until flagged world content is accepted', async () => {
     const runtime = services();
     vi.mocked(runtime.service.fetchContentFlags).mockResolvedValue({

@@ -7,7 +7,10 @@ const CHARACTER = 'character:1';
 const OTHER = 'character:2';
 const ITEM = 'item:1';
 
-function harness(contentFlags: string[] = []) {
+function harness(
+  contentFlags: string[] = [],
+  introduction: { description?: string; title?: string } = {},
+) {
   const close = vi.fn();
   const createPlayerLiveUpdates = vi.fn(() => ({ close }));
   const clearClaimControl = vi.fn();
@@ -89,8 +92,8 @@ function harness(contentFlags: string[] = []) {
       sendJson: async () => ({
         world_id: 'world-1',
         world_epoch: 7,
-        title: 'Clover City',
-        description: '',
+        title: introduction.title ?? 'Clover City',
+        description: introduction.description ?? '',
         content_flags: contentFlags,
       }),
     },
@@ -116,6 +119,18 @@ afterEach(() => {
 });
 
 describe('ToonPage', () => {
+  it('claims immediately when the world has no entry content', async () => {
+    const test = harness([], { description: '\n', title: '  ' });
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(test.claimWebController).toHaveBeenCalledOnce());
+    expect(view.queryByRole('dialog')).toBeNull();
+  });
+
   it('blocks claiming until flagged world content is accepted', async () => {
     const test = harness(['adult:violence']);
     const view = render(<ToonPage runtime={test.runtime} />);

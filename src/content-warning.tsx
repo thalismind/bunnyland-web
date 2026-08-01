@@ -96,6 +96,10 @@ export function contentFlagsFromResource(resource: unknown): string[] {
   return publicWorldFromResource(resource).contentFlags;
 }
 
+export function hasWorldIntroduction(world: PublicWorldResource): boolean {
+  return Boolean(world.title.trim() || world.description.trim());
+}
+
 export function ignoredContentFlags(): string[] {
   try { return normalizeFlags(JSON.parse(localStorage.getItem(IGNORED_CONTENT_FLAGS_KEY) || '[]'));
   } catch { return []; }
@@ -263,7 +267,11 @@ export function useContentWarningGate(fetchContentFlags: ContentFlagsFetcher) {
     const visible = flags.filter(flag => !ignored.has(flag));
     if (!visible.length || warningAccepted) {
       accepted.current.set(introScope, signature);
-      if (introduced.current.has(introScope) || shouldSkipWorldIntro(base, world.worldId)) {
+      if (
+        !hasWorldIntroduction(world)
+        || introduced.current.has(introScope)
+        || shouldSkipWorldIntro(base, world.worldId)
+      ) {
         return true;
       }
       return new Promise<boolean>((resolve) => {
@@ -307,7 +315,8 @@ export function useContentWarningGate(fetchContentFlags: ContentFlagsFetcher) {
     const introScope = worldIntroScope(pending.base, pending.resource.worldId);
     accepted.current.set(introScope, pending.signature);
     if (
-      introduced.current.has(introScope)
+      !hasWorldIntroduction(pending.resource)
+      || introduced.current.has(introScope)
       || shouldSkipWorldIntro(pending.base, pending.resource.worldId)
     ) {
       resolver.current = null;

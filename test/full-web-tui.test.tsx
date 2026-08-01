@@ -139,6 +139,20 @@ async function connectAndSelect(container: HTMLElement) {
 }
 
 describe('WebTuiPage', () => {
+  it('claims immediately when the world has no entry content', async () => {
+    bunnylandApi.sendJson.mockResolvedValue({
+      world_id: 'world-1', world_epoch: 7, title: '  ', description: '\n', content_flags: [],
+    });
+    const view = render(<WebTuiPage />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api/' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: character.id } });
+    await waitFor(() => expect(play.claimWebController).toHaveBeenCalledOnce());
+    expect(view.queryByRole('dialog')).toBeNull();
+  });
+
   it('prompts for login and awaits the claim before starting the first live connection', async () => {
     let resolveClaim: (value: Record<string, unknown>) => void = () => undefined;
     play.claimWebController.mockImplementationOnce(() => new Promise(resolve => {
