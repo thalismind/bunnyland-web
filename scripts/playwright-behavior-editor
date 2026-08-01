@@ -154,6 +154,9 @@ def test_reset_root_and_new(page) -> None:
     assert_(node_count(page) == 1, "resetting the root left extra nodes")
     assert_("has no children" in problems_text(page), "empty root composite was not flagged")
     page.click("#btn-new")
+    discard_dialog = page.locator("#bl-action-dialog[open]")
+    expect(discard_dialog.locator("#bl-action-dialog-title")).to_have_text("Unsaved changes")
+    discard_dialog.locator(".bl-dialog-confirm").click()
     assert_(spec_json(page)["name"] == "local-behavior", "New did not restore the default name")
     assert_(node_count(page) >= 4, "New did not restore the default tree")
 

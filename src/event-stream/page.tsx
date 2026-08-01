@@ -94,12 +94,19 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
   const [typeFilter, setTypeFilter] = useState('');
   const [hideRoutine, setHideRoutine] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [pending, setPendingState] = useState<'' | 'connect' | 'refresh'>('');
   const baseRef = useRef('');
   const eventRef = useRef<StreamEvent[]>([]);
   const authRef = useRef<string | null>(null);
   const pollingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
+  const pendingRef = useRef(false);
+
+  const setPending = useCallback((value: '' | 'connect' | 'refresh'): void => {
+    pendingRef.current = Boolean(value);
+    setPendingState(value);
+  }, []);
 
   const nameFor = useCallback((id: unknown): string => {
     if (!id) return '';
@@ -153,6 +160,7 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
   }, [runtime]);
 
   const connect = useCallback(async (candidate: string): Promise<void> => {
+    if (pendingRef.current) return;
     const normalized = runtime.api.normalizeBase(candidate);
     if (!normalized) return;
     disconnect(true);
@@ -160,9 +168,21 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
     setBase(normalized);
     setApiUrl(normalized);
     setStatus('Connecting...');
+    setPending('connect');
     runtime.api.setServerInUrl(normalized);
-    await Promise.allSettled([loadEntityNamesFrom(normalized), refreshFrom(normalized)]);
-  }, [disconnect, loadEntityNamesFrom, refreshFrom, runtime]);
+    try {
+      await Promise.allSettled([loadEntityNamesFrom(normalized), refreshFrom(normalized)]);
+    } finally {
+      setPending('');
+    }
+  }, [disconnect, loadEntityNamesFrom, refreshFrom, runtime, setPending]);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    if (!baseRef.current || pendingRef.current) return;
+    setPending('refresh');
+    try { await refreshFrom(baseRef.current); }
+    finally { setPending(''); }
+  }, [refreshFrom, setPending]);
 
   useEffect(() => {
     runtime.ui.initClientMenu();
@@ -223,7 +243,7 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
       eventId: id,
       icon: runtime.events.icon(type),
       involved: runtime.events.involvedIds(data).map(entityId => ({ id: entityId, name: nameFor(entityId) })),
-      json: JSON.stringify(data, null, 2),
+      json: expanded.has(id) ? JSON.stringify(data, null, 2) : '',
       open: expanded.has(id),
       summary: runtime.events.eventSummary(type, body, nameFor),
       type,
@@ -249,25 +269,25 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
       <div class="toolbar-row" id="toolbar-row2">
         <label for="api-url">Server:</label>
         <input id="api-url" type="text" value={apiUrl} spellcheck={false} onInput={event => setApiUrl(event.currentTarget.value)} />
-        <Button id="btn-connect" onClick={(): void => base ? disconnect() : void connect(apiUrl.trim())}>{base ? 'Disconnect' : 'Connect'}</Button>
-        <Button id="btn-refresh" disabled={!base} onClick={(): void => { void refreshFrom(base); }}>Refresh</Button>
+        <Button disabled={Boolean(pending)} id="btn-connect" onClick={(): void => base ? disconnect() : void connect(apiUrl.trim())}>{pending === 'connect' ? 'Connecting…' : base ? 'Disconnect' : 'Connect'}</Button>
+        <Button id="btn-refresh" disabled={!base || Boolean(pending)} onClick={(): void => { void refresh(); }}>{pending === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button>
         <label class="control-row" for="live-toggle"><input id="live-toggle" type="checkbox" checked={live} onChange={event => setLive(event.currentTarget.checked)} /> live</label>
         <label for="poll-interval">Poll</label>
         <input id="poll-interval" type="number" min="1" max="60" step="1" value={pollInterval} onChange={event => setPollInterval(Math.max(1, Number(event.currentTarget.value) || 5))} />
-        <span id="api-status">{status}</span>
+        <span aria-live="polite" id="api-status" role={status.startsWith('error:') ? 'alert' : 'status'}>{status}</span>
       </div>
     </div>
 
     <div id="main" class="app-grid">
-      <section class="pane" id="controls-pane">
+      <section aria-labelledby="event-filters-title" class="pane" id="controls-pane">
         <div class="pane-header">
-          <div class="pane-title">Filters</div>
+          <h2 class="pane-title" id="event-filters-title">Filters</h2>
           <span class="pane-count" id="visible-count">{records.length}</span>
         </div>
         <div class="pane-body">
           <div class="control-stack">
-            <input id="event-search" type="search" value={search} placeholder="Search event type, actor, entity, text, or JSON" spellcheck={false} onInput={event => setSearch(event.currentTarget.value)} />
-            <select id="event-type-filter" value={typeFilter} onChange={event => setTypeFilter(event.currentTarget.value)}>
+            <input aria-label="Search events" id="event-search" type="search" value={search} placeholder="Search event type, actor, entity, text, or JSON" spellcheck={false} onInput={event => setSearch(event.currentTarget.value)} />
+            <select aria-label="Filter by event type" id="event-type-filter" value={typeFilter} onChange={event => setTypeFilter(event.currentTarget.value)}>
               <option value="">All event types</option>
               {types.map(type => <option key={type} value={type}>{type}</option>)}
             </select>
@@ -295,9 +315,9 @@ export function EventStreamPage({ runtime }: EventStreamPageProps) {
         </div>
       </section>
 
-      <section class="pane" id="events-pane">
+      <section aria-labelledby="events-title" class="pane" id="events-pane">
         <div class="pane-header">
-          <div class="pane-title">Events</div>
+          <h2 class="pane-title" id="events-title">Events</h2>
           <span class="pane-count" id="stream-state">{streamState}</span>
         </div>
         <div id="event-list" ref={listRef}>

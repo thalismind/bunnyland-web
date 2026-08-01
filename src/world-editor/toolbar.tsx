@@ -28,6 +28,7 @@ interface EditorToolbarProps {
   onRefreshLibrary: () => void;
   onSaveLive: () => void;
   onWorldDetails: (details: WorldDetails) => Promise<void> | void;
+  pending: string;
   onToggleLive: () => void;
   onToggleSnapshot: () => void;
   runtime: RuntimeState;
@@ -39,7 +40,7 @@ interface EditorToolbarProps {
 }
 
 export function EditorToolbar(props: EditorToolbarProps) {
-  const { apiUrl, fragmentId, fragments, live, liveAuthorized, runtime, selected, snapshotVisible, status, world } = props;
+  const { apiUrl, fragmentId, fragments, live, liveAuthorized, pending, runtime, selected, snapshotVisible, status, world } = props;
   const runtimeText = !live ? 'runtime: offline' : runtime.paused == null ? 'runtime: locked' : runtime.paused ? 'runtime: paused' : runtime.running ? 'runtime: playing' : 'runtime: stopped';
   return <Toolbar id="toolbar">
     <ToolbarRow class="toolbar-heading" id="toolbar-row1"><ToolbarBrand icon={<img src="favicon.png" alt="" />}> Bunnyland World Editor</ToolbarBrand><Button id="btn-client-menu" class="client-menu-button">Menu</Button></ToolbarRow>
@@ -47,15 +48,15 @@ export function EditorToolbar(props: EditorToolbarProps) {
       <label for="file-input">World:</label><input type="file" id="file-input" accept=".json,application/json" onChange={event => { const file = event.currentTarget.files?.[0]; if (file) props.onLoadWorld(file); }} />
       <Button id="btn-new" onClick={props.onNew}>New World</Button><span class="toolbar-sep">|</span>
       <label for="api-url">Server:</label><input type="text" id="api-url" value={apiUrl} spellcheck={false} onInput={event => props.onApiUrl(event.currentTarget.value)} />
-      <Button id="btn-fetch" onClick={props.onFetch}>{!liveAuthorized ? 'Login for Live' : 'Load Snapshot'}</Button>
-      <Button id="btn-save-live" onClick={props.onSaveLive}>Save Live</Button>
-      <Button id="btn-toggle-live" disabled={!live} title={!live ? 'Load a server snapshot before changing runtime state' : runtime.paused ? 'Resume world ticks' : 'Pause world ticks'} onClick={props.onToggleLive}>{!live || runtime.paused == null ? '⏯' : runtime.paused ? '▶' : '⏸'}</Button>
-      <span id="runtime-status">{runtimeText}</span><StatusText id="status" class={status.kind} tone={status.kind === 'err' ? 'error' : status.kind === 'ok' ? 'ok' : 'muted'}>{status.text}</StatusText>
+      <Button disabled={Boolean(pending)} id="btn-fetch" onClick={props.onFetch}>{pending === 'fetch' ? 'Loading…' : !liveAuthorized ? 'Login for Live' : 'Load Snapshot'}</Button>
+      <Button disabled={!live || Boolean(pending)} id="btn-save-live" onClick={props.onSaveLive}>{pending === 'save' ? 'Saving…' : 'Save Live'}</Button>
+      <Button aria-label={!live ? 'World runtime unavailable' : runtime.paused ? 'Resume world ticks' : 'Pause world ticks'} id="btn-toggle-live" disabled={!live || Boolean(pending)} title={!live ? 'Load a server snapshot before changing runtime state' : runtime.paused ? 'Resume world ticks' : 'Pause world ticks'} onClick={props.onToggleLive}>{!live || runtime.paused == null ? '⏯' : runtime.paused ? '▶' : '⏸'}</Button>
+      <span id="runtime-status">{runtimeText}</span><StatusText aria-live="polite" id="status" class={status.kind} role={status.kind === 'err' ? 'alert' : 'status'} tone={status.kind === 'err' ? 'error' : status.kind === 'ok' ? 'ok' : 'muted'}>{status.text}</StatusText>
     </ToolbarRow>
     <ToolbarRow id="toolbar-row3">
       <label for="fragment-file">Fragments:</label><input type="file" id="fragment-file" accept=".json,application/json" onChange={event => { const file = event.currentTarget.files?.[0]; if (file) props.onFragmentFile(file); event.currentTarget.value = ''; }} />
       <span id="library-select-wrap"><ControlledSearch disabled={!fragments.length} dropdownId="fragment-dropdown" hiddenId="library-select" options={fragments.map(fragment => ({ value: fragment.id, label: `${fragment.kind} · ${fragment.title}` }))} placeholder="find fragment..." value={fragmentId} onChange={props.onFragmentId} /></span>
-      <Button id="btn-refresh-library" onClick={props.onRefreshLibrary}>Refresh Library</Button>
+      <Button disabled={Boolean(pending)} id="btn-refresh-library" onClick={props.onRefreshLibrary}>{pending === 'library' ? 'Refreshing…' : 'Refresh Library'}</Button>
       <Button id="btn-import-fragment" disabled={!fragments.length} onClick={props.onImportFragment}>Import Fragment</Button>
       <Button id="btn-export-fragment" disabled={!selected} onClick={props.onExportFragment}>Export Selected Fragment</Button>
     </ToolbarRow>

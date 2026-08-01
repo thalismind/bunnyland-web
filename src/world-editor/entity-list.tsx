@@ -2,6 +2,7 @@ import { EmptyState } from '@bunnyland/ui-web/preact';
 import { useCallback } from 'preact/hooks';
 
 import type { EntityListItem } from '../types';
+import { moveRovingSelection } from '../roving-selection';
 
 interface EntityListProps {
   entities: readonly EntityListItem[];
@@ -19,13 +20,20 @@ export function EntityList({ entities, onSelect, selectedId }: EntityListProps) 
   return <>
     {entities.map((entity) => (
       <div
+        aria-selected={entity.id === selectedId}
         class={`entity-row ${entity.id === selectedId ? 'active' : ''}`}
         data-editor-entity={entity.id}
         data-id={entity.id}
         key={entity.id}
         onClick={select}
+        onKeyDown={event => moveRovingSelection(event, '[role="option"]', element => {
+          const id = element.dataset.id;
+          if (id) onSelect(id);
+        })}
+        role="option"
+        tabIndex={entity.id === selectedId || selectedId === null && entity === entities[0] ? 0 : -1}
       >
-        <div>{entity.icon}</div>
+        <div aria-hidden="true">{entity.icon}</div>
         <div>
           <div class="entity-name">{entity.name}</div>
           <div class="entity-meta">

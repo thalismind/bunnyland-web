@@ -128,9 +128,11 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
   const liveBaseRef = useRef('');
   const pendingRef = useRef(parseFocusHash());
   const timersRef = useRef<Record<string, number>>({});
+  const derivedTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const liveAuthRef = useRef(liveAuth);
   const queuedLiveRef = useRef('');
+  const pendingActionRef = useRef('');
   liveAuthRef.current = liveAuth;
 
   const [revision, setRevision] = useState(0);
@@ -142,8 +144,17 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
   const [status, setStatus] = useState<Status>({ kind: '', text: 'Ready' });
   const [runtime, setRuntime] = useState<RuntimeState>({ paused: null, running: false });
   const [snapshotVisible, setSnapshotVisible] = useState(() => localStorage.getItem('bunnyland.editor.snapshotVisible') !== 'false');
+  const [pendingAction, setPendingActionState] = useState('');
+  const [derivedSnapshot, setDerivedSnapshot] = useState(() => {
+    const exported = exportWorld(worldRef.current);
+    return { jsonText: JSON.stringify(exported, null, 2), problems: validateWorld(exported) };
+  });
 
   const revise = useCallback((): void => { if (mountedRef.current) setRevision(value => value + 1); }, []);
+  const setPendingAction = useCallback((value: string): void => {
+    pendingActionRef.current = value;
+    setPendingActionState(value);
+  }, []);
   const syncUrl = useCallback((push = false): void => {
     const url = new URL(location.href);
     if (liveBaseRef.current) url.searchParams.set('server', liveBaseRef.current); else url.searchParams.delete('server');
@@ -232,6 +243,7 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
   }, [applyPending, loadCatalogue, revise, syncUrl]);
 
   const fetchSnapshot = useCallback(async (candidate = apiUrlRef.current): Promise<void> => {
+    if (pendingActionRef.current) return;
     if (liveAuthRef.current && !liveAuthRef.current.authorized) {
       queuedLiveRef.current = candidate;
       liveAuthRef.current.request();
@@ -240,8 +252,12 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
     }
     queuedLiveRef.current = '';
     const base = servicesRef.current.normalizeBase(candidate);
-    if (base) await loadSnapshot(base);
-  }, [loadSnapshot]);
+    if (base) {
+      setPendingAction('fetch');
+      try { await loadSnapshot(base); }
+      finally { if (mountedRef.current) setPendingAction(''); }
+    }
+  }, [loadSnapshot, setPendingAction]);
   const fetchSnapshotRef = useRef(fetchSnapshot);
   fetchSnapshotRef.current = fetchSnapshot;
 
@@ -298,15 +314,30 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
     };
   }, [applyPending, loadSnapshot, revise, selectEntity]);
 
+  useEffect(() => {
+    if (derivedTimerRef.current !== null) window.clearTimeout(derivedTimerRef.current);
+    if (!snapshotVisible) {
+      derivedTimerRef.current = null;
+      return;
+    }
+    derivedTimerRef.current = window.setTimeout(() => {
+      derivedTimerRef.current = null;
+      const exported = exportWorld(worldRef.current);
+      setDerivedSnapshot({ jsonText: JSON.stringify(exported, null, 2), problems: validateWorld(exported) });
+    }, 180);
+    return () => {
+      if (derivedTimerRef.current !== null) window.clearTimeout(derivedTimerRef.current);
+    };
+  }, [revision, snapshotVisible]);
+
   const world = worldRef.current;
   const selected = selectedRef.current ? world.entities[selectedRef.current] || null : null;
   void revision;
   const componentNames = [...new Set([...catalogueNames(world, 'components', COMMON_COMPONENTS), ...Object.keys(schemaRef.current?.components || {})])].sort();
   const edgeNames = [...new Set([...catalogueNames(world, 'relationships', COMMON_EDGES), ...Object.keys(schemaRef.current?.edges || {})])].sort();
   const entities = filterEntities(world, search);
-  const exported = exportWorld(world);
-  const jsonText = JSON.stringify(exported, null, 2);
-  const problems = validateWorld(exported);
+  const { jsonText, problems } = derivedSnapshot;
+  const currentJson = (): string => JSON.stringify(exportWorld(worldRef.current), null, 2);
   const worldDetails = findWorldDetails(world.entities);
   const inspectorHref = selected ? (() => {
     const url = new URL('inspector.html', location.href);
@@ -389,26 +420,31 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
     setStatus({ kind: 'ok', text: 'Entity added' });
   };
   const deleteSelected = async (): Promise<void> => {
-    if (!selected) return;
+    if (!selected || pendingActionRef.current) return;
     const confirmed = await servicesRef.current.confirmDialog(`Delete ${selected.id}? Incoming edges will also be removed.`, { confirmLabel: 'Delete', title: 'Delete entity', tone: 'danger' });
     if (!confirmed) return;
-    if (liveBaseRef.current) await sendPatch([{ op: 'delete_entity', entity_id: selected.id }], true, 'Entity deleted');
-    else delete worldRef.current.entities[selected.id];
-    for (const other of Object.values(worldRef.current.entities)) for (const [type, edges] of Object.entries(other.relationships)) {
-      other.relationships[type] = edges.filter(edge => edge.target !== selected.id);
-      if (!other.relationships[type]?.length) delete other.relationships[type];
+    setPendingAction('delete');
+    try {
+      if (liveBaseRef.current) await sendPatch([{ op: 'delete_entity', entity_id: selected.id }], true, 'Entity deleted');
+      else delete worldRef.current.entities[selected.id];
+      for (const other of Object.values(worldRef.current.entities)) for (const [type, edges] of Object.entries(other.relationships)) {
+        other.relationships[type] = edges.filter(edge => edge.target !== selected.id);
+        if (!other.relationships[type]?.length) delete other.relationships[type];
+      }
+      selectedRef.current = Object.keys(worldRef.current.entities)[0] || '';
+      revise(); syncUrl(); setStatus({ kind: 'ok', text: 'Entity deleted' });
+    } finally {
+      if (mountedRef.current) setPendingAction('');
     }
-    selectedRef.current = Object.keys(worldRef.current.entities)[0] || '';
-    revise(); syncUrl(); setStatus({ kind: 'ok', text: 'Entity deleted' });
   };
 
   return <>
     <EditorToolbar
       apiUrl={apiUrl} fragmentId={fragmentId} fragments={fragmentsRef.current} live={Boolean(liveBaseRef.current)} liveAuthorized={!liveAuth || liveAuth.authorized}
-      runtime={runtime} selected={selected} snapshotVisible={snapshotVisible} status={status} world={world}
+      pending={pendingAction} runtime={runtime} selected={selected} snapshotVisible={snapshotVisible} status={status} world={world}
       onApiUrl={setApiUrl}
-      onCopy={() => { void navigator.clipboard.writeText(jsonText).then(() => setStatus({ kind: 'ok', text: 'World JSON copied' })).catch(() => setStatus({ kind: 'err', text: 'Clipboard unavailable' })); }}
-      onDownload={() => downloadJson(jsonText, `${String(world.meta.seed || 'world').replace(/[^a-zA-Z0-9_.-]+/g, '_') || 'world'}.json`, () => setStatus({ kind: 'ok', text: 'World JSON downloaded' }))}
+      onCopy={() => { void navigator.clipboard.writeText(currentJson()).then(() => setStatus({ kind: 'ok', text: 'World JSON copied' })).catch(() => setStatus({ kind: 'err', text: 'Clipboard unavailable' })); }}
+      onDownload={() => downloadJson(currentJson(), `${String(world.meta.seed || 'world').replace(/[^a-zA-Z0-9_.-]+/g, '_') || 'world'}.json`, () => setStatus({ kind: 'ok', text: 'World JSON downloaded' }))}
       onExportFragment={() => { if (!selected) return; const fragment: JsonObject = { schema_version: 1, id: `export/${selected.id}`, title: entityDisplayName(selected), kind: entityType(selected), root_client_id: '$root', operations: [{ op: 'add_entity', client_id: '$root', prefab: selected.prefab, components: Object.entries(selected.components).map(([type, fields]) => ({ type, fields: cloneJson(fields) })) }] }; downloadJson(JSON.stringify(fragment, null, 2), `${selected.id}.fragment.json`, () => setStatus({ kind: 'ok', text: 'Fragment JSON downloaded' })); }}
       onFetch={() => { void fetchSnapshot(); }}
       onFragmentFile={file => { void file.text().then(text => { fragmentsRef.current.push(...normalizeFragments(JSON.parse(text) as unknown, file.name)); revise(); }).catch(error => setStatus({ kind: 'err', text: `Load error: ${errorMessage(error)}` })); }}
@@ -417,8 +453,8 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
       onLoadWorld={file => { void file.text().then(text => { worldRef.current = parseWorld(JSON.parse(text) as unknown); liveBaseRef.current = ''; selectedRef.current = pendingRef.current && worldRef.current.entities[pendingRef.current] ? pendingRef.current : Object.keys(worldRef.current.entities)[0] || ''; revise(); syncUrl(); setStatus({ kind: 'ok', text: 'World loaded' }); }).catch(error => setStatus({ kind: 'err', text: `Load error: ${errorMessage(error)}` })); }}
       onMetadata={(key, value) => { if (key === 'epoch') { world.metadata.epoch = Number(value); world.meta.saved_at_epoch = Number(value); } else world.meta[key] = String(value); revise(); }}
       onNew={() => { worldRef.current = emptyWorld(); selectedRef.current = 'entity_1'; liveBaseRef.current = ''; schemaRef.current = null; fragmentsRef.current = []; setFragmentId(''); setRuntime({ paused: null, running: false }); revise(); syncUrl(); setStatus({ kind: 'ok', text: 'New world created' }); }}
-      onRefreshLibrary={() => { if (!liveBaseRef.current) { setStatus({ kind: 'err', text: 'Load a server snapshot before refreshing the library' }); return; } void servicesRef.current.sendJson(liveBaseRef.current, '/play/catalog').then(response => { const fragments = contentFragments(response); fragmentsRef.current = normalizeFragments(fragments.value, fragments.source); setFragmentId(''); revise(); setStatus({ kind: 'ok', text: `Loaded ${fragmentsRef.current.length} library fragments` }); }).catch(error => setStatus({ kind: 'err', text: `Library error: ${errorMessage(error)}` })); }}
-      onSaveLive={() => { void requestJson('/admin/world/checkpoints', { method: 'POST' }).then(raw => { const data = parsePatchResult(raw); if (data.world_epoch != null) { world.metadata.epoch = data.world_epoch; world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch; revise(); } setStatus({ kind: 'ok', text: 'World saved' }); }).catch(error => setStatus({ kind: 'err', text: `Save error: ${errorMessage(error)}` })); }}
+      onRefreshLibrary={() => { if (!liveBaseRef.current) { setStatus({ kind: 'err', text: 'Load a server snapshot before refreshing the library' }); return; } if (pendingActionRef.current) return; setPendingAction('library'); void servicesRef.current.sendJson(liveBaseRef.current, '/play/catalog').then(response => { const fragments = contentFragments(response); fragmentsRef.current = normalizeFragments(fragments.value, fragments.source); setFragmentId(''); revise(); setStatus({ kind: 'ok', text: `Loaded ${fragmentsRef.current.length} library fragments` }); }).catch(error => setStatus({ kind: 'err', text: `Library error: ${errorMessage(error)}` })).finally(() => setPendingAction('')); }}
+      onSaveLive={() => { if (pendingActionRef.current) return; setPendingAction('save'); void requestJson('/admin/world/checkpoints', { method: 'POST' }).then(raw => { const data = parsePatchResult(raw); if (data.world_epoch != null) { world.metadata.epoch = data.world_epoch; world.meta.saved_at_epoch = data.saved_at_epoch ?? data.world_epoch; revise(); } setStatus({ kind: 'ok', text: 'World saved' }); }).catch(error => setStatus({ kind: 'err', text: `Save error: ${errorMessage(error)}` })).finally(() => setPendingAction('')); }}
       onWorldDetails={async (details: WorldDetails) => {
         if (!worldDetails) throw new Error('World clock entity is missing');
         const fields: JsonObject = {
@@ -441,7 +477,7 @@ export function WorldEditorPage({ liveAuth, services = browserServices }: { live
       worldDetails={worldDetails}
     />
     <EditorLayout
-      componentNames={componentNames} defaultComponent={defaultComponent} defaultEdge={defaultEdge} edgeNames={edgeNames} entities={entities} inspectorHref={inspectorHref} jsonText={jsonText} live={Boolean(liveBaseRef.current)}
+      busy={Boolean(pendingAction)} componentNames={componentNames} defaultComponent={defaultComponent} defaultEdge={defaultEdge} edgeNames={edgeNames} entities={entities} inspectorHref={inspectorHref} jsonText={jsonText} live={Boolean(liveBaseRef.current)}
       onAddEntity={() => { void addEntity().catch(error => setStatus({ kind: 'err', text: `Patch error: ${errorMessage(error)}` })); }} onComponent={updateComponent} onDeleteEntity={() => { void deleteSelected().catch(error => setStatus({ kind: 'err', text: `Delete error: ${errorMessage(error)}` })); }} onEdge={updateEdge} onRevise={revise} onSearch={setSearch} onSelect={selectEntity} onStatus={setStatus}
       problems={problems} schema={schemaRef.current} search={search} selected={selected} sendPatch={sendPatch} snapshotVisible={snapshotVisible} world={world}
     />

@@ -396,13 +396,13 @@ export function TraceAnalyzerPage() {
       <input id="tempo-url" type="text" placeholder="/tempo" spellcheck={false} value={tempoUrl}
         onInput={event => setTempoUrl(event.currentTarget.value)} />
       <button id="tempo-connect" type="button" onClick={() => tempoConnected ? stopTempo() : void connectTempo()}>{tempoConnected ? 'Disconnect' : 'Connect'}</button>
-      <span id="tempo-status" class="stub" data-state={tempoStatus.state}>{tempoStatus.text}</span>
+      <span aria-live="polite" id="tempo-status" class="stub" data-state={tempoStatus.state} role={tempoStatus.state === 'error' ? 'alert' : 'status'}>{tempoStatus.text}</span>
       <span class="push"></span><label for="theme-select">Theme:</label><ThemeSelect id="theme-select" />
     </div></div>
 
     <div id="main" class="app-grid">
       <section id="trace-pane" aria-label="Trace view">
-        <div id="drop-zone" class={dragActive ? 'active' : ''}
+        <div aria-live="polite" id="drop-zone" class={dragActive ? 'active' : ''} role={loadError ? 'alert' : 'status'}
           onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
           onDragOver={event => { event.preventDefault(); setDragActive(true); }}
           onDragLeave={event => { event.preventDefault(); setDragActive(false); }}
@@ -415,7 +415,7 @@ export function TraceAnalyzerPage() {
 
         <section id="trace-content" class={selectedTrace ? '' : 'hidden'}>
           <div id="trace-summary">
-            <div><div id="trace-title" class="trace-title">{selectedTrace ? traceGlobals.BunnylandTrace.traceTitle(selectedTrace) : 'No trace loaded'}</div>
+            <div><h2 id="trace-title" class="trace-title">{selectedTrace ? traceGlobals.BunnylandTrace.traceTitle(selectedTrace) : 'No trace loaded'}</h2>
               <div id="trace-subtitle" class="trace-subtitle">{selectedTrace ? `${traceGlobals.BunnylandTrace.formatDate(selectedTrace.startNs)} · ${fileName || 'loaded trace'} · ${selectedTrace.traceId}` : ''}</div></div>
             <div class="summary-stat"><strong id="stat-duration">{selectedTrace ? traceGlobals.BunnylandTrace.formatDuration(selectedTrace.durationNs) : '0us'}</strong><span>Duration</span></div>
             <div class="summary-stat"><strong id="stat-spans">{selectedTrace?.spans.length ?? 0}</strong><span>Spans</span></div>
@@ -423,12 +423,12 @@ export function TraceAnalyzerPage() {
             <div class="summary-stat"><strong id="stat-errors">{selectedTrace?.errorCount ?? 0}</strong><span>Errors</span></div>
           </div>
           <div id="filters">
-            <input id="filter-text" type="text" placeholder="Filter spans by service, operation, attribute, or id" spellcheck={false}
+            <input aria-label="Filter trace spans" id="filter-text" type="text" placeholder="Filter spans by service, operation, attribute, or id" spellcheck={false}
               value={filterText} onInput={event => setFilterText(event.currentTarget.value)} />
-            <select id="filter-service" value={filterService} onChange={event => setFilterService(event.currentTarget.value)}>
+            <select aria-label="Filter spans by service" id="filter-service" value={filterService} onChange={event => setFilterService(event.currentTarget.value)}>
               <option value="">All services</option>{selectedTrace?.services.map(service => <option key={service} value={service}>{service}</option>)}
             </select>
-            <select id="filter-status" value={filterStatus} onChange={event => setFilterStatus(event.currentTarget.value)}>
+            <select aria-label="Filter spans by status" id="filter-status" value={filterStatus} onChange={event => setFilterStatus(event.currentTarget.value)}>
               <option value="">All statuses</option><option value="UNSET">Unset</option><option value="OK">OK</option><option value="ERROR">Error</option>
             </select>
             <button id="clear-filters" type="button" onClick={() => { setFilterText(''); setFilterService(''); setFilterStatus(''); }}>Clear</button>
@@ -444,7 +444,7 @@ export function TraceAnalyzerPage() {
           </div>
           <div id="span-table">
             <div class="span-header"><div>Service &amp; operation</div><div id="timeline-axis" class="axis">{axis.map((label, index) => <span key={index}>{label}</span>)}</div></div>
-            <div id="span-rows" class="span-rows"><SpanRows rows={rowItems} onSelect={setSelectedSpanId} /></div>
+            <div aria-label="Trace spans" id="span-rows" class="span-rows" role="listbox"><SpanRows rows={rowItems} onSelect={setSelectedSpanId} /></div>
           </div>
         </section>
       </section>

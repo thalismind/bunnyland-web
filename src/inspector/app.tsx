@@ -63,6 +63,7 @@ interface AdminRequestOptions {
   method?: string;
   prompt?: boolean;
   setAuth?: (auth: string) => void;
+  signal?: AbortSignal;
 }
 interface PatchOptions { selectEntityId?: string; status?: string }
 interface PatchResponse {
@@ -322,7 +323,7 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null), wrapperRef = useRef<HTMLDivElement>(null);
   const graphControllerRef = useRef<WorldGraphController | null>(null);
   const worldRef = useRef<World | null>(null), viewRef = useRef<View>('map'), stackRef = useRef<Crumb[]>([]), selectedRef = useRef<string | null>(null), apiBaseRef = useRef<string | null>(null);
-  const movedRef = useRef<Record<string, number>>({}), wsRef = useRef<WebSocket | null>(null), refreshRef = useRef<number | null>(null), authRef = useRef<string | null>(null), pendingRef = useRef<ReturnType<typeof parseDeepLink> | null>(null), autoConnectRef = useRef(false), liveAuthRef = useRef(liveAuth);
+  const movedRef = useRef<Record<string, number>>({}), wsRef = useRef<WebSocket | null>(null), refreshRef = useRef<number | null>(null), refreshAbortRef = useRef<AbortController | null>(null), refreshInFlightRef = useRef(false), refreshQueuedRef = useRef(false), refreshGenerationRef = useRef(0), authRef = useRef<string | null>(null), pendingRef = useRef<ReturnType<typeof parseDeepLink> | null>(null), autoConnectRef = useRef(false), liveAuthRef = useRef(liveAuth);
   liveAuthRef.current = liveAuth;
   const sendAdminOverride = useRef<InspectorFacade['_sendAdmin'] | null>(null), sendPatchOverride = useRef<InspectorFacade['_sendPatch'] | null>(null);
   const pushRef = useRef<(entityId: string) => void>(() => undefined);
@@ -331,6 +332,12 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
   const [status, setStatus] = useState<Status>({ className: '', text: '○ Offline' }), [runtime, setRuntime] = useState({ paused: null as boolean | null, running: false }), [events, setEvents] = useState<InspectorEventItem[]>([]), [showEvents, setShowEvents] = useState(false), [showParents, setShowParents] = useState(true);
   const [search, setSearch] = useState(''), [searchIndex, setSearchIndex] = useState(0), [searchOpen, setSearchOpen] = useState(false), [menu, setMenu] = useState<Menu>(null), [socialTypes, setSocialTypes] = useState<string[]>([]);
   const eventSequence = useRef(0), showParentsRef = useRef(true), applyingHash = useRef(false);
+  const runRefreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  const connectingRef = useRef(false);
+  const actionPendingRef = useRef(false);
+  const [connecting, setConnecting] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
 
   const syncUrl = useCallback(() => { if (applyingHash.current) return; const url = new URL(location.href); if (wsRef.current && apiBaseRef.current) url.searchParams.set('server', apiBaseRef.current); const focus = `${viewRef.current}${selectedRef.current ? `/${encodeURIComponent(selectedRef.current)}` : ''}`; url.hash = focus; history.replaceState(null, '', url); }, []);
   const setApiStatus = useCallback((className: string, text: string) => setStatus({ className, text }), []);
@@ -378,11 +385,78 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
 
   const applyWorld = useCallback((next: World, options: { resetView?: boolean } = {}) => { const reset = options.resetView ?? true; worldRef.current = next; setWorld(next); if (pendingRef.current) { const nav = pendingRef.current; pendingRef.current = null; if (nav.view) { viewRef.current = nav.view; setView(nav.view); } stackRef.current = []; setStack([]); renderGraph(true); if (nav.entity) selectEntity(nav.entity); return; } if (reset) { stackRef.current = []; setStack([]); renderGraph(true); } else renderGraph(false); }, [renderGraph, selectEntity]);
   const loadSnapshot = useCallback((json: unknown) => { disconnectRef.current(); movedRef.current = {}; setEvents([]); applyWorld(legacy().BunnylandWorld.parseSnapshot(json), { resetView: true }); }, [applyWorld]);
+  const loadSnapshotFile = useCallback(async (file: File): Promise<void> => {
+    try {
+      loadSnapshot(JSON.parse(await file.text()));
+      setStatus({ className: 'live', text: `● Loaded ${file.name}` });
+    } catch (error) {
+      setStatus({ className: 'error', text: `⚠ Snapshot error: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }, [loadSnapshot]);
   const setRootView = useCallback((next: View) => { viewRef.current = next; setView(next); for (const item of ['map', 'region', 'social', 'quest']) document.getElementById(`btn-view-${item}`)?.classList.toggle('active', item === next); selectedRef.current = null; setSelectedId(null); stackRef.current = []; setStack([]); renderGraph(true); syncUrl(); }, [renderGraph, syncUrl]);
   const push = useCallback((id: string) => { const entity = worldRef.current?.entities[id]; if (!entity) return; stackRef.current = [...stackRef.current, { entityId: id, label: entityName(entity) }]; setStack(stackRef.current); renderGraph(true); }, [renderGraph]);
 
-  const defaultSendAdmin = useCallback(async (path: string, options: AdminRequestOptions = {}) => { if (!apiBaseRef.current) throw new Error('Connect to a live server first'); return legacy().BunnylandApi.sendAdmin(apiBaseRef.current, path, { ...options, getAuth: () => authRef.current, setAuth: (auth: string) => { authRef.current = auth; } }); }, []);
+  const defaultSendAdmin = useCallback(async (path: string, options: AdminRequestOptions = {}) => {
+    if (!apiBaseRef.current) throw new Error('Connect to a live server first');
+    if (options.signal) {
+      const auth = authRef.current;
+      const response = await fetch(`${legacy().BunnylandApi.assertSameOriginBase(apiBaseRef.current)}${path}`, {
+        ...(options.body !== undefined ? { body: options.body } : {}),
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bunnyland-Client-Id': legacy().BunnylandApi.getClientId(),
+          ...(auth?.startsWith('Bearer ') ? { Authorization: auth } : {}),
+        },
+        method: options.method || 'GET',
+        signal: options.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as AdminResponse;
+    }
+    return legacy().BunnylandApi.sendAdmin(apiBaseRef.current, path, { ...options, getAuth: () => authRef.current, setAuth: (auth: string) => { authRef.current = auth; } });
+  }, []);
   const sendAdmin = useCallback((path: string, options?: AdminRequestOptions) => (sendAdminOverride.current || defaultSendAdmin)(path, options), [defaultSendAdmin]);
+  const scheduleRefresh = useCallback((): void => {
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+    refreshQueuedRef.current = true;
+    if (refreshRef.current !== null) window.clearTimeout(refreshRef.current);
+    refreshRef.current = window.setTimeout(() => {
+      refreshRef.current = null;
+      void runRefreshRef.current();
+    }, 400);
+  }, []);
+  const runRefresh = useCallback(async (): Promise<void> => {
+    if (refreshInFlightRef.current || !apiBaseRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+    refreshQueuedRef.current = false;
+    refreshInFlightRef.current = true;
+    const generation = refreshGenerationRef.current;
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
+    try {
+      const data = await sendAdmin('/admin/world/snapshot', { method: 'GET', prompt: false, signal: controller.signal });
+      if (generation === refreshGenerationRef.current && !controller.signal.aborted) {
+        applyWorld(legacy().BunnylandWorld.parseApiSnapshot(data), { resetView: false });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && generation === refreshGenerationRef.current) {
+        setApiStatus('error', `⚠ Snapshot refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      if (refreshAbortRef.current === controller) refreshAbortRef.current = null;
+      if (generation === refreshGenerationRef.current) {
+        refreshInFlightRef.current = false;
+        if (refreshQueuedRef.current) scheduleRefresh();
+      }
+    }
+  }, [applyWorld, scheduleRefresh, sendAdmin, setApiStatus]);
+  runRefreshRef.current = runRefresh;
   const mergePatch = useCallback((data: PatchResponse) => {
     const current = worldRef.current;
     if (!current) return;
@@ -402,10 +476,12 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
   const defaultSendPatch = useCallback(async (operations: JsonObject[], options: PatchOptions = {}) => { if (!operations.length) return null; const data = await sendAdmin('/admin/world', { method: 'PATCH', body: JSON.stringify({ operations }), prompt: true }); mergePatch(data); setApiStatus('live', options.status || 'Patch applied'); if (options.selectEntityId) selectEntity(options.selectEntityId); return data; }, [mergePatch, selectEntity, sendAdmin, setApiStatus]);
   const sendPatch = useCallback((operations: JsonObject[], options?: PatchOptions) => (sendPatchOverride.current || defaultSendPatch)(operations, options), [defaultSendPatch]);
   const generateEntity = useCallback(async (kind: GenerationKind, targetId: string, direction = '') => {
+    if (actionPendingRef.current) return;
     const theme = await promptDialog(`Describe the new ${kind}.`, { label: 'Prompt / theme', title: `Generate ${kind}` }); if (theme == null) return;
     const targetKey = kind === 'room' ? 'door_entity_id' : kind === 'character' ? 'room_entity_id' : 'container_entity_id';
     const body: Record<string, string> = { kind, prompt: theme.trim(), [targetKey]: targetId }; if (kind === 'room' && direction) body.direction = direction;
     setMenu(null); setApiStatus('live', `◌ Generating ${kind}…`);
+    actionPendingRef.current = true; setActionPending(true);
     try {
       const job = await sendAdmin('/admin/world/generation-jobs', { method: 'POST', body: JSON.stringify(body), prompt: true });
       const operations = job?.result?.patch?.operations;
@@ -414,6 +490,7 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
       const result = await sendPatch(operations, { status: `● ${kind[0]!.toUpperCase()}${kind.slice(1)} generated` });
       const created = result?.changed_entities?.find((item) => item.id && !before.has(item.id)); if (created?.id) selectEntity(created.id);
     } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); }
+    finally { actionPendingRef.current = false; setActionPending(false); }
   }, [selectEntity, sendAdmin, sendPatch, setApiStatus]);
   const generateRoom = useCallback(async () => {
     const doors = Object.values(worldRef.current?.entities || {}).filter((entity) => entity.components.DoorComponent);
@@ -424,14 +501,18 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
     const direction = await promptDialog('Enter a direction such as north, east, or up.', { label: 'Direction', title: 'Generate room' }); if (direction == null) return;
     await generateEntity('room', door.id, direction.trim());
   }, [generateEntity, setApiStatus]);
-  const assign = useCallback(async (entityId: string, controllerId: string) => { try { const data = await sendAdmin(`/admin/characters/${encodeURIComponent(entityId)}/controller`, { method: 'PUT', body: JSON.stringify({ controller_id: controllerId }), prompt: true }); mergePatch(data); setApiStatus('live', '● Controller assigned'); } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); } }, [mergePatch, sendAdmin, setApiStatus]);
+  const assign = useCallback(async (entityId: string, controllerId: string) => { if (actionPendingRef.current) return; actionPendingRef.current = true; setActionPending(true); try { const data = await sendAdmin(`/admin/characters/${encodeURIComponent(entityId)}/controller`, { method: 'PUT', body: JSON.stringify({ controller_id: controllerId }), prompt: true }); mergePatch(data); setApiStatus('live', '● Controller assigned'); } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); } finally { actionPendingRef.current = false; setActionPending(false); } }, [mergePatch, sendAdmin, setApiStatus]);
   const monitor = useCallback(async (entityId: string) => { const entity = worldRef.current?.entities[entityId]; if (!entity?.components.RoomComponent || entity.components.DiscordRoomFeedComponent) return; const raw = await promptDialog('Enter the Discord channel that should receive room activity.', { label: 'Channel ID', title: 'Monitor room' }); if (raw == null) return; if (!/^\d+$/.test(raw.trim())) { setApiStatus('error', '⚠ Discord channel ID must be a number'); return; } await sendPatch([{ op: 'add_component', entity_id: entityId, component: { type: 'DiscordRoomFeedComponent', fields: { channel_id: Number(raw.trim()) } } }], { status: '● Room monitoring enabled', selectEntityId: entityId }); }, [sendPatch, setApiStatus]);
   const cloneOps = useCallback((entityId: string, clientId = `clone:${entityId}:${Date.now()}`) => { const current = worldRef.current, entity = current?.entities[entityId]; if (!entity || !current) throw new Error('Entity no longer exists'); const operations: JsonObject[] = [{ op: 'add_entity', client_id: clientId, components: Object.entries(entity.components).map(([type, fields]) => ({ type, fields: legacy().BunnylandUI.cloneJson(fields || {}) })) }]; Object.values(current.entities).forEach((source) => Object.entries(source.relationships).forEach(([type, rels]) => { if (CONTAINMENT_EDGES.includes(type)) rels.forEach((rel) => { if (rel.target === entityId) operations.push({ op: 'set_edge', source_id: source.id, target_id: clientId, edge: { type, fields: legacy().BunnylandUI.cloneJson(rel.edge || {}) } }); }); })); return operations; }, []);
-  const remove = useCallback(async (id: string) => { if (worldRef.current?.entities[id] && await confirmDialog(`Delete ${id}? Incoming edges will also be removed.`, { confirmLabel: 'Delete', title: 'Delete entity', tone: 'danger' })) await sendPatch([{ op: 'delete_entity', entity_id: id }], { status: '● Entity removed' }); }, [sendPatch]);
+  const remove = useCallback(async (id: string) => { if (actionPendingRef.current || !worldRef.current?.entities[id] || !await confirmDialog(`Delete ${id}? Incoming edges will also be removed.`, { confirmLabel: 'Delete', title: 'Delete entity', tone: 'danger' })) return; actionPendingRef.current = true; setActionPending(true); try { await sendPatch([{ op: 'delete_entity', entity_id: id }], { status: '● Entity removed' }); setMenu(null); } finally { actionPendingRef.current = false; setActionPending(false); } }, [sendPatch]);
   const showMenu = useCallback((entityId: string, x: number, y: number) => { if (!worldRef.current?.entities[entityId]) return; const rect = wrapperRef.current?.getBoundingClientRect(); setMenu({ entityId, left: Math.max(8, x - (rect?.left || 0)), top: Math.max(8, y - (rect?.top || 0)) }); }, []);
-  const disconnect = useCallback(() => { if (refreshRef.current != null) clearTimeout(refreshRef.current); const ws = wsRef.current; wsRef.current = null; ws?.close(); setStatus({ className: '', text: '○ Offline' }); setRuntime({ paused: null, running: false }); syncUrl(); }, [syncUrl]);
+  const closeMenu = useCallback((): void => {
+    setMenu(null);
+    requestAnimationFrame(() => actionsButtonRef.current?.focus());
+  }, []);
+  const disconnect = useCallback(() => { refreshGenerationRef.current += 1; if (refreshRef.current != null) clearTimeout(refreshRef.current); refreshRef.current = null; refreshQueuedRef.current = false; refreshInFlightRef.current = false; refreshAbortRef.current?.abort(); refreshAbortRef.current = null; const ws = wsRef.current; wsRef.current = null; if (ws) { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.onopen = null; ws.close(); } connectingRef.current = false; setConnecting(false); setStatus({ className: '', text: '○ Offline' }); setRuntime({ paused: null, running: false }); syncUrl(); }, [syncUrl]);
 
-  const connect = useCallback(async (url: string) => { disconnect(); apiBaseRef.current = legacy().BunnylandApi.normalizeBase(url); setApiBase(apiBaseRef.current); try { await sendAdmin('/admin/world', { method: 'GET', prompt: true }); } catch (error) { setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); return; } const ws = new WebSocket(legacy().BunnylandApi.socketUrl(apiBaseRef.current, '/admin/world/stream', authRef.current)); wsRef.current = ws; ws.onopen = () => { ws.send(JSON.stringify({ type: 'authenticate', data: { client_id: legacy().BunnylandApi.getClientId() } })); setApiStatus('live', '● Connected'); syncUrl(); }; ws.onmessage = (event) => { const msg = JSON.parse(event.data); if (msg.type === 'snapshot') applyWorld(legacy().BunnylandWorld.parseApiSnapshot(msg.data), { resetView: !worldRef.current }); else if (msg.type === 'event') { const data = msg.data, ev = data.event || {}, type = data.event_type || 'Event'; if (type === 'ActorMovedEvent' && ev.actor_id != null) movedRef.current[String(ev.actor_id)] = ev.world_epoch ?? worldRef.current?.epoch ?? 0; const actor = ev.actor_id == null ? null : String(ev.actor_id); const item: InspectorEventItem = { key: `event:${++eventSequence.current}`, type, epoch: ev.world_epoch != null ? `${ev.world_epoch}s` : '', icon: legacy().BunnylandEvents.icon(type), summary: legacy().BunnylandEvents.eventSummary(type, ev, (id: string) => worldRef.current?.entities[id] ? entityName(worldRef.current.entities[id]!) : id), ...(actor ? { actorId: actor, actorName: worldRef.current?.entities[actor] ? entityName(worldRef.current.entities[actor]!) : actor } : {}) }; setEvents((items) => [...items.slice(-249), item]); refreshRef.current = window.setTimeout(async () => { const data = await sendAdmin('/admin/world/snapshot', { method: 'GET', prompt: false }); applyWorld(legacy().BunnylandWorld.parseApiSnapshot(data), { resetView: false }); }, 400); } }; ws.onclose = () => { if (wsRef.current === ws) disconnect(); }; ws.onerror = () => setApiStatus('error', '⚠ Connection failed'); }, [applyWorld, disconnect, sendAdmin, setApiStatus, syncUrl]);
+  const connect = useCallback(async (url: string) => { if (connectingRef.current) return; disconnect(); connectingRef.current = true; setConnecting(true); apiBaseRef.current = legacy().BunnylandApi.normalizeBase(url); setApiBase(apiBaseRef.current); setApiStatus('', '◌ Connecting…'); try { await sendAdmin('/admin/world', { method: 'GET', prompt: true }); } catch (error) { connectingRef.current = false; setConnecting(false); setApiStatus('error', `⚠ ${error instanceof Error ? error.message : String(error)}`); return; } const ws = new WebSocket(legacy().BunnylandApi.socketUrl(apiBaseRef.current, '/admin/world/stream', authRef.current)); wsRef.current = ws; ws.onopen = () => { connectingRef.current = false; setConnecting(false); ws.send(JSON.stringify({ type: 'authenticate', data: { client_id: legacy().BunnylandApi.getClientId() } })); setApiStatus('live', '● Connected'); syncUrl(); }; ws.onmessage = (event) => { const msg = JSON.parse(event.data); if (msg.type === 'snapshot') applyWorld(legacy().BunnylandWorld.parseApiSnapshot(msg.data), { resetView: !worldRef.current }); else if (msg.type === 'event') { const data = msg.data, ev = data.event || {}, type = data.event_type || 'Event'; if (type === 'ActorMovedEvent' && ev.actor_id != null) movedRef.current[String(ev.actor_id)] = ev.world_epoch ?? worldRef.current?.epoch ?? 0; const actor = ev.actor_id == null ? null : String(ev.actor_id); const item: InspectorEventItem = { key: `event:${++eventSequence.current}`, type, epoch: ev.world_epoch != null ? `${ev.world_epoch}s` : '', icon: legacy().BunnylandEvents.icon(type), summary: legacy().BunnylandEvents.eventSummary(type, ev, (id: string) => worldRef.current?.entities[id] ? entityName(worldRef.current.entities[id]!) : id), ...(actor ? { actorId: actor, actorName: worldRef.current?.entities[actor] ? entityName(worldRef.current.entities[actor]!) : actor } : {}) }; setEvents((items) => [...items.slice(-249), item]); scheduleRefresh(); } }; ws.onclose = () => { if (wsRef.current === ws) disconnect(); }; ws.onerror = () => { connectingRef.current = false; setConnecting(false); setApiStatus('error', '⚠ Connection failed'); }; }, [applyWorld, disconnect, scheduleRefresh, sendAdmin, setApiStatus, syncUrl]);
 
   pushRef.current = push;
   disconnectRef.current = disconnect;
@@ -508,10 +589,10 @@ export function InspectorApp({ liveAuth }: { liveAuth?: LiveAuth } = {}) {
   };
   return <>
     <div id="toolbar"><div class="toolbar-row toolbar-heading" id="toolbar-row1"><span class="toolbar-brand"><img src="favicon.png" alt=""/> Bunnyland World Graph</span><button id="btn-client-menu" class="client-menu-button" type="button">Menu</button></div>
-    <div class="toolbar-row" id="toolbar-row2"><label for="file-input">Snapshot:</label><input type="file" id="file-input" accept=".json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then((text) => loadSnapshot(JSON.parse(text))); }}/><span class="toolbar-sep">|</span><label for="api-url">Server:</label><input type="text" id="api-url" value={apiBase || '/api/v1/'} spellcheck={false} onInput={(event) => { apiBaseRef.current = event.currentTarget.value; setApiBase(event.currentTarget.value); }}/><button id="btn-connect" onClick={() => { if (!wsRef.current && liveAuth && !liveAuth.authorized) { liveAuth.request(); return; } if (wsRef.current) disconnect(); else void connect(apiBase || '/api/v1/'); }}>{wsRef.current ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect Live'}</button><span id="api-status" class={status.className}>{status.text}</span><button id="btn-toggle-runtime" disabled={!wsRef.current}>⏯</button><span id="runtime-status">{runtimeText}</span><button id="btn-back" disabled={!stack.length} onClick={() => { stackRef.current = stackRef.current.slice(0, -1); setStack(stackRef.current); renderGraph(true); }}>← Back</button><span id="search-box"><input type="text" id="search-input" value={search} placeholder="🔍 find, type:, component:" spellcheck={false} autocomplete="off" onInput={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'ArrowDown') setSearchIndex(Math.min(hits.length - 1, searchIndex + 1)); else if (event.key === 'ArrowUp') setSearchIndex(Math.max(0, searchIndex - 1)); else if (event.key === 'Enter' && hits[searchIndex]) pickSearch(hits[searchIndex]!.id); else if (event.key === 'Escape') setSearchOpen(false); }}/><div id="search-results" class={searchOpen ? '' : 'hidden'}><SearchHits hits={hits} activeIndex={searchIndex} onPick={pickSearch}/></div></span></div>
-    <div class="toolbar-row" id="toolbar-row3"><span id="view-switch">{(['map', 'region', 'social', 'quest'] as View[]).map((item) => <button id={`btn-view-${item}`} class={view === item ? 'active' : ''} key={item} onClick={() => setRootView(item)}>{item === 'map' ? '🗺 Map' : item === 'region' ? '🌐 Regions' : item === 'social' ? '👥 Social' : '📜 Quests'}</button>)}</span><button id="btn-generate-room" disabled={!canGenerateRoom} title={!apiBase ? 'Connect to a live server to generate rooms' : !canGenerateRoom ? 'Add a door before generating a room' : 'Generate a room through an existing door'} onClick={() => { void generateRoom(); }}>✨ Add Room</button><label id="parents-toggle"><input type="checkbox" id="toggle-parents" checked={showParents} onChange={(event) => { showParentsRef.current = event.currentTarget.checked; setShowParents(event.currentTarget.checked); renderGraph(true); }}/> parent nodes</label><label id="events-toggle"><input type="checkbox" id="toggle-events" checked={showEvents} onChange={(event) => setShowEvents(event.currentTarget.checked)}/> events</label><span class="toolbar-sep">|</span><span id="breadcrumb">{stack.length > 0 ? <button class="crumb" data-inspector-root onClick={() => setRootView(view)}>{rootLabel()}</button> : <span class="crumb-current">{rootLabel()}</span>}{stack.map((crumb, index) => <span key={crumb.entityId}> › {index === stack.length - 1 ? <span class="crumb-current">{crumb.label}</span> : <button class="crumb" data-inspector-depth={index} onClick={() => { stackRef.current = stackRef.current.slice(0, index + 1); setStack(stackRef.current); renderGraph(true); }}>{crumb.label}</button>}</span>)}</span><span id="world-info">{worldInfo}</span></div>
+    <div class="toolbar-row" id="toolbar-row2"><label for="file-input">Snapshot:</label><input type="file" id="file-input" accept=".json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void loadSnapshotFile(file); }}/><span class="toolbar-sep">|</span><label for="api-url">Server:</label><input type="text" id="api-url" value={apiBase || '/api/v1/'} spellcheck={false} onInput={(event) => { apiBaseRef.current = event.currentTarget.value; setApiBase(event.currentTarget.value); }}/><button disabled={connecting} id="btn-connect" onClick={() => { if (!wsRef.current && liveAuth && !liveAuth.authorized) { liveAuth.request(); return; } if (wsRef.current) disconnect(); else void connect(apiBase || '/api/v1/'); }}>{connecting ? 'Connecting…' : wsRef.current ? 'Disconnect' : liveAuth && !liveAuth.authorized ? 'Login for Live' : 'Connect Live'}</button><span aria-live="polite" id="api-status" class={status.className} role={status.className === 'error' ? 'alert' : 'status'}>{status.text}</span><button aria-label="Toggle world runtime" id="btn-toggle-runtime" disabled={!wsRef.current}>⏯</button><span id="runtime-status">{runtimeText}</span><button id="btn-back" disabled={!stack.length} onClick={() => { stackRef.current = stackRef.current.slice(0, -1); setStack(stackRef.current); renderGraph(true); }}>← Back</button><span id="search-box"><input aria-activedescendant={searchOpen && hits[searchIndex] ? `search-option-${searchIndex}` : undefined} aria-autocomplete="list" aria-controls="search-results" aria-expanded={searchOpen} aria-label="Search world entities" role="combobox" type="text" id="search-input" value={search} placeholder="🔍 find, type:, component:" spellcheck={false} autocomplete="off" onInput={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setSearchOpen(true); setSearchIndex(Math.min(hits.length - 1, searchIndex + 1)); } else if (event.key === 'ArrowUp') { event.preventDefault(); setSearchOpen(true); setSearchIndex(Math.max(0, searchIndex - 1)); } else if (event.key === 'Home' && searchOpen) { event.preventDefault(); setSearchIndex(0); } else if (event.key === 'End' && searchOpen) { event.preventDefault(); setSearchIndex(Math.max(0, hits.length - 1)); } else if (event.key === 'Enter' && hits[searchIndex]) pickSearch(hits[searchIndex]!.id); else if (event.key === 'Escape') setSearchOpen(false); }}/><div aria-label="World entity search results" id="search-results" class={searchOpen ? '' : 'hidden'} role="listbox"><SearchHits hits={hits} activeIndex={searchIndex} onPick={pickSearch}/></div></span></div>
+    <div class="toolbar-row" id="toolbar-row3"><span id="view-switch">{(['map', 'region', 'social', 'quest'] as View[]).map((item) => <button id={`btn-view-${item}`} class={view === item ? 'active' : ''} key={item} onClick={() => setRootView(item)}>{item === 'map' ? '🗺 Map' : item === 'region' ? '🌐 Regions' : item === 'social' ? '👥 Social' : '📜 Quests'}</button>)}</span><button id="btn-generate-room" disabled={!canGenerateRoom || actionPending} title={!apiBase ? 'Connect to a live server to generate rooms' : !canGenerateRoom ? 'Add a door before generating a room' : 'Generate a room through an existing door'} onClick={() => { void generateRoom(); }}>{actionPending ? 'Generating…' : '✨ Add Room'}</button><button aria-haspopup="menu" aria-expanded={Boolean(menu)} disabled={!selected || actionPending} id="btn-entity-actions" ref={actionsButtonRef} onClick={(event) => { if (!selected) return; const rect = event.currentTarget.getBoundingClientRect(); showMenu(selected.id, rect.left, rect.bottom); }}>Entity actions</button><label id="parents-toggle"><input type="checkbox" id="toggle-parents" checked={showParents} onChange={(event) => { showParentsRef.current = event.currentTarget.checked; setShowParents(event.currentTarget.checked); renderGraph(true); }}/> parent nodes</label><label id="events-toggle"><input type="checkbox" id="toggle-events" checked={showEvents} onChange={(event) => setShowEvents(event.currentTarget.checked)}/> events</label><span class="toolbar-sep">|</span><span id="breadcrumb">{stack.length > 0 ? <button class="crumb" data-inspector-root onClick={() => setRootView(view)}>{rootLabel()}</button> : <span class="crumb-current">{rootLabel()}</span>}{stack.map((crumb, index) => <span key={crumb.entityId}> › {index === stack.length - 1 ? <span class="crumb-current">{crumb.label}</span> : <button class="crumb" data-inspector-depth={index} onClick={() => { stackRef.current = stackRef.current.slice(0, index + 1); setStack(stackRef.current); renderGraph(true); }}>{crumb.label}</button>}</span>)}</span><span id="world-info">{worldInfo}</span></div>
     <div class="toolbar-row world-details-row" id="toolbar-row4"><WorldDetailsEditor disabled={!apiBase} idPrefix="inspector" onSave={saveWorldDetails} target={worldDetails}/></div></div>
-    <div id="main" class="app-split"><div id="graph-wrapper" ref={wrapperRef} onContextMenu={onCanvasContext} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer?.files[0]; if (file) void file.text().then((text) => loadSnapshot(JSON.parse(text))); }}><canvas id="graph-canvas" ref={canvasRef}/><div id="social-legend" class={view === 'social' ? '' : 'hidden'}>{socialTypes.length ? <><div class="leg-title">Relationships</div>{socialTypes.map((type) => <span class="leg-item" key={type}><span class="leg-swatch" style={{ background: SOCIAL_EDGES[type]!.color }}/>{SOCIAL_EDGES[type]!.label}</span>)}</> : <div class="leg-title">No relationships in this world</div>}</div>{menu && <ContextMenu entity={world?.entities[menu.entityId] || null} apiBase={apiBase} controllers={controllers} left={menu.left} top={menu.top} onClose={() => setMenu(null)} onAssign={assign} onClone={(id: string) => void sendPatch(cloneOps(id), { status: '● Entity cloned' })} onDelete={remove} onGenerate={generateEntity} onMonitor={monitor}/>}<div id="drop-overlay" class={world ? 'hidden' : ''}><div class="title">🐰 Bunnyland World Graph</div><div>Load a world snapshot JSON to begin</div><div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div></div></div><div id="sidebar"><div id="inspector"><EntityInspector apiBase={apiBase} entity={selected} moved={Boolean(selectedId && movedRef.current[selectedId] != null && world && world.epoch - movedRef.current[selectedId]! <= 60)} onSelect={selectEntity} world={world}/></div><div id="event-panel" class={showEvents ? '' : 'hidden'}><div id="event-panel-header"><span class="ev-title">⚡ Events</span><span id="event-count">{events.length ? `(${events.length})` : ''}</span><button id="event-clear" onClick={() => setEvents([])}>clear</button></div><div id="event-list"><EventFeed events={events}/></div></div></div></div>
+    <div id="main" class="app-split"><div aria-label="World graph" id="graph-wrapper" ref={wrapperRef} onContextMenu={onCanvasContext} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer?.files[0]; if (file) void loadSnapshotFile(file); }}><canvas aria-label="World entity graph" id="graph-canvas" ref={canvasRef}/><div id="social-legend" class={view === 'social' ? '' : 'hidden'}>{socialTypes.length ? <><div class="leg-title">Relationships</div>{socialTypes.map((type) => <span class="leg-item" key={type}><span aria-hidden="true" class="leg-swatch" style={{ background: SOCIAL_EDGES[type]!.color }}/>{SOCIAL_EDGES[type]!.label}</span>)}</> : <div class="leg-title">No relationships in this world</div>}</div>{menu && <ContextMenu pending={actionPending} entity={world?.entities[menu.entityId] || null} apiBase={apiBase} controllers={controllers} left={menu.left} top={menu.top} onClose={closeMenu} onAssign={assign} onClone={(id: string) => void sendPatch(cloneOps(id), { status: '● Entity cloned' })} onDelete={remove} onGenerate={generateEntity} onMonitor={monitor}/>}<div id="drop-overlay" class={world ? 'hidden' : ''}><div class="title">🐰 Bunnyland World Graph</div><div>Load a world snapshot JSON to begin</div><div class="hint">Load a .json file, drag &amp; drop here, or Connect Live to a running server</div></div></div><div id="sidebar"><div aria-label="Selected entity details" id="inspector"><EntityInspector apiBase={apiBase} entity={selected} moved={Boolean(selectedId && movedRef.current[selectedId] != null && world && world.epoch - movedRef.current[selectedId]! <= 60)} onSelect={selectEntity} world={world}/></div><div aria-label="World events" id="event-panel" class={showEvents ? '' : 'hidden'}><div id="event-panel-header"><span class="ev-title">⚡ Events</span><span id="event-count">{events.length ? `(${events.length})` : ''}</span><button aria-label="Clear events" id="event-clear" onClick={() => setEvents([])}>clear</button></div><div id="event-list"><EventFeed events={events}/></div></div></div></div>
   </>;
 }
 
@@ -526,13 +607,37 @@ interface ContextMenuProps {
   onDelete: (entityId: string) => Promise<void>;
   onGenerate: (kind: GenerationKind, targetId: string) => Promise<void>;
   onMonitor: (entityId: string) => Promise<void>;
+  pending: boolean;
   top: number;
 }
 
-function ContextMenu({ apiBase, controllers, entity, left, onAssign, onClone, onClose, onDelete, onGenerate, onMonitor, top }: ContextMenuProps) {
-  const [controller, setController] = useState(entity?.relationships.ControlledBy?.[0]?.target || controllers[0]?.id || ''); if (!entity) return null;
+function ContextMenu({ apiBase, controllers, entity, left, onAssign, onClone, onClose, onDelete, onGenerate, onMonitor, pending, top }: ContextMenuProps) {
+  const [controller, setController] = useState(entity?.relationships.ControlledBy?.[0]?.target || controllers[0]?.id || '');
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus(); }, []);
+  if (!entity) return null;
   const editor = new URL('world-editor.html', location.href); if (apiBase) editor.searchParams.set('server', apiBase); editor.hash = encodeURIComponent(entity.id);
-  return <div id="graph-context-menu" style={{ left, top }} onMouseLeave={onClose}><div class="graph-menu-title">{entityName(entity)}</div><button type="button" class="graph-menu-item" data-menu-action="edit" onClick={() => { location.href = editor.toString(); }}>Edit in World Editor</button>{Boolean(entity.components.RoomComponent) && <><div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="generate-character" disabled={!apiBase} onClick={() => { void onGenerate('character', entity.id); }}>✨ Add Character</button><button type="button" class="graph-menu-item" data-menu-action="generate-item" disabled={!apiBase} onClick={() => { void onGenerate('item', entity.id); }}>✨ Add Item</button></>}<div class="graph-menu-sep"/><button type="button" class="graph-menu-item" data-menu-action="monitor-room" disabled={!apiBase || !entity.components.RoomComponent || Boolean(entity.components.DiscordRoomFeedComponent)} onClick={() => { void onMonitor(entity.id); }}>Monitor Room</button><select class="graph-menu-select" data-controller-select disabled={!apiBase || !entity.components.CharacterComponent || !controllers.length} value={controller} onChange={(event) => setController(event.currentTarget.value)}>{controllers.length ? controllers.map((option) => <option key={option.id} value={option.id}>{option.label}</option>) : <option value="">No controllers</option>}</select><button type="button" class="graph-menu-item" data-menu-action="assign" disabled={!apiBase || !controller} onClick={() => { void onAssign(entity.id, controller); }}>Assign Controller</button><button type="button" class="graph-menu-item" data-menu-action="delete" disabled={!apiBase} onClick={() => { void onDelete(entity.id); }}>Remove from World</button><button type="button" class="graph-menu-item" data-menu-action="clone" disabled={!apiBase} onClick={() => onClone(entity.id)}>Clone Entity</button></div>;
+  const moveFocus = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? Math.min(items.length - 1, index + 1) : Math.max(0, index - 1);
+    event.preventDefault();
+    items[next]?.focus();
+  };
+  return <div aria-label={`Entity actions for ${entityName(entity)}`} id="graph-context-menu" onKeyDown={moveFocus} onMouseLeave={onClose} ref={menuRef} role="menu" style={{ left, top }}>
+    <div class="graph-menu-title">{entityName(entity)}</div>
+    <button role="menuitem" type="button" class="graph-menu-item" data-menu-action="edit" onClick={() => { location.href = editor.toString(); }}>Edit in World Editor</button>
+    {Boolean(entity.components.RoomComponent) && <><div class="graph-menu-sep" role="separator"/><button role="menuitem" type="button" class="graph-menu-item" data-menu-action="generate-character" disabled={!apiBase || pending} onClick={() => { void onGenerate('character', entity.id); }}>✨ Add Character</button><button role="menuitem" type="button" class="graph-menu-item" data-menu-action="generate-item" disabled={!apiBase || pending} onClick={() => { void onGenerate('item', entity.id); }}>✨ Add Item</button></>}
+    <div class="graph-menu-sep" role="separator"/>
+    <button role="menuitem" type="button" class="graph-menu-item" data-menu-action="monitor-room" disabled={!apiBase || pending || !entity.components.RoomComponent || Boolean(entity.components.DiscordRoomFeedComponent)} onClick={() => { void onMonitor(entity.id); }}>Monitor Room</button>
+    <div aria-label="Controller assignment" role="group"><select aria-label="Controller" class="graph-menu-select" data-controller-select disabled={!apiBase || pending || !entity.components.CharacterComponent || !controllers.length} value={controller} onChange={(event) => setController(event.currentTarget.value)}>{controllers.length ? controllers.map((option) => <option key={option.id} value={option.id}>{option.label}</option>) : <option value="">No controllers</option>}</select></div>
+    <button role="menuitem" type="button" class="graph-menu-item" data-menu-action="assign" disabled={!apiBase || pending || !controller} onClick={() => { void onAssign(entity.id, controller); }}>Assign Controller</button>
+    <button role="menuitem" type="button" class="graph-menu-item" data-menu-action="delete" disabled={!apiBase || pending} onClick={() => { void onDelete(entity.id); }}>Remove from World</button>
+    <button role="menuitem" type="button" class="graph-menu-item" data-menu-action="clone" disabled={!apiBase || pending} onClick={() => onClone(entity.id)}>Clone Entity</button>
+  </div>;
 }
 
 const root = document.getElementById('app');

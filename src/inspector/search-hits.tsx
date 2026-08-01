@@ -23,13 +23,16 @@ export function SearchHits({ activeIndex, hits, onPick }: SearchHitsProps) {
   return <>
     {hits.map((hit, index) => (
       <div
+        aria-selected={index === activeIndex}
         class={`search-item${index === activeIndex ? ' active' : ''}`}
         data-i={index}
         data-select-entity={hit.id}
+        id={`search-option-${index}`}
         key={hit.id}
         onMouseDown={pick}
+        role="option"
       >
-        <span class="si-icon">{hit.icon}</span>{' '}
+        <span aria-hidden="true" class="si-icon">{hit.icon}</span>{' '}
         {hit.name} <span class="si-type">{hit.type}</span>
       </div>
     ))}

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BehaviorEditorPage, type BehaviorEditorRuntime } from '../src/behavior-editor/page';
+import { expectNoSeriousAxeIssues } from './axe';
 
 interface RuntimeOptions {
   captureConfigConnect?: (connect: (server: string) => void) => void;
@@ -34,7 +35,10 @@ function runtime(options: RuntimeOptions = {}): BehaviorEditorRuntime {
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('BehaviorEditorPage', () => {
   it('keeps offline authoring available while requesting admin access for a live connection', () => {
@@ -99,6 +103,7 @@ describe('BehaviorEditorPage', () => {
       definition: JSON.parse((view.container.querySelector('#json-output') as HTMLTextAreaElement).value),
     });
     expect(view.getByText('local-behavior', { selector: '.behavior-name-row' })).toBeTruthy();
+    await expectNoSeriousAxeIssues(view.container);
   });
 
   it('ignores delayed config callbacks after its root unmounts', async () => {
@@ -110,5 +115,38 @@ describe('BehaviorEditorPage', () => {
     view.unmount();
     configConnect?.('/late-server');
     expect(normalizeBase).not.toHaveBeenCalled();
+  });
+
+  it('guards New and browser unload while behavior changes are unsaved', async () => {
+    const confirmDialog = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.stubGlobal('BunnylandUI', { confirmDialog });
+    const view = render(<BehaviorEditorPage runtime={runtime()} />);
+    fireEvent.input(view.container.querySelector('#behavior-name')!, { target: { value: 'changed' } });
+    expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false);
+
+    fireEvent.click(view.container.querySelector('#btn-new')!);
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    expect((view.container.querySelector('#behavior-name') as HTMLInputElement).value).toBe('changed');
+    fireEvent.click(view.container.querySelector('#btn-new')!);
+    await waitFor(() => expect((view.container.querySelector('#behavior-name') as HTMLInputElement).value).toBe('local-behavior'));
+    expect(view.container.querySelector('#dirty-status')).toBeNull();
+  });
+
+  it('guards behavior file replacement and permits retrying after Cancel', async () => {
+    const confirmDialog = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.stubGlobal('BunnylandUI', { confirmDialog });
+    const view = render(<BehaviorEditorPage runtime={runtime()} />);
+    fireEvent.input(view.container.querySelector('#behavior-name')!, { target: { value: 'changed' } });
+    const file = new File(['{}'], 'replacement.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: vi.fn(async () => JSON.stringify({
+      name: 'loaded-behavior', root: { kind: 'action', ref: 'move_first_exit', params: {} },
+    })) });
+    const input = view.container.querySelector<HTMLInputElement>('#behavior-input')!;
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    expect((view.container.querySelector('#behavior-name') as HTMLInputElement).value).toBe('changed');
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect((view.container.querySelector('#behavior-name') as HTMLInputElement).value).toBe('loaded-behavior'));
   });
 });

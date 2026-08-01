@@ -45,6 +45,23 @@ describe('BlockList', () => {
     expect(view.container.querySelector('[data-index="1"]')).toBe(original);
     expect(original?.classList.contains('active')).toBe(true);
   });
+
+  it('moves block focus with End and ArrowUp', () => {
+    const onSelect = vi.fn();
+    const blocks: ScriptBlockItem[] = [
+      { key: 'one', meta: 'tick', name: 'one' },
+      { key: 'two', meta: 'event', name: 'two' },
+    ];
+    const view = render(<div role="listbox"><BlockList blocks={blocks} selectedIndex={0} onSelect={onSelect} /></div>);
+    const first = view.container.querySelector<HTMLElement>('[data-index="0"]')!;
+    const second = view.container.querySelector<HTMLElement>('[data-index="1"]')!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'End' });
+    expect(document.activeElement).toBe(second);
+    expect(onSelect).toHaveBeenLastCalledWith(1);
+    fireEvent.keyDown(second, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
+  });
 });
 
 describe('EventFeed', () => {

@@ -33,6 +33,18 @@ describe('trace analyzer span rows', () => {
     expect(updated?.classList.contains('selected')).toBe(true);
     expect((updated?.querySelector('.span-duration') as HTMLElement).style.left).toBe('25%');
   });
+
+  it('supports keyboard span selection and selected semantics', () => {
+    const onSelect = vi.fn();
+    const view = render(<div role="listbox"><SpanRows rows={[span, { ...span, id: 'span-2', name: 'move' }]} onSelect={onSelect} /></div>);
+    const first = view.container.querySelector<HTMLElement>('[data-span-id="span-1"]')!;
+    const second = view.container.querySelector<HTMLElement>('[data-span-id="span-2"]')!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(onSelect).toHaveBeenCalledWith('span-2');
+    expect(document.activeElement).toBe(second);
+    expect(first.getAttribute('aria-selected')).toBe('false');
+  });
 });
 
 describe('web TUI world lists', () => {

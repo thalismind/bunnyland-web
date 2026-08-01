@@ -102,6 +102,9 @@ def edit_patch_action(page) -> None:
 
 def load_existing_script(page) -> None:
     page.set_input_files("#script-input", str(REPO_ROOT / "examples" / "scripts" / "epoch_bell.json"))
+    discard_dialog = page.locator("#bl-action-dialog[open]")
+    expect(discard_dialog.locator("#bl-action-dialog-title")).to_have_text("Unsaved changes")
+    discard_dialog.locator(".bl-dialog-confirm").click()
     expect(page.locator("#save-status")).to_have_text("Script loaded")
     expect(page.locator("#script-id")).to_have_value("examples.epoch_bell")
     expect(page.locator("#block-list")).to_contain_text("fifth-second-bell")
