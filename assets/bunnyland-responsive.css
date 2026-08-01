@@ -214,7 +214,7 @@
   }
 
   .bl-page-web-tui #main {
-    grid-template-rows: minmax(0, 1fr) minmax(240px, 45dvh);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .bl-page-web-tui #world-pane {
