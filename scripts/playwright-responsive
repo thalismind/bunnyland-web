@@ -35,6 +35,11 @@ STACKS = {
     "world-editor.html": ("#main > .pane:nth-child(1)", "#main > .pane:nth-child(2)", "#preview-pane"),
 }
 LANDSCAPE_PAGES = ("character.html", "toon-client.html", "web-repl.html", "web-tui.html")
+PLAYER_BOTTOM_PANES = {
+    "character.html": "#details-pane",
+    "toon-client.html": "#actions",
+    "web-repl.html": "#side-pane",
+}
 
 
 def launch_browser(playwright):
@@ -163,6 +168,19 @@ def assert_web_tui_drawers(page) -> None:
             raise AssertionError(f"web-tui.html {pane} does not reach the bottom: {bounds!r}")
 
 
+def assert_player_pane_bottom(page, name: str, pane: str) -> None:
+    bounds = page.evaluate(
+        """pane => {
+          const main = document.querySelector('#main').getBoundingClientRect();
+          const panel = document.querySelector(pane).getBoundingClientRect();
+          return { mainBottom: main.bottom, paneBottom: panel.bottom };
+        }""",
+        pane,
+    )
+    if abs(bounds["paneBottom"] - bounds["mainBottom"]) > 1:
+        raise AssertionError(f"{name} {pane} does not reach the bottom: {bounds!r}")
+
+
 def main() -> None:
     ensure_web_server(BASE_URL)
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -190,6 +208,8 @@ def main() -> None:
             assert_shell(page, name)
             if name == "web-tui.html":
                 assert_web_tui_drawers(page)
+            elif name in PLAYER_BOTTOM_PANES:
+                assert_player_pane_bottom(page, name, PLAYER_BOTTOM_PANES[name])
             if name in STACKS:
                 assert_stack(page, name, STACKS[name])
             if name in {"character.html", "toon-client.html", "world-editor.html"}:
@@ -206,6 +226,10 @@ def main() -> None:
                 }"""
             )
             assert_shell(page, name)
+            if name == "web-tui.html":
+                assert_web_tui_drawers(page)
+            elif name in PLAYER_BOTTOM_PANES:
+                assert_player_pane_bottom(page, name, PLAYER_BOTTOM_PANES[name])
 
         page.set_viewport_size({"width": 320, "height": 760})
         page.goto(
@@ -337,6 +361,10 @@ def main() -> None:
             page.goto(f"{BASE_URL}/{name}", wait_until="domcontentloaded")
             page.locator("#toolbar").wait_for(state="visible")
             assert_shell(page, name)
+            if name == "web-tui.html":
+                assert_web_tui_drawers(page)
+            elif name in PLAYER_BOTTOM_PANES:
+                assert_player_pane_bottom(page, name, PLAYER_BOTTOM_PANES[name])
         coverage.close_page(page)
         landscape.close()
         coverage.close_browser(browser)
