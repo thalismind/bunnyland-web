@@ -991,7 +991,7 @@ export function CharacterPage({
       </ToolbarRow>
     </Toolbar>
 
-    <main id="main" class="app-grid">
+    <main id="main" class={`app-grid character-${view}-view`}>
       <section id="identity-pane" aria-label="Character identity">
         <div class="portrait-frame" id="portrait-frame">
           {portraitUrl
