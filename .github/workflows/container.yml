@@ -103,6 +103,8 @@ jobs:
     name: Build container
     runs-on: ubuntu-latest
     needs: test
+    outputs:
+      digest: ${{ steps.web-build.outputs.digest }}
 
     steps:
       - name: Check out repository
@@ -130,6 +132,7 @@ jobs:
             type=sha,format=long
 
       - name: Build and publish container
+        id: web-build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -149,3 +152,35 @@ jobs:
           only-fixed: true
           severity-cutoff: high
           by-cve: true
+
+  dispatch-3d-promotion:
+    name: Request 3D web-base promotion
+    runs-on: ubuntu-latest
+    needs: container
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Dispatch immutable web image to 3D
+        env:
+          GH_TOKEN: ${{ secrets.BUNNYLAND_3D_PROMOTION_TOKEN }}
+          WEB_DIGEST: ${{ needs.container.outputs.digest }}
+        run: |
+          test -n "$GH_TOKEN"
+          [[ "$WEB_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -n \
+            --arg source_repo "$GITHUB_REPOSITORY" \
+            --arg source_ref "$GITHUB_REF" \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg digest "$WEB_DIGEST" \
+            '{
+              event_type: "promote-web",
+              client_payload: {
+                source_repo: $source_repo,
+                source_ref: $source_ref,
+                source_sha: $source_sha,
+                digest: $digest
+              }
+            }' |
+            gh api --method POST repos/thalismind/bunnyland-3d/dispatches --input -
