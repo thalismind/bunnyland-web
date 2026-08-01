@@ -92,12 +92,14 @@ test('container config defaults every web client to the versioned API root', () 
 
 test('nginx compresses text, revalidates routes, and caches only hashed assets immutably', () => {
   const nginx = fs.readFileSync('nginx/default.conf.template', 'utf8');
+  const dockerfile = fs.readFileSync('Dockerfile', 'utf8');
 
   assert.match(nginx, /gzip on;/);
   assert.match(nginx, /\/config\.json "no-store"/);
   assert.match(nginx, /assets\/[\s\S]*max-age=31536000, immutable/);
   assert.match(nginx, /default "no-cache"/);
   assert.match(nginx, /add_header Cache-Control \$bunnyland_cache_control always/);
+  assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^BUNNYLAND_/);
 });
 
 class MapStorage {
