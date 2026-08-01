@@ -226,6 +226,39 @@
 .message.plain { white-space: pre-wrap; }
 .message.user { margin-left: auto; border-color: var(--bl-accent); background: var(--bl-accent-wash); color: var(--bl-text); }
 .message.character { margin-right: auto; }
+.typing-indicator {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 52px;
+  min-height: 38px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--bl-border-muted);
+  border-radius: var(--bl-radius-sm);
+  background: var(--bl-bg-subtle);
+}
+
+.typing-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  animation: character-chat-typing 1.2s infinite ease-in-out;
+  background: var(--bl-text-muted);
+}
+
+.typing-indicator-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-indicator-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes character-chat-typing {
+  0%, 60%, 100% { opacity: 0.4; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-indicator-dot { animation: none; opacity: 0.7; }
+}
+
 .message p,
 .message ul,
 .message ol,

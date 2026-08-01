@@ -376,6 +376,7 @@ export function CharacterPage({
   const [chatStatus, setChatStatus] = useState('Select a character to start chatting.');
   const [chatDraft, setChatDraft] = useState('');
   const [chatClientId, setChatClientId] = useState('');
+  const [typingCharacterIds, setTypingCharacterIds] = useState<Set<string>>(() => new Set());
   const [llmControllers, setLlmControllers] = useState<LlmControllerOption[]>([]);
   const [selectedLlmController, setSelectedLlmController] = useState('');
   const [controllerOptionsStatus, setControllerOptionsStatus] = useState('');
@@ -406,6 +407,16 @@ export function CharacterPage({
   const chatLifecycle = characterChatLifecycle(projection);
 
   const bumpHistory = useCallback((): void => setHistoryRevision((value) => value + 1), []);
+
+  const setCharacterTyping = useCallback((characterId: string, typing: boolean): void => {
+    setTypingCharacterIds((current) => {
+      if (current.has(characterId) === typing) return current;
+      const next = new Set(current);
+      if (typing) next.add(characterId);
+      else next.delete(characterId);
+      return next;
+    });
+  }, []);
 
   const updateChatState = useCallback((characterId: string, update: (messages: StoredMessage[]) => StoredMessage[]): void => {
     const state = loadChatState(chatClientIdRef.current, characterId);
@@ -446,6 +457,7 @@ export function CharacterPage({
     if (!base || !jobId) return;
     const key = `${characterId}:${jobId}`;
     if (pendingPolls.current.has(key)) return;
+    setCharacterTyping(characterId, true);
     const poll = async (): Promise<void> => {
       try {
         const response = await services.sendJson(
@@ -462,6 +474,7 @@ export function CharacterPage({
         if (action?.tool) upsertAction(characterId, action, jobId);
         if (response.status === 'succeeded' || response.status === 'failed') {
           pendingPolls.current.delete(key);
+          setCharacterTyping(characterId, false);
           if (response.status === 'failed') {
             const failure = response.failure && typeof response.failure === 'object'
               ? response.failure as JsonObject
@@ -485,11 +498,12 @@ export function CharacterPage({
         pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, PENDING_POLL_MS));
       } catch (error) {
         pendingPolls.current.delete(key);
+        setCharacterTyping(characterId, false);
         if (aliveRef.current && selectedIdRef.current === characterId) setChatStatus(errorMessage(error));
       }
     };
     pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, immediate ? 0 : PENDING_POLL_MS));
-  }, [services, updateChatState, upsertAction]);
+  }, [services, setCharacterTyping, updateChatState, upsertAction]);
 
   const refresh = useCallback(async (): Promise<void> => {
     const base = apiBaseRef.current;
@@ -532,6 +546,7 @@ export function CharacterPage({
 
   const selectCharacter = useCallback((id: string, options: { updateHash?: boolean } = {}): void => {
     requestGeneration.current += 1;
+    setCharacterTyping(selectedIdRef.current, false);
     clearPendingPolls(selectedIdRef.current);
     const next = id || '';
     selectedIdRef.current = next;
@@ -548,7 +563,7 @@ export function CharacterPage({
       url.hash = next ? encodeURIComponent(next) : '';
       history.replaceState(null, '', url);
     }
-  }, [clearPendingPolls]);
+  }, [clearPendingPolls, setCharacterTyping]);
 
   const disconnect = useCallback((syncUrl = true): void => {
     requestGeneration.current += 1;
@@ -568,6 +583,7 @@ export function CharacterPage({
     setApiStatus('○ Offline');
     setStatusNote('');
     setChatStatus('Select a character to start chatting.');
+    setTypingCharacterIds(new Set());
     if (syncUrl) services.setServerInUrl('');
   }, [clearPendingPolls, services]);
 
@@ -769,6 +785,7 @@ export function CharacterPage({
     ? loadChatState(chatClientId, selectedId)
     : { summary: '', messages: [] };
   const hasChatHistory = Boolean(selectedChatState.summary || selectedChatState.messages.length);
+  const chatTyping = typingCharacterIds.has(selectedId);
   const transcriptItems = useMemo<TranscriptItem[]>(() => {
     const occurrences = new Map<string, number>();
     return selectedChatState.messages.map((message) => {
@@ -805,7 +822,7 @@ export function CharacterPage({
     if (view === 'chat' && transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
-  }, [transcriptItems, view]);
+  }, [chatTyping, transcriptItems, view]);
 
   const submitChat = async (): Promise<void> => {
     const message = chatDraft.trim();
@@ -820,6 +837,7 @@ export function CharacterPage({
     const state = loadChatState(chatClientIdRef.current, characterId);
     setChatDraft('');
     updateChatState(characterId, (messages) => [...messages, { role: 'user', text: message }]);
+    setCharacterTyping(characterId, true);
     setChatStatus('Waiting for reply…');
     try {
       const job = await services.sendJson(base, `/chat/characters/${encodeURIComponent(characterId)}/jobs`, {
@@ -844,19 +862,22 @@ export function CharacterPage({
       if (action?.tool) upsertAction(characterId, action, jobId);
       if (job.status === 'queued' || job.status === 'running' || action?.status === 'queued') {
         if (jobId) startPendingPoll(characterId, jobId);
-        setChatStatus('Chat queued. Waiting for reply…');
+        setChatStatus(result.reply ? 'Waiting for action result...' : 'Chat queued. Waiting for reply…');
       } else if (job.status === 'failed') {
+        setCharacterTyping(characterId, false);
         const failure = job.failure && typeof job.failure === 'object'
           ? job.failure as JsonObject
           : null;
         setChatStatus(String(failure?.detail || 'Chat failed.'));
       } else {
+        setCharacterTyping(characterId, false);
         setChatStatus(action?.tool
           ? `${action.tool}: ${action.status}${action.reason ? ` · ${action.reason}` : ''}`
           : 'Reply received.');
       }
     } catch (error) {
       if (!aliveRef.current) return;
+      setCharacterTyping(characterId, false);
       setChatStatus(errorMessage(error));
       setStatusKind('err');
       setApiStatus(`⚠ ${errorMessage(error)}`);
@@ -1094,6 +1115,7 @@ export function CharacterPage({
                 id="btn-clear-history"
                 onClick={(): void => {
                   if (!selectedId) return;
+                  setCharacterTyping(selectedId, false);
                   clearPendingPolls(selectedId);
                   localStorage.removeItem(chatStorageKey(chatClientId, selectedId));
                   bumpHistory();
@@ -1109,6 +1131,15 @@ export function CharacterPage({
                 : 'Pick a character to start chatting.'}
               items={transcriptItems}
             />
+            {chatTyping && <div
+              aria-label={`${characterName || selectedId} is typing`}
+              class="typing-indicator"
+              role="status"
+            >
+              <span aria-hidden="true" class="typing-indicator-dot" />
+              <span aria-hidden="true" class="typing-indicator-dot" />
+              <span aria-hidden="true" class="typing-indicator-dot" />
+            </div>}
           </div>
           {(chatReadOnly || lifecycleUnavailable) && <div id="chat-read-only" role="status">
             <span>
@@ -1163,7 +1194,7 @@ export function CharacterPage({
               value={chatDraft}
             />
             <Button
-              disabled={!chatDraft.trim() || chatUnavailable || !chatControllerReady}
+              disabled={!chatDraft.trim() || chatUnavailable || !chatControllerReady || chatTyping}
               id="btn-send"
               type="submit"
             >Send</Button>

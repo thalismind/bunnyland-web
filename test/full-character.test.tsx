@@ -188,6 +188,42 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#vitals')).toBeTruthy();
   });
 
+  it('shows a typing indicator until a queued provider reply arrives', async () => {
+    const runtime = makeServices();
+    runtime.services.sendJson = vi.fn(async (_base, path) => {
+      if (path.endsWith('/public/features')) {
+        return { character_chat: true, character_sheets: true };
+      }
+      if (path.endsWith('/jobs')) return { id: 'job:chat', status: 'queued' };
+      if (path.endsWith('/jobs/job%3Achat')) {
+        return {
+          id: 'job:chat',
+          result: { reply: 'The path is clear.' },
+          status: 'succeeded',
+        };
+      }
+      return {};
+    });
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Is it safe?' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+
+    await waitFor(() => expect(view.container.querySelector('.typing-indicator')?.getAttribute(
+      'aria-label',
+    )).toBe('Dr. Hazel is typing'));
+    expect((view.container.querySelector('#btn-send') as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(runtime.services.sendJson).toHaveBeenCalledWith(
+      '/api', '/chat/characters/character%3Aone/jobs/job%3Achat',
+    ), { timeout: 3000 });
+    await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent).toContain(
+      'The path is clear.',
+    ));
+    expect(view.container.querySelector('.typing-indicator')).toBeNull();
+  });
+
   it('marks the Chat tab when the selected character has persisted history', async () => {
     localStorage.setItem(
       'bunnyland.characterChat.history.chat-test-client.character:one',
