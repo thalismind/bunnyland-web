@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bunnyland Player Moderation</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="assets/bunnyland-ui.css">
+  <link rel="stylesheet" href="assets/bunnyland-themes.css">
+  <link rel="stylesheet" href="assets/bunnyland-responsive.css">
+  <style>
+    #main { grid-template-columns: minmax(340px, 0.8fr) minmax(440px, 1.2fr); }
+    .moderation-toolbar { display: flex; align-items: center; gap: 8px; }
+    .moderation-toolbar input { min-width: 260px; }
+    .identity-list { overflow: auto; }
+    .identity-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 9px 10px;
+      border: 0;
+      border-bottom: 1px solid var(--bl-border-muted);
+      background: var(--bl-bg-strong);
+      color: var(--bl-text);
+      text-align: left;
+    }
+    .identity-row:hover,
+    .identity-row[aria-current="true"] { background: var(--bl-bg-subtle); }
+    .identity-row code,
+    .identity-meta { color: var(--bl-text-muted); font-size: var(--bl-text-xs); }
+    .identity-badges { display: flex; gap: 5px; align-items: start; }
+    .identity-badge {
+      padding: 2px 5px;
+      border: 1px solid var(--bl-border-control);
+      border-radius: var(--bl-radius-sm);
+      color: var(--bl-text-soft);
+      font-size: var(--bl-text-xs);
+    }
+    .identity-badge.restricted { border-color: var(--bl-danger); color: var(--bl-danger); }
+    .moderation-form,
+    .manual-target { display: grid; gap: 10px; padding: 12px; }
+    .manual-grid,
+    .duration-grid { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; }
+    .duration-grid { grid-template-columns: minmax(100px, 1fr) 140px; }
+    .moderation-form textarea { min-height: 88px; resize: vertical; }
+    .action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    .audit-list { margin: 0; padding: 0; list-style: none; overflow: auto; }
+    .audit-list li { padding: 9px 10px; border-bottom: 1px solid var(--bl-border-muted); }
+    .audit-list time { color: var(--bl-text-muted); font-size: var(--bl-text-xs); }
+    .audit-list p { margin-top: 4px; color: var(--bl-text-soft); }
+    .selected-summary { padding: 10px 12px; border-bottom: 1px solid var(--bl-border); }
+    .selected-summary code { color: var(--bl-accent-strong); }
+    @media (max-width: 920px) {
+      #main { grid-template-columns: 1fr; }
+      .moderation-toolbar { align-items: stretch; flex-direction: column; }
+      .moderation-toolbar input { min-width: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body class="bl-tool-page bl-page-moderation">
+<div id="app"></div>
+<script src="assets/bunnyland-ui.js"></script>
+<script type="module" src="/src/moderation/page.tsx"></script>
+</body>
+</html>

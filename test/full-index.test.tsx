@@ -87,7 +87,7 @@ describe('LandingPage deployment state', () => {
       expect(links.length).toBeGreaterThan(0);
       expect(links.every(link => new URL(link.href).searchParams.get('server') === '/custom-api')).toBe(true);
     }
-    for (const page of ['world-generator.html', 'behavior-editor.html', 'character-memory.html', 'event-stream.html', 'trace-analyzer.html']) {
+    for (const page of ['world-generator.html', 'behavior-editor.html', 'character-memory.html', 'event-stream.html', 'moderation.html', 'trace-analyzer.html']) {
       const link = view.container.querySelector<HTMLAnchorElement>(`a[href^="${page}"]`)!;
       expect(new URL(link.href).searchParams.get('server')).toBe('/custom-api');
     }

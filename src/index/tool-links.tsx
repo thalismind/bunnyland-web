@@ -14,6 +14,7 @@ export const toolLinks: readonly ToolLink[] = [
   { description: 'Author and validate trigger/action script JSON against a snapshot.', href: 'script-editor.html', label: 'Open Script Editor', title: 'Script Editor' },
   { description: 'Edit entities, components, edges, and saves; pause/resume; LLM patches.', href: 'world-editor.html', label: 'Open World Editor', supportsServer: true, title: 'World Editor' },
   { description: 'Watch the live world event feed with expandable records and entity references.', href: 'event-stream.html', label: 'Open Event Stream', supportsServer: true, title: 'Event Stream' },
+  { description: 'Kick, suspend, ban, and review server-wide player identity history.', href: 'moderation.html', label: 'Open Moderation', supportsServer: true, title: 'Player Moderation' },
   { description: 'Inspect live Tempo traces or load JSON and JSONL trace artifacts.', href: 'trace-analyzer.html', label: 'Open Trace Analyzer', supportsServer: true, title: 'Trace Analyzer' },
 ] as const;
 
