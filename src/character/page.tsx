@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
   actionSummary,
+  formatActionCall,
   type ChatAction,
   chatStorageKey,
   HISTORY_LIMIT,
@@ -808,7 +809,7 @@ export function CharacterPage({
         kind: 'action',
         status: String(action.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase(),
         text: message.text || actionSummary(action),
-        tool: action.tool || 'action',
+        tool: formatActionCall(action),
       };
       return {
         html: markdownEnabled ? renderMarkdown(message.text) : plainMessageHtml(message.text),

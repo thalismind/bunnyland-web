@@ -173,7 +173,15 @@ def install_routes(page, state: dict) -> None:
             "kind": "chat",
             "status": "succeeded",
             "world_epoch": 9,
-            "result": {"reply": f"reply to {payload['message']}"},
+            "result": {
+                "action": {
+                    "command_id": "command:inspect-1",
+                    "parameters": {"target_id": "red apple"},
+                    "status": "executed",
+                    "tool": "inspect",
+                },
+                "reply": f"reply to {payload['message']}",
+            },
         }
         route.fulfill(
             status=202,
@@ -422,6 +430,9 @@ def main() -> None:
         with page.expect_response("**/chat/characters/*/jobs"):
             page.locator("#btn-send").click()
         expect(page.locator("#transcript")).to_contain_text("reply to hello")
+        expect(page.locator(".action-message strong")).to_have_text(
+            "inspect — target: red apple"
+        )
         expect(page.locator("#tab-chat .chat-history-marker")).to_be_visible()
         expect(page.locator("#tab-chat")).to_have_attribute("aria-label", "Chat, history available")
         if state["chat_payloads"][-1]["history"] != []:

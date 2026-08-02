@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   HISTORY_LIMIT,
+  formatActionCall,
   loadChatState,
   renderMarkdown,
 } from '../src/character/chat-state.ts';
@@ -28,6 +29,11 @@ describe('character chat state', () => {
     expect(html).toContain('href="https://example.test/"');
     expect(html).toContain('&lt;img src=x&gt;');
     expect(html).not.toContain('href="javascript:');
+
+    expect(formatActionCall({
+      parameters: { target_id: 'red apple', quiet: true },
+      tool: 'take',
+    })).toBe('take — target: red apple, quiet: true');
   });
 });
 

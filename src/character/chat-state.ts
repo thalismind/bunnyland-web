@@ -4,6 +4,7 @@ export type JsonObject = Record<string, unknown>;
 
 export interface ChatAction extends JsonObject {
   command_id?: string;
+  parameters?: Record<string, unknown>;
   reason?: string;
   status?: string;
   tool?: string;
@@ -166,6 +167,18 @@ export function actionSummary(action: ChatAction): string {
   if (action.status === 'executed') return `${tool} finished.`;
   if (action.status === 'rejected') return `${tool} failed${action.reason ? `: ${action.reason}` : '.'}`;
   return `${tool}: ${action.status || 'pending'}`;
+}
+
+export function formatActionCall(action: ChatAction): string {
+  const tool = action.tool || 'action';
+  const parameters = action.parameters;
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return tool;
+  const details = Object.entries(parameters).map(([key, value]) => {
+    const label = key.replace(/_id$/, '').replaceAll('_', ' ');
+    const encoded = typeof value === 'string' ? value : JSON.stringify(value);
+    return `${label}: ${encoded === undefined ? String(value) : encoded}`;
+  });
+  return details.length ? `${tool} — ${details.join(', ')}` : tool;
 }
 
 export function plainMessageHtml(value: unknown): string {

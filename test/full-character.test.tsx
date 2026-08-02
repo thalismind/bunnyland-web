@@ -188,6 +188,38 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#vitals')).toBeTruthy();
   });
 
+  it('shows tool parameters with entity display names in chat history', async () => {
+    const runtime = makeServices();
+    runtime.services.sendJson = vi.fn(async (_base, path) => {
+      if (path.endsWith('/public/features')) {
+        return { character_chat: true, character_sheets: true };
+      }
+      if (path.endsWith('/jobs')) return {
+        id: 'job:chat',
+        result: {
+          action: {
+            command_id: 'command:inspect',
+            parameters: { target_id: 'red apple' },
+            status: 'executed',
+            tool: 'inspect',
+          },
+          reply: 'It looks ripe.',
+        },
+        status: 'succeeded',
+      };
+      return {};
+    });
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Inspect it' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+
+    await waitFor(() => expect(view.container.querySelector('.action-message strong')?.textContent)
+      .toBe('inspect — target: red apple'));
+  });
+
   it('shows a typing indicator until a queued provider reply arrives', async () => {
     const runtime = makeServices();
     runtime.services.sendJson = vi.fn(async (_base, path) => {
