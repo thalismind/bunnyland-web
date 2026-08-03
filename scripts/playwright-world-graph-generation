@@ -23,7 +23,12 @@ import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import (
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    expect,
+    sync_playwright,
+)
 
 from playwright_container import container_cli, grant_container_user_access, stop_container
 from playwright_coverage import PlaywrightCoverage
@@ -371,6 +376,57 @@ def generate_and_assert(page, *, action, kind: str, expected_name: str) -> JsonO
     return {"job": job, "patch": patch}
 
 
+def open_character_projection(
+    page: Page,
+    character_url: str,
+    character_id: str,
+    browser_errors: list[str],
+) -> None:
+    # A container-network change can strand the initial projection request even when
+    # document navigation succeeds. Reload once, then allow the original full deadline.
+    for projection_attempt, projection_timeout in enumerate((10000, 30000)):
+        for navigation_attempt in range(3):
+            try:
+                page.goto(character_url, wait_until="domcontentloaded")
+                break
+            except PlaywrightError as exc:
+                if "ERR_NETWORK_CHANGED" not in str(exc) or navigation_attempt == 2:
+                    raise
+                page.wait_for_timeout(250)
+        try:
+            page.wait_for_function(
+                "(id) => window.app?.projection?.characterId === id",
+                arg=character_id,
+                timeout=projection_timeout,
+            )
+            return
+        except PlaywrightTimeoutError:
+            if projection_attempt == 0:
+                page.wait_for_timeout(500)
+
+    state = page.evaluate(
+        """() => ({
+          url: location.href,
+          appInitialized: Boolean(window.app),
+          connected: window.app?.connected ?? null,
+          projectionCharacterId: window.app?.projection?.characterId ?? null,
+          apiStatus: document.querySelector('#api-status')?.textContent ?? null,
+        })"""
+    )
+    try:
+        page.screenshot(
+            path=str(ARTIFACT_DIR / "character-projection-timeout.png"),
+            full_page=True,
+            timeout=5000,
+        )
+    except PlaywrightError as exc:
+        browser_errors.append(f"timeout screenshot failed: {exc}")
+    raise AssertionError(
+        f"character projection did not load after two attempts: state={state!r}; "
+        f"browser_errors={browser_errors!r}"
+    )
+
+
 def exercise_character_scopes(
     browser,
     coverage: PlaywrightCoverage,
@@ -406,24 +462,30 @@ def exercise_character_scopes(
         raise AssertionError(f"character browser login failed: {login.status} {login.text()}")
     page = context.new_page()
     coverage.start_page(page)
-    page.add_init_script(
-        f"""
-        """
+    browser_errors: list[str] = []
+    page.on(
+        "console",
+        lambda message: browser_errors.append(f"console {message.type}: {message.text}")
+        if message.type == "error"
+        else None,
+    )
+    page.on("pageerror", lambda error: browser_errors.append(f"pageerror: {error}"))
+    page.on(
+        "response",
+        lambda response: browser_errors.append(f"HTTP {response.status}: {response.url}")
+        if response.url.startswith(base_url) and response.status >= 400
+        else None,
+    )
+    page.on(
+        "requestfailed",
+        lambda request: browser_errors.append(
+            f"failed request: {request.method} {request.url}: {request.failure}"
+        )
+        if request.url.startswith(base_url)
+        else None,
     )
     character_url = f"{base_url}/character.html?server=%2Fapi%2Fv1#{character_id}"
-    for attempt in range(3):
-        try:
-            page.goto(character_url, wait_until="domcontentloaded")
-            break
-        except PlaywrightError as exc:
-            if "ERR_NETWORK_CHANGED" not in str(exc) or attempt == 2:
-                raise
-            page.wait_for_timeout(250)
-    page.wait_for_function(
-        "(id) => window.app?.projection?.characterId === id",
-        arg=character_id,
-        timeout=30000,
-    )
+    open_character_projection(page, character_url, character_id, browser_errors)
     expect(page.locator("#api-status")).to_contain_text("Connected", timeout=10000)
     expect(page.locator("#character-name")).to_have_text("Playwright Cartographer")
     expect(page.locator("#controller-value")).to_contain_text("web")
