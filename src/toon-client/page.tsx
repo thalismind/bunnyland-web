@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import { useContentWarningGate } from '../content-warning';
 import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 import { StageItems } from './stage';
+import { updateSpeechBubbles, type SpeechBubble } from './speech-bubbles';
 import type { ToonDoor, ToonSprite } from '../types';
 import './toon.css';
 
@@ -165,6 +166,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const [localPos, setLocalPos] = useState<{ x: number; y: number } | null>(null);
   const [localDirty, setLocalDirty] = useState(false);
   const [activityLines, setActivityLines] = useState<Activity[]>([]);
+  const [speechBubbles, setSpeechBubbles] = useState<SpeechBubble[]>([]);
   const [actionFilter, setActionFilter] = useState('');
   const [showIcons, setShowIcons] = useState(() => playCall<boolean>(runtime, 'iconPreference', ICON_PREF_KEY, true));
   const [activeAction, setActiveAction] = useState<{ action: Json; fields: ActionField[] } | null>(null);
@@ -256,13 +258,15 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const room = roomId ? bundle.room : null;
       roomRef.current = room;
       setRoomProjection(room);
-      const drained = playCall<{ lines: Activity[]; seenIds: Set<string> }>(runtime, 'drainNarratedEvents', Array.isArray(recent.events) ? recent.events : [], {
+      const recentMessages = Array.isArray(recent.events) ? recent.events : [];
+      const drained = playCall<{ lines: Activity[]; seenIds: Set<string> }>(runtime, 'drainNarratedEvents', recentMessages, {
         seenIds: seenIds.current, playerId: id, roomOf: () => character.room?.id || null, nameFor: () => null,
       });
       seenIds.current = drained.seenIds;
       if (primed.current) for (const line of drained.lines) appendActivity(line);
       primed.current = true;
-      const latest = playCall<{ url?: string } | null>(runtime, 'latestImageCompletion', Array.isArray(recent.events) ? recent.events : [], { base, purpose: 'event' });
+      setSpeechBubbles(current => updateSpeechBubbles(current, recentMessages));
+      const latest = playCall<{ url?: string } | null>(runtime, 'latestImageCompletion', recentMessages, { base, purpose: 'event' });
       if (latest?.url) setEventImage(latest.url);
       setStatus('● Live');
     } catch (error) {
@@ -273,7 +277,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         controlRef.current = null; projectionRef.current = null; queueRef.current = null; roomRef.current = null;
         selectedRef.current = ''; localPosRef.current = null; primed.current = false; seenIds.current = new Set();
         setControl(null); setProjection(null); setQueueProjection(null); setRoomProjection(null);
-        setSelectedId(''); setLocalPos(null); setLocalDirty(false);
+        setSelectedId(''); setLocalPos(null); setLocalDirty(false); setSpeechBubbles([]);
         setStatus('⚠ Claim expired. Claim again to continue.');
         return;
       }
@@ -335,7 +339,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     refreshPromiseRef.current = null;
     playerRef.current = id;
     setPlayerId(id); setProjection(null); setRoomProjection(null); setQueueProjection(null);
-    setControl(null); setSelectedId(''); setLocalPos(null); setActivityLines([]); primed.current = false; seenIds.current = new Set();
+    setControl(null); setSelectedId(''); setLocalPos(null); setActivityLines([]); setSpeechBubbles([]); primed.current = false; seenIds.current = new Set();
     if (id) await claim(id); else await refresh();
   };
 
@@ -455,6 +459,15 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   }, [playerInView, refresh]);
 
   useEffect(() => {
+    if (!speechBubbles.length) return;
+    const expiresAt = Math.min(...speechBubbles.map(bubble => bubble.expiresAt));
+    const timeout = window.setTimeout(() => {
+      setSpeechBubbles(current => updateSpeechBubbles(current, [], Date.now()));
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [speechBubbles]);
+
+  useEffect(() => {
     const sync = window.setInterval(() => {
       if (!localDirty || !localPosRef.current) return;
       setLocalDirty(false);
@@ -504,7 +517,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     </div><div class="toolbar-row" id="toolbar-row2">
       <label for="api-url">Server:</label><input id="api-url" value={apiUrl} onInput={event => setApiUrl(event.currentTarget.value)} />
       <Button id="btn-connect" onClick={() => {
-        if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); runtime.api.setServerInUrl(''); }
+        if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); setSpeechBubbles([]); runtime.api.setServerInUrl(''); }
         else { const base = String(runtime.api.normalizeBase(apiUrl) || ''); baseRef.current = base; setConnected(true); setLoading(false); setStatus('● Connected'); runtime.api.setServerInUrl(base); void refresh(); }
       }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span id="api-status">{status}</span>
     </div><div class="toolbar-row" id="toolbar-row3">
@@ -540,7 +553,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         }} onClick={event => {
           if (!playerInView() || !stageRef.current || event.target !== event.currentTarget) return;
           const box = stageRef.current.getBoundingClientRect(); setLocalPos({ x: ((event.clientX - box.left) / box.width) * ROOM_WIDTH, y: ((event.clientY - box.top) / box.height) * ROOM_HEIGHT }); setLocalDirty(true);
-        }}><div id="room-bg">{room ? `“${playCall<string>(runtime, 'entityName', room)}”` : ''}</div><div id="stage-items"><StageItems sprites={sprites} doors={doors} onSprite={id => selectTarget(selectedRef.current === id ? '' : id)} onDoor={id => {
+        }}><div id="room-bg">{room ? `“${playCall<string>(runtime, 'entityName', room)}”` : ''}</div><div id="stage-items"><StageItems bubbles={speechBubbles} sprites={sprites} doors={doors} onSprite={id => selectTarget(selectedRef.current === id ? '' : id)} onDoor={id => {
           const action = actions.find(item => playCall<Json[]>(runtime, 'actionArguments', item).some(argument => argument.target_group === 'exits'));
           const argument = action && playCall<Json[]>(runtime, 'actionArguments', action).find(item => item.target_group === 'exits');
           if (action && argument) void postCommand(action, { [String(argument.key)]: id });

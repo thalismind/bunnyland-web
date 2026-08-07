@@ -185,6 +185,32 @@ describe('ToonPage', () => {
     expect(test.close).not.toHaveBeenCalled();
   });
 
+  it('renders received speech above its speaker while retaining the full activity text', async () => {
+    const test = harness();
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
+    await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
+
+    const fullText = 'A'.repeat(170);
+    const displayedText = `${'A'.repeat(159)}…`;
+    test.runtime.play.fetchCharacterRecentEvents = async () => ({ events: [{
+      data: { event_type: 'SpeechSaidEvent', event: { event_id: 'speech:1', actor_id: OTHER, text: fullText, created_at: new Date().toISOString() } },
+    }] });
+    test.runtime.play.drainNarratedEvents = (_messages, options) => ({
+      lines: [{ kind: 'event', text: fullText }],
+      seenIds: new Set([...(options as { seenIds: Set<string> }).seenIds, 'speech:1']),
+    });
+    await (window as unknown as { app: { _refresh(): Promise<void> } }).app._refresh();
+
+    const speaker = view.container.querySelector(`[data-id="${OTHER}"]`);
+    expect(speaker?.querySelector('.speech-bubble')?.textContent).toBe(displayedText);
+    expect(view.container.querySelector('.activity-list')?.textContent).toContain(fullText);
+  });
+
   it('delegates its read-only facade and deletes it on unmount', async () => {
     const test = harness();
     const view = render(<ToonPage runtime={test.runtime} />);

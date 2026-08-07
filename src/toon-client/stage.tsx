@@ -2,14 +2,22 @@ import { useCallback } from 'preact/hooks';
 
 import type { ToonDoor, ToonSprite } from '../types';
 
+export interface StageSpeechBubble {
+  eventId: string;
+  speakerId: string;
+  text: string;
+}
+
 export interface StageItemsProps {
+  bubbles?: readonly StageSpeechBubble[];
   doors: readonly ToonDoor[];
   onDoor: (id: string) => void;
   onSprite: (id: string) => void;
   sprites: readonly ToonSprite[];
 }
 
-export function StageItems({ doors, onDoor, onSprite, sprites }: StageItemsProps) {
+export function StageItems({ bubbles = [], doors, onDoor, onSprite, sprites }: StageItemsProps) {
+  const bubbleBySpeaker = new Map(bubbles.map(bubble => [bubble.speakerId, bubble]));
   const selectSprite = useCallback((event: MouseEvent) => {
     event.stopPropagation();
     const id = (event.currentTarget as HTMLElement).dataset.id;
@@ -30,6 +38,7 @@ export function StageItems({ doors, onDoor, onSprite, sprites }: StageItemsProps
         onClick={selectSprite}
         style={{ left: sprite.left, top: sprite.top, zIndex: 1000 + sprite.layer }}
       >
+        {bubbleBySpeaker.get(sprite.id) && <div class="speech-bubble" aria-hidden="true">{bubbleBySpeaker.get(sprite.id)?.text}</div>}
         {sprite.imageUrl
           ? <img class="glyph" src={sprite.imageUrl} alt="" style={{ transform: `scale(${sprite.scale})` }} />
           : <div class="glyph" style={{ transform: `scale(${sprite.scale})` }}>{sprite.glyph}</div>}
