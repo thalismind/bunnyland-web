@@ -8,7 +8,8 @@ through a room exit. Screenshots are written after each visible step.
 The Toon client is a pure player surface: it reads only the play-facing projections
 play-zoned character and room projections and never the admin-gated snapshot or global
 stream. This test uses the same projections for its setup
-and assertions so it works without admin credentials.
+and assertions so it works without admin credentials. Auth-enabled servers require a
+``BUNNYLAND_PLAY_TOKEN`` with the ``world:play`` scope.
 """
 
 from __future__ import annotations
@@ -17,10 +18,11 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from urllib.parse import urljoin, urlsplit
 
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect, sync_playwright
 
 
@@ -28,76 +30,178 @@ PAGE_URL = os.environ.get(
     "BUNNYLAND_TOON_PAGE_URL", "https://sandbox.bunnyland.dev/toon-client.html"
 )
 API_URL = os.environ.get(
-    "BUNNYLAND_TOON_API_URL", "https://sandbox.bunnyland.dev/api"
+    "BUNNYLAND_TOON_API_URL", "https://sandbox.bunnyland.dev/api/v1"
 ).rstrip("/")
 OUT_DIR = Path(os.environ.get("BUNNYLAND_TOON_SCREENSHOT_DIR", "/tmp"))
 PLAY_TOKEN = os.environ.get("BUNNYLAND_PLAY_TOKEN", "")
+JsonObject = dict[str, object]
 
 
-def player_auth_header() -> str:
-    return f"Bearer {PLAY_TOKEN}" if PLAY_TOKEN else ""
+def as_object(value: object, label: str) -> JsonObject:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} must be an object")
+    if not all(isinstance(key, str) for key in value):
+        raise RuntimeError(f"{label} has a non-string key")
+    return {key: item for key, item in value.items() if isinstance(key, str)}
 
 
-def screenshot(page, name: str) -> str:
+def object_list(value: object, label: str) -> list[JsonObject]:
+    if not isinstance(value, list):
+        raise RuntimeError(f"{label} must be a list")
+    return [as_object(item, f"{label} item") for item in value]
+
+
+def nested_object(value: JsonObject, key: str) -> JsonObject:
+    child = value.get(key)
+    return {} if child is None else as_object(child, key)
+
+
+def string_value(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"{label} must be a non-empty string")
+    return value
+
+
+def number_value(value: object, label: str, default: float | None = None) -> float:
+    if value is None and default is not None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(f"{label} must be a number")
+    return float(value)
+
+
+def room_id(projection: JsonObject) -> str | None:
+    value = nested_object(projection, "room").get("id")
+    return value if isinstance(value, str) and value else None
+
+
+def character_summary_id(summary: JsonObject) -> str:
+    value = summary.get("id")
+    if not isinstance(value, str) or not value:
+        value = summary.get("character_id")
+    return string_value(value, "character id")
+
+
+def normalized_play_token() -> str:
+    token = PLAY_TOKEN.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    if token and not token.startswith("blt_"):
+        raise RuntimeError("BUNNYLAND_PLAY_TOKEN has an unexpected credential format")
+    return token
+
+
+def page_origin(url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError("BUNNYLAND_TOON_PAGE_URL must be an absolute HTTP(S) URL")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def absolute_api_url(url: str) -> str:
+    return urljoin(PAGE_URL, url).rstrip("/")
+
+
+def install_player_session(page: Page) -> None:
+    token = normalized_play_token()
+    if not token:
+        return
+    page.context.add_cookies(
+        [{"name": "bunnyland_token", "value": token, "url": page_origin(PAGE_URL)}]
+    )
+
+
+def screenshot(page: Page, name: str) -> str:
     path = OUT_DIR / f"bunnyland-toon-{name}.png"
     page.screenshot(path=str(path), full_page=True)
     return str(path)
 
 
-def api_get(page, path: str) -> Any:
-    return page.evaluate(
+def api_get(page: Page, path: str) -> JsonObject:
+    value: object = page.evaluate(
         """async ([api, path]) => {
-            const res = await fetch(`${api}${path}`);
-            if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
-            return await res.json();
+            const client = window.BunnylandApi;
+            if (!client?.sendJson) throw new Error('BunnylandApi.sendJson is unavailable');
+            return await client.sendJson(api, path);
         }""",
         [API_URL, path],
     )
+    return as_object(value, path)
 
 
-def character_room(page, character_id: str) -> dict[str, Any]:
-    """The character's perceived room id via the character projection."""
-    return api_get(page, f"/play/world/character/{character_id}")
+def claim_projection_bundle(page: Page) -> JsonObject:
+    value: object = page.evaluate(
+        """async (api) => {
+            const app = window.app;
+            const client = window.BunnylandPlay;
+            if (!app?.control?.characterId || !client?.fetchClaimProjection) {
+                throw new Error('an active Toon claim is required');
+            }
+            return await client.fetchClaimProjection(
+                api,
+                app.control.characterId,
+                app.control,
+            );
+        }""",
+        API_URL,
+    )
+    return as_object(value, "claim projection")
 
 
-def room_view(page, room_id: str) -> dict[str, Any]:
-    return api_get(page, f"/play/world/room/{room_id}")
+def character_room(page: Page, character_id: str) -> JsonObject:
+    projection = nested_object(claim_projection_bundle(page), "character")
+    projected_id = projection.get("characterId")
+    if projected_id != character_id:
+        raise RuntimeError(
+            f"claim projection returned character {projected_id!r}, expected {character_id!r}"
+        )
+    return projection
 
 
-def room_entity(room: dict[str, Any], entity_id: str) -> dict[str, Any] | None:
-    for entity in (room.get("room") or {}).get("entities", []):
+def room_view(page: Page, current_room_id: str) -> JsonObject:
+    bundle = claim_projection_bundle(page)
+    projection = nested_object(bundle, "character")
+    if room_id(projection) != current_room_id:
+        raise RuntimeError(f"claim projection is no longer in room {current_room_id}")
+    return nested_object(bundle, "room")
+
+
+def room_entity(room: JsonObject, entity_id: str) -> JsonObject | None:
+    entities = object_list(room.get("entities", []), "entities")
+    for entity in entities:
         if entity.get("id") == entity_id:
             return entity
     return None
 
 
-def sprite_pos(room: dict[str, Any], entity_id: str) -> tuple[float, float] | None:
+def sprite_pos(room: JsonObject, entity_id: str) -> tuple[float, float] | None:
     entity = room_entity(room, entity_id)
-    pos = (entity or {}).get("sprite", {}).get("position")
+    sprite = nested_object(entity or {}, "sprite")
+    pos = nested_object(sprite, "position")
     if not pos:
         return None
-    return (float(pos.get("x") or 0), float(pos.get("y") or 0))
+    return (
+        number_value(pos.get("x"), "sprite x", 0.0),
+        number_value(pos.get("y"), "sprite y", 0.0),
+    )
 
 
-def choose_character_with_exit(page) -> tuple[str, str, str]:
-    """Pick a character whose perceived room has at least one exit, using only projections."""
-    lobby = api_get(page, "/play/world/characters")
-    for summary in lobby.get("characters", []):
-        character_id = summary["character_id"]
-        projection = character_room(page, character_id)
-        room = projection.get("room") or {}
-        room_id = room.get("id")
-        if not room_id:
-            continue
-        exits = (room_view(page, room_id).get("room") or {}).get("exits", [])
-        if exits:
-            return character_id, room_id, exits[0]["id"]
-    raise RuntimeError("could not find a character in a room with an exit")
+def claimable_character_ids(page: Page) -> list[str]:
+    lobby = api_get(page, "/play/characters")
+    return [
+        character_summary_id(summary)
+        for summary in object_list(lobby.get("characters", []), "characters")
+    ]
 
 
-def wait_for(page, label: str, fetch, predicate, timeout: float = 90.0) -> dict[str, Any]:
+def wait_for(
+    label: str,
+    fetch: Callable[[], JsonObject],
+    predicate: Callable[[JsonObject], bool],
+    timeout: float = 90.0,
+) -> JsonObject:
     deadline = time.monotonic() + timeout
-    last: dict[str, Any] | None = None
+    last: JsonObject | None = None
     while time.monotonic() < deadline:
         last = fetch()
         if predicate(last):
@@ -106,17 +210,105 @@ def wait_for(page, label: str, fetch, predicate, timeout: float = 90.0) -> dict[
     raise RuntimeError(f"timed out waiting for {label}; last={json.dumps(last)[:1000]}")
 
 
+def accept_world_gates(page: Page) -> None:
+    warning = page.get_by_role("dialog", name="Content warning")
+    try:
+        warning.wait_for(state="visible", timeout=5000)
+    except PlaywrightTimeoutError:
+        pass
+    else:
+        warning.get_by_role("button", name="Accept and Join").click()
+
+    introduction = page.locator(".world-intro-dialog")
+    try:
+        introduction.wait_for(state="visible", timeout=5000)
+    except PlaywrightTimeoutError:
+        return
+    introduction.get_by_role("button", name="Continue").click()
+
+
+def claim_character(page: Page) -> str:
+    attempted: list[str] = []
+    for character_id in claimable_character_ids(page):
+        attempted.append(character_id)
+        page.locator("#player-select").select_option(character_id)
+        accept_world_gates(page)
+        try:
+            page.wait_for_function(
+                "(id) => window.app?.control?.characterId === id",
+                arg=character_id,
+                timeout=5000,
+            )
+        except PlaywrightTimeoutError:
+            continue
+        return character_id
+    status = page.locator("#api-status").inner_text()
+    raise RuntimeError(f"could not claim a character from {attempted!r}; status={status!r}")
+
+
+def release_claim(page: Page) -> None:
+    page.evaluate(
+        """async (api) => {
+            const app = window.app;
+            if (!app?.control?.claimId) return;
+            await window.BunnylandPlay.releaseWebClaim(
+                api,
+                {
+                    character_id: app.control.characterId,
+                    client_id: app.control.clientId,
+                    claim_id: app.control.claimId,
+                },
+                app.control,
+            );
+        }""",
+        API_URL,
+    )
+
+
+def connect_to_api(page: Page) -> None:
+    button = page.locator("#btn-connect")
+    configured_api = page.locator("#api-url").input_value()
+    if (
+        button.inner_text() == "Disconnect"
+        and absolute_api_url(configured_api) != absolute_api_url(API_URL)
+    ):
+        button.click()
+        expect(page.locator("#api-status")).to_contain_text("Offline")
+
+    if button.inner_text() == "Connect Live":
+        page.locator("#api-url").fill(API_URL)
+        button.click()
+
+    # The status flips "● Connected" → "● Live · epoch …" within one poll, so accept
+    # either rather than racing the brief Connected state.
+    expect(page.locator("#api-status")).to_contain_text(
+        re.compile(r"Connected|Live"), timeout=15000
+    )
+
+
 def main() -> None:
     shots: list[str] = []
     with sync_playwright() as pw:
-        launch_kwargs: dict[str, Any] = {"headless": True}
-        if os.environ.get("CI"):
-            launch_kwargs["args"] = ["--no-sandbox"]
-        browser = pw.chromium.launch(**launch_kwargs)
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox"] if os.environ.get("CI") else [],
+        )
         page = browser.new_page(viewport={"width": 1440, "height": 950})
 
+        install_player_session(page)
         page.goto(PAGE_URL, wait_until="domcontentloaded")
         shots.append(screenshot(page, "01-loaded"))
+        page.locator("#api-url, .bl-auth-gate button").first.wait_for(
+            state="visible",
+            timeout=15000,
+        )
+        if not page.locator("#api-url").is_visible():
+            shots.append(screenshot(page, "auth-required"))
+            gate = page.locator(".bl-auth-gate").inner_text()
+            raise RuntimeError(
+                "Toon authentication is required; set BUNNYLAND_PLAY_TOKEN to a "
+                f"world:play bearer token. Gate: {gate}"
+            )
         overlay = page.locator("#loading-overlay")
         try:
             overlay.wait_for(state="visible", timeout=2000)
@@ -124,28 +316,13 @@ def main() -> None:
             pass
         overlay.wait_for(state="hidden", timeout=4000)
 
-        page.locator("#api-url").fill(API_URL)
-        auth = player_auth_header()
-        if auth:
-            page.evaluate("(authHeader) => BunnylandApi.setPlayerAuth(authHeader)", auth)
-        page.locator("#btn-connect").click()
-        # The status flips "● Connected" → "● Live · epoch …" within one poll, so accept
-        # either rather than racing the brief Connected state.
-        expect(page.locator("#api-status")).to_contain_text(
-            re.compile(r"Connected|Live"), timeout=15000
-        )
+        connect_to_api(page)
         page.wait_for_function(
             "() => window.app?.characterList && window.app.characterList.length > 0"
         )
         shots.append(screenshot(page, "02-connected"))
 
-        character_id, start_room, expected_exit_room = choose_character_with_exit(page)
-        page.locator("#player-select").select_option(character_id)
-        page.wait_for_function(
-            """(characterId) => window.app?.control?.characterId === characterId""",
-            arg=character_id,
-            timeout=15000,
-        )
+        character_id = claim_character(page)
         page.wait_for_function(
             """(characterId) => (
                 window.app?.characterProjection?.characterId === characterId
@@ -156,9 +333,18 @@ def main() -> None:
         )
         expect(page.locator("#actions-body")).to_contain_text("Queued actions")
         expect(page.locator('.verb.ready[data-tool="move"]')).to_be_visible(timeout=15000)
-        control = page.evaluate("() => window.app.control")
+        control = as_object(page.evaluate("() => window.app.control"), "control")
         if not control or not control.get("controllerId"):
             raise RuntimeError(f"web controller claim failed: {control!r}")
+        projection = character_room(page, character_id)
+        start_room = string_value(room_id(projection), "starting room id")
+        exits = object_list(
+            nested_object(room_view(page, start_room), "room").get("exits", []),
+            "exits",
+        )
+        if not exits:
+            raise RuntimeError(f"claimed character {character_id} has no room exit")
+        expected_exit_room = string_value(exits[0].get("id"), "exit id")
         shots.append(screenshot(page, "03-claimed"))
 
         before_pos = sprite_pos(room_view(page, start_room), character_id) or (0.0, 0.0)
@@ -166,13 +352,29 @@ def main() -> None:
         box = stage.bounding_box()
         if not box:
             raise RuntimeError("stage is not visible")
-        page.mouse.click(box["x"] + box["width"] / 2 + 80, box["y"] + box["height"] / 2 + 45)
-        target_pos_raw = page.evaluate("() => [window.app.localPos?.x, window.app.localPos?.y]")
-        if not target_pos_raw or target_pos_raw[0] is None or target_pos_raw[1] is None:
-            raise RuntimeError(f"sprite click did not set an optimistic local position: {target_pos_raw!r}")
-        target_pos = (float(target_pos_raw[0]), float(target_pos_raw[1]))
+        stage.dispatch_event(
+            "click",
+            {
+                "clientX": box["x"] + box["width"] / 2 + 80,
+                "clientY": box["y"] + box["height"] / 2 + 45,
+            },
+        )
+        target_pos_raw: object = page.evaluate(
+            "() => [window.app.localPos?.x, window.app.localPos?.y]"
+        )
+        if (
+            not isinstance(target_pos_raw, list)
+            or len(target_pos_raw) != 2
+        ):
+            raise RuntimeError(
+                "sprite click did not set an optimistic local position: "
+                f"{target_pos_raw!r}"
+            )
+        target_pos = (
+            number_value(target_pos_raw[0], "target x"),
+            number_value(target_pos_raw[1], "target y"),
+        )
         wait_for(
-            page,
             "sprite position update",
             lambda: room_view(page, start_room),
             lambda room: (
@@ -190,17 +392,23 @@ def main() -> None:
         form_select.select_option(index=1)
         page.locator("#action-form-dialog .af-submit").click()
         moved = wait_for(
-            page,
             "room movement through exit",
             lambda: character_room(page, character_id),
-            lambda projection: (projection.get("room") or {}).get("id") not in (None, start_room),
+            lambda projection: room_id(projection) not in (None, start_room),
         )
         page.wait_for_function(
             "() => window.app?.activityLines?.length > 0",
             timeout=15000,
         )
-        activity = page.evaluate("() => window.app.activityLines.map(line => line.text)")
-        new_room = (moved.get("room") or {}).get("id")
+        activity_raw: object = page.evaluate(
+            "() => window.app.activityLines.map(line => line.text)"
+        )
+        if not isinstance(activity_raw, list) or not all(
+            isinstance(line, str) for line in activity_raw
+        ):
+            raise RuntimeError("activity lines must be strings")
+        activity = [line for line in activity_raw if isinstance(line, str)]
+        new_room = room_id(moved)
         page.locator("#btn-follow").click()
         page.wait_for_timeout(1000)
         shots.append(screenshot(page, "05-room-moved"))
@@ -213,17 +421,16 @@ def main() -> None:
         before_door_room = new_room
         page.locator("#stage .door").first.click()
         door_moved = wait_for(
-            page,
             "room movement through a clicked door",
             lambda: character_room(page, character_id),
-            lambda projection: (projection.get("room") or {}).get("id")
-            not in (None, before_door_room),
+            lambda projection: room_id(projection) not in (None, before_door_room),
         )
-        door_room = (door_moved.get("room") or {}).get("id")
+        door_room = room_id(door_moved)
         page.locator("#btn-follow").click()
         page.wait_for_timeout(1000)
         shots.append(screenshot(page, "06-door-moved"))
 
+        release_claim(page)
         browser.close()
 
     print(
