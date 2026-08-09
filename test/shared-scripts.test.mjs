@@ -103,6 +103,20 @@ test('nginx compresses text, revalidates routes, and caches only hashed assets i
   assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^BUNNYLAND_/);
 });
 
+test('nginx blocks the real admin prefix and bounds API traffic and uploads', () => {
+  const nginx = fs.readFileSync('nginx/default.conf.template', 'utf8');
+  const dockerfile = fs.readFileSync('Dockerfile', 'utf8');
+
+  assert.match(nginx, /location \/api\/v1\/admin\/ \{\s*return 403;/);
+  assert.doesNotMatch(nginx, /location \/api\/admin\//);
+  assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=bunnyland_api:/);
+  assert.match(nginx, /limit_conn_zone \$binary_remote_addr zone=bunnyland_api_conn:/);
+  assert.match(nginx, /limit_req zone=bunnyland_api burst=\$\{BUNNYLAND_EDGE_API_BURST\}/);
+  assert.match(nginx, /limit_conn bunnyland_api_conn \$\{BUNNYLAND_EDGE_API_CONNECTIONS\}/);
+  assert.match(nginx, /client_max_body_size \$\{BUNNYLAND_EDGE_MAX_BODY_SIZE\}/);
+  assert.match(dockerfile, /BUNNYLAND_EDGE_MAX_BODY_SIZE=12m/);
+});
+
 class MapStorage {
   constructor() {
     this.items = new Map();
