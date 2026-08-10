@@ -148,6 +148,10 @@ def json_route(body):
 
 def install_routes(page, posted: list[dict]) -> None:
     page.route("**/config.json", json_route({"serverUrl": "", "autoConnect": False}))
+    page.route("**/public/features", json_route({
+        "character_chat": True, "character_sheets": True,
+        "image_generation": True, "video_generation": True,
+    }))
     page.route("**/public/world", json_route({
         "world_id": "world:test", "world_epoch": 1, "title": "Test World",
         "description": "", "content_flags": [],

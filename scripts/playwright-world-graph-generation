@@ -433,7 +433,7 @@ def exercise_character_scopes(
     admin_page,
     base_url: str,
     character_id: str,
-) -> str:
+) -> str | None:
     origin = admin_page.evaluate("location.origin")
     admin_client_id = admin_page.evaluate("BunnylandApi.getClientId()")
     claim_response = admin_page.context.request.post(
@@ -495,11 +495,23 @@ def exercise_character_scopes(
     denied = context.request.get(f"{origin}/api/v1/play/characters", headers=headers)
     if denied.status != 403:
         raise AssertionError(f"character-only credentials unexpectedly received play access: {denied.status}")
+    feature_response = context.request.get(f"{origin}/api/v1/public/features")
+    features = feature_response.json()
     submitted = context.request.post(
         f"{origin}/api/v1/chat/characters/{character_id}/jobs",
         headers=headers,
         data={"kind": "chat", "message": "Are you ready to map the annex?"},
     )
+    if features.get("character_chat") is not True:
+        problem = submitted.json()
+        if submitted.status != 404 or problem.get("code") != "chat_disabled":
+            raise AssertionError(
+                f"disabled character chat did not return chat_disabled: "
+                f"{submitted.status} {submitted.text()}"
+            )
+        coverage.close_page(page)
+        context.close()
+        return None
     if submitted.status != 202 or submitted.json().get("status") != "queued":
         raise AssertionError(f"character chat job was not queued: {submitted.status} {submitted.text()}")
     job_id = str(submitted.json()["id"])

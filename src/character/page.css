@@ -316,6 +316,7 @@
   #chat-actions { flex: 1 1 100%; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
   #chat-read-only,
   #llm-controller-assignment { flex-wrap: wrap; align-items: flex-start; }
+  #status-line { min-height: 25px; padding: 4px 8px; }
   .bl-page-character #composer { grid-template-columns: minmax(0, 1fr) auto; padding: 8px; }
   .bl-page-character #composer button { width: auto; }
   .client-menu-button { margin-left: 0; }
