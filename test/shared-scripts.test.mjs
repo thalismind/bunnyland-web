@@ -413,7 +413,8 @@ test('Character page is in the client menu and sends bounded local history', () 
   assert.match(state, /HISTORY_LIMIT = 24/);
   assert.match(page, /history: historyForPayload\(state\.messages\)/);
   assert.match(page, /jobs\/\$\{encodeURIComponent\(jobId\)\}/);
-  assert.match(state, /localStorage\.setItem\(chatStorageKey\(clientId, characterId\)/);
+  assert.match(state, /sessionChatStates\.set\(key, bounded\)/);
+  assert.match(state, /localStorage\.setItem\(key, JSON\.stringify\(bounded\)\)/);
   assert.match(page, /\/chat\/characters\/\$\{encodeURIComponent\(characterId\)\}\/jobs/);
   assert.doesNotMatch(page, /storedClaimControl|claimHeaders|createPlayerLiveUpdates/);
 });

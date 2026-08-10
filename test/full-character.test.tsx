@@ -20,10 +20,20 @@ const PROJECTION: SheetProjection = {
     title: 'Parlor',
   },
   sheet: {
+    affect: [{ label: 'Joy', text: 'bright', value: 4 }],
+    appearance: 'Green field coat.',
+    biography: 'Hazel maps safe paths through the neighborhood.',
     description: 'A careful scout.',
+    injuries: [{ detail: 'healing', label: 'Scratch' }],
     kind: 'character',
+    needs: [{ band: 'low', label: 'Hunger', value: 2 }],
+    notes: [{ label: 'Reminder', value: 'Check the east path' }],
+    profile: [{ label: 'Home', value: 'Parlor' }],
+    relations: [{ label: 'Friend', value: 'Juniper' }],
+    skills: [{ label: 'Scouting', value: 'expert' }],
     species: 'hare',
     status: ['alert'],
+    tags: ['neighbor'],
     traits: ['watchful'],
     vitals: [
       { label: 'Health', maximum: 10, text: '8 / 10', value: 8 },
@@ -120,6 +130,16 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel');
     expect(view.container.querySelector('#vitals')?.textContent).toContain('Health');
     expect(view.container.querySelector('#vitals')?.textContent).not.toContain('Initiative');
+    for (const id of [
+      'sheet-overview', 'needs', 'affect', 'profile', 'skills', 'traits', 'relations',
+      'injuries', 'notes',
+    ]) expect(view.container.querySelector(`#${id}`)?.classList.contains('sheet-empty')).toBe(false);
+    expect(view.container.querySelector('#controller-value')?.textContent).toContain('llm: default');
+    expect(view.container.querySelector('#room-value')?.textContent).toBe('Parlor');
+    expect(view.container.querySelector('#ap-value')?.textContent).toContain('4 / 5 points');
+    expect(view.container.querySelector('#fp-value')?.textContent).toContain('2 / 3 points');
+    expect(view.container.querySelector<HTMLImageElement>('#portrait-frame img')?.src)
+      .toContain('/api/portrait.png');
     expect(runtime.services.fetchCharacterProfile).toHaveBeenCalledWith('/api', 'character:one');
     expect(view.container.querySelector('#actions')).toBeNull();
     expect(view.container.querySelector('#inventory')).toBeNull();
@@ -222,6 +242,25 @@ describe('full Character page', () => {
 
     await waitFor(() => expect(view.container.querySelectorAll('.message.character')).toHaveLength(2));
     expect(view.container.querySelector('#transcript')?.textContent).toContain('Second thought.');
+  });
+
+  it('keeps opted-out chat visible in memory and persists it when remembrance is enabled', async () => {
+    const runtime = makeServices();
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent)
+      .toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    fireEvent.click(view.container.querySelector('#remember-device-toggle')!);
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Hello' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+    await waitFor(() => expect(view.container.querySelector('#transcript')?.textContent)
+      .toContain('Hello back.'));
+    const historyKey = 'bunnyland.characterChat.history.chat-test-client.character:one';
+    expect(localStorage.getItem(historyKey)).toBeNull();
+
+    fireEvent.click(view.container.querySelector('#remember-device-toggle')!);
+    expect(localStorage.getItem(historyKey)).not.toBeNull();
   });
 
   it('shows tool parameters with entity display names in chat history', async () => {

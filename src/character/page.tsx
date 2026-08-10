@@ -13,14 +13,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
   actionSummary,
+  clearChatState,
+  clearSessionChatStates,
   formatActionCall,
   type ChatAction,
-  chatStorageKey,
   HISTORY_LIMIT,
   historyForPayload,
   type JsonObject,
   loadChatState,
   plainMessageHtml,
+  persistSessionChatStates,
   renderMarkdown,
   saveChatState,
   splitReplyParagraphs,
@@ -1181,9 +1183,9 @@ export function CharacterPage({
                     // Turning this off stops persisting transcripts and clears any already
                     // cached narrative on this device.
                     setRememberOnThisDevice(remember);
-                    if (!remember) {
-                      bumpHistory();
-                    }
+                    if (remember) persistSessionChatStates();
+                    else clearSessionChatStates();
+                    bumpHistory();
                   }}
                   type="checkbox"
                 /> Remember on this device
@@ -1210,7 +1212,7 @@ export function CharacterPage({
                   setCharacterTyping(selectedId, false);
                   clearPendingPolls(selectedId);
                   clearParagraphReveals(selectedId);
-                  localStorage.removeItem(chatStorageKey(chatClientId, selectedId));
+                  clearChatState(chatClientId, selectedId);
                   bumpHistory();
                   setChatStatus(`Cleared local chat history for ${characterName || selectedId}.`);
                 }}
@@ -1320,6 +1322,7 @@ if (root) {
       // user of a shared device.
       if (auth.status === 'anonymous') {
         clearRememberedNarrative();
+        clearSessionChatStates();
       }
     }, [auth.status]);
     return (
