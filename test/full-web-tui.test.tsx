@@ -35,6 +35,7 @@ const submitCommand = vi.fn(async () => ({ queued: true }));
 
 const play = {
   IMAGE_AFFORDANCE: { DELIVER_EMOJI: '🖼', FAIL_EMOJI: '⚠', REQUEST_EMOJI: '📷' },
+  VIDEO_AFFORDANCE: { DELIVER_EMOJI: '🎞️', FAIL_EMOJI: '⚠', REQUEST_EMOJI: '🎬' },
   actionArguments: vi.fn((value: typeof action) => value.arguments ?? []),
   actionAvailable: vi.fn((value: { available?: boolean }) => value.available !== false),
   actionCommandType: vi.fn((value: typeof action) => value.command_type),
@@ -64,10 +65,13 @@ const play = {
   formatPoints: vi.fn((value: number) => String(value ?? 0)),
   iconPreference: vi.fn((_key: string, fallback: boolean) => fallback),
   imageRequestMessage: vi.fn(() => 'image requested'),
+  videoRequestMessage: vi.fn(() => 'video requested'),
   inventoryEntries: vi.fn((value: typeof projection | null) => value?.inventory ?? []),
   isClaimNotFoundError: vi.fn((error: unknown) => (error as { status?: number })?.status === 404),
   latestImageCompletion: vi.fn(() => null),
   latestImageFailure: vi.fn(() => null),
+  latestVideoCompletion: vi.fn(() => null),
+  latestVideoFailure: vi.fn(() => null),
   persistentClientId: vi.fn(() => 'web-tui-client'),
   queuedCommandLabel: vi.fn(() => 'Tell'),
   queuedCountdownSeconds: vi.fn(() => null),
@@ -83,7 +87,10 @@ const play = {
 const bunnylandApi = {
   applyConfigToInput: vi.fn(async () => undefined),
   applyServerParam: vi.fn(),
+  claimHeaders: vi.fn(() => ({})),
+  mediaUrl: vi.fn((_base: string, path: unknown) => String(path)),
   normalizeBase: vi.fn((value: string) => value.replace(/\/$/, '')),
+  fetchFeatures: vi.fn(async () => ({ image_generation: true, video_generation: false })),
   requestSceneImage: vi.fn(async () => ({})),
   sendJson: vi.fn(async () => ({
     world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
@@ -116,6 +123,7 @@ beforeEach(() => {
   bunnylandApi.sendJson.mockResolvedValue({
     world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
   });
+  bunnylandApi.fetchFeatures.mockResolvedValue({ image_generation: true, video_generation: false });
 });
 
 afterEach(() => {
@@ -139,6 +147,16 @@ async function connectAndSelect(container: HTMLElement) {
 }
 
 describe('WebTuiPage', () => {
+  it('hides generation buttons unless each feature is advertised', async () => {
+    bunnylandApi.fetchFeatures.mockResolvedValue({ image_generation: false, video_generation: true });
+    const view = render(<WebTuiPage />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api/' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    expect(view.container.querySelector('#btn-request-image')).toBeNull();
+    expect(view.container.querySelector('#btn-request-video')).toBeTruthy();
+  });
+
   it('claims immediately when the world has no entry content', async () => {
     bunnylandApi.sendJson.mockResolvedValue({
       world_id: 'world-1', world_epoch: 7, title: '  ', description: '\n', content_flags: [],

@@ -83,7 +83,8 @@ function harness(
         const server = new URLSearchParams(location.search).get('server') || '';
         if (server) (options as { connect(server: string): void }).connect(server);
         return server;
-      }, mediaUrl: (_base, path) => path,
+      }, claimHeaders: () => ({}), mediaUrl: (_base, path) => String(path),
+      fetchFeatures: async () => ({ image_generation: true, video_generation: false }),
       normalizeBase: value => String(value).replace(/\/$/, ''), requestSceneImage: async () => ({}), setServerInUrl: value => {
         const url = new URL(location.href); const server = String(value);
         if (server) url.searchParams.set('server', server); else url.searchParams.delete('server');
@@ -119,6 +120,35 @@ afterEach(() => {
 });
 
 describe('ToonPage', () => {
+  it('shows media controls only for advertised generation features', async () => {
+    const test = harness();
+    test.runtime.api.fetchFeatures = async () => ({ image_generation: false, video_generation: true });
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    expect(view.container.querySelector('#btn-request-image')).toBeNull();
+    expect(view.container.querySelector('#btn-request-video')).toBeTruthy();
+  });
+
+  it('plays the latest generated scene video in the page', async () => {
+    const test = harness();
+    test.runtime.play.fetchCharacterRecentEvents = async () => ({ events: [{ data: {
+      event_type: 'VideoGenerationCompletedEvent',
+      event: { entity_id: 'history:one', url: '/public/media/videos/scene.mp4', world_epoch: 8 },
+    } }] });
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    fireEvent.click(await view.findByText('Continue'));
+
+    await waitFor(() => expect(
+      view.container.querySelector<HTMLVideoElement>('#event-video')?.getAttribute('src'),
+    ).toBe('/public/media/videos/scene.mp4'));
+  });
+
   it('claims immediately when the world has no entry content', async () => {
     const test = harness([], { description: '\n', title: '  ' });
     const view = render(<ToonPage runtime={test.runtime} />);

@@ -22,6 +22,13 @@ import { render } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { useContentWarningGate } from '../content-warning';
+import {
+  latestVideoCompletion as latestLocalVideoCompletion,
+  latestVideoFailure as latestLocalVideoFailure,
+  requestSceneVideo as requestLocalSceneVideo,
+  VIDEO_AFFORDANCE,
+  videoRequestMessage as localVideoRequestMessage,
+} from '../media-generation';
 import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 import { ActionRows, TargetRows, type ReplActionRow, type ReplTargetRow } from './context-lists';
 import {
@@ -35,7 +42,7 @@ const LOBBY_POLL_INTERVAL_MS = 2000;
 const CLIENT_ID_KEY = 'bunnyland.webRepl.clientId';
 const ICON_PREF_KEY = 'bunnyland.webRepl.showIcons';
 const META_COMMANDS = [
-  'help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'image', 'img',
+  'help', 'who', 'look', 'inventory', 'inv', 'points', 'play', 'image', 'img', 'video',
   'sheet', 'profile', 'refresh', 'queued', 'cancel', 'clear',
 ];
 
@@ -113,9 +120,11 @@ export interface WebReplServices {
     base: string, characterId: string, control: ControlClaim | null,
   ) => Promise<{ events?: unknown[] }>;
   fetchContentFlags: (base: string) => Promise<unknown>;
+  fetchFeatures?: (base: string) => Promise<{ image_generation?: boolean; video_generation?: boolean }>;
   formatPoints: (value: unknown) => string;
   iconPreference: (key: string, fallback: boolean) => boolean;
   imageAffordance: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
+  videoAffordance: { DELIVER_EMOJI: string; FAIL_EMOJI: string; REQUEST_EMOJI: string };
   imageRequestMessage: (result: unknown) => string;
   initClientMenu: () => { close?: () => void } | void;
   isClaimNotFoundError: (error: unknown) => boolean;
@@ -126,6 +135,10 @@ export interface WebReplServices {
   latestImageFailure: (
     messages: unknown[], options: { purpose: string },
   ) => { epoch: number; reason: string } | null;
+  latestVideoCompletion?: (
+    messages: unknown[], options: { base: string },
+  ) => { epoch: number; url: string } | null;
+  latestVideoFailure?: (messages: unknown[]) => { epoch: number; reason: string } | null;
   normalizeBase: (url: string) => string;
   orderActionsByAvailability: (actions: ActionView[]) => ActionView[];
   persistentClientId: (key: string, prefix: string) => string;
@@ -142,6 +155,10 @@ export interface WebReplServices {
   requestSceneImage: (
     base: string, characterId: string, control: ControlClaim | null,
   ) => Promise<unknown>;
+  requestSceneVideo: (
+    base: string, characterId: string, control: ControlClaim | null,
+  ) => Promise<unknown>;
+  videoRequestMessage: (result: unknown) => string;
   resolveTargetName: (value: string, candidates: TargetOption[]) => TargetOption | null;
   serverFromUrl: () => string;
   setIconPreference: (key: string, value: boolean) => void;
@@ -165,14 +182,18 @@ export interface WebReplServices {
 interface WebReplBrowserRuntime extends Window {
   BunnylandApi: {
     applyConfigToInput: WebReplServices['applyConfig'];
+    claimHeaders: (control: ControlClaim | null) => Record<string, string>;
+    mediaUrl: (base: string, path: string) => string;
     normalizeBase: WebReplServices['normalizeBase'];
     requestSceneImage: WebReplServices['requestSceneImage'];
-    sendJson: (base: string, path: string) => Promise<unknown>;
+    sendJson: (base: string, path: string, init?: RequestInit) => Promise<unknown>;
     serverFromUrl: WebReplServices['serverFromUrl'];
     setServerInUrl: WebReplServices['setServerInUrl'];
   };
   BunnylandPlay: Omit<WebReplServices,
-    'applyConfig' | 'initClientMenu' | 'normalizeBase' | 'requestSceneImage' | 'serverFromUrl' | 'setServerInUrl'> & {
+    'applyConfig' | 'initClientMenu' | 'latestVideoCompletion' | 'latestVideoFailure'
+    | 'normalizeBase' | 'requestSceneImage' | 'requestSceneVideo' | 'serverFromUrl'
+    | 'setServerInUrl' | 'videoAffordance' | 'videoRequestMessage'> & {
     IMAGE_AFFORDANCE: WebReplServices['imageAffordance'];
   };
   BunnylandUI: { initClientMenu: WebReplServices['initClientMenu'] };
@@ -188,10 +209,23 @@ function browserServices(): WebReplServices {
     ...play,
     applyConfig: (options) => browser.BunnylandApi.applyConfigToInput(options),
     fetchContentFlags: (base) => browser.BunnylandApi.sendJson(base, '/public/world'),
+    fetchFeatures: (base) => browser.BunnylandApi.sendJson(base, '/public/features') as Promise<{ image_generation?: boolean; video_generation?: boolean }>,
     imageAffordance: IMAGE_AFFORDANCE,
+    latestVideoCompletion: (messages, options) => latestLocalVideoCompletion(
+      messages,
+      url => browser.BunnylandApi.mediaUrl(options.base, url),
+    ),
+    latestVideoFailure: latestLocalVideoFailure,
+    videoAffordance: VIDEO_AFFORDANCE,
+    videoRequestMessage: localVideoRequestMessage,
     initClientMenu: () => browser.BunnylandUI.initClientMenu(),
     normalizeBase: (url) => browser.BunnylandApi.normalizeBase(url),
     requestSceneImage: (base, id, control) => browser.BunnylandApi.requestSceneImage(base, id, control),
+    requestSceneVideo: (base, _id, control) => requestLocalSceneVideo(
+      browser.BunnylandApi,
+      base,
+      control,
+    ),
     serverFromUrl: () => browser.BunnylandApi.serverFromUrl(),
     setServerInUrl: (base) => browser.BunnylandApi.setServerInUrl(base),
   };
@@ -266,6 +300,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   }]);
   const [apiStatus, setApiStatus] = useState('○ Offline');
   const [statusKind, setStatusKind] = useState('');
+  const [features, setFeatures] = useState({ imageGeneration: false, videoGeneration: false });
   const aliveRef = useRef(true);
   const apiBaseRef = useRef('');
   const connectedRef = useRef(false);
@@ -287,6 +322,8 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   const eventsPrimed = useRef(false);
   const eventImageUrl = useRef('');
   const eventImageFailureEpoch = useRef<number | null>(null);
+  const eventVideoUrl = useRef('');
+  const eventVideoFailureEpoch = useRef<number | null>(null);
   const clientId = useRef(services.persistentClientId(CLIENT_ID_KEY, 'web-repl'));
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -361,6 +398,19 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       eventImageFailureEpoch.current = failure.epoch;
       if (!prime) write(`${services.imageAffordance.FAIL_EMOJI} image request failed: ${failure.reason}`, 'error');
     }
+    const video = services.latestVideoCompletion?.(messages, { base: apiBaseRef.current });
+    if (video && video.url !== eventVideoUrl.current) {
+      eventVideoUrl.current = video.url;
+      if (!prime) writeParts([
+        { kind: 'text', value: `${services.videoAffordance.DELIVER_EMOJI} scene video ready: ` },
+        { href: video.url, kind: 'link', label: 'view video' },
+      ]);
+    }
+    const videoFailure = services.latestVideoFailure?.(messages);
+    if (videoFailure && videoFailure.epoch !== eventVideoFailureEpoch.current) {
+      eventVideoFailureEpoch.current = videoFailure.epoch;
+      if (!prime) write(`${services.videoAffordance.FAIL_EMOJI} video request failed: ${videoFailure.reason}`, 'error');
+    }
     if (prime) return;
     for (const line of drained.lines) {
       const prefix = showIconsRef.current && line.icon ? `${line.icon} ` : '';
@@ -374,9 +424,17 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     const generation = ++requestGeneration.current;
     let claimRequest = false;
     try {
-      const lobby = await services.fetchCharacterList(base);
+      const [lobby, featureStatus] = await Promise.all([
+        services.fetchCharacterList(base),
+        services.fetchFeatures?.(base)
+          ?? Promise.resolve({ image_generation: false, video_generation: false }),
+      ]);
       if (!aliveRef.current || generation !== requestGeneration.current) return;
       setCharacters(lobby.characters);
+      setFeatures({
+        imageGeneration: featureStatus.image_generation === true,
+        videoGeneration: featureStatus.video_generation === true,
+      });
       charactersRef.current = lobby.characters;
       setEpoch(lobby.epoch);
       const selected = playerIdRef.current;
@@ -539,6 +597,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     setConnected(true);
     dropPlayer(false);
     setCharacters([]);
+    setFeatures({ imageGeneration: false, videoGeneration: false });
     charactersRef.current = [];
     setEpoch(0);
     setStatusKind('live');
@@ -554,6 +613,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     setApiBase('');
     setConnected(false);
     setCharacters([]);
+    setFeatures({ imageGeneration: false, videoGeneration: false });
     charactersRef.current = [];
     dropPlayer(false);
     setStatusKind('');
@@ -804,6 +864,19 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
     }
   };
 
+  const requestVideo = async (): Promise<void> => {
+    if (!apiBaseRef.current || !playerIdRef.current) {
+      write('Pick a player first: play <name>.', 'error');
+      return;
+    }
+    try {
+      const result = await services.requestSceneVideo(apiBaseRef.current, playerIdRef.current, controlRef.current);
+      write(services.videoRequestMessage(result), 'ok');
+    } catch (error) {
+      write(`${services.videoAffordance.REQUEST_EMOJI} ${errorMessage(error)}`, 'error');
+    }
+  };
+
   const sheetTarget = (name: string): string => {
     const query = name.trim();
     if (!query) return playerIdRef.current;
@@ -1012,6 +1085,10 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       await requestImage();
       return;
     }
+    if (verb === 'video') {
+      await requestVideo();
+      return;
+    }
     if (verb === 'sheet' || verb === 'profile') {
       openSheet(rest);
       return;
@@ -1101,7 +1178,8 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
         <Button disabled={!playerId} id="btn-claim-menu" onClick={(): void => {
           if (playerId) dialogRef.current?.showModal();
         }}>{claimButtonLabel}</Button>
-        <Button id="btn-request-image" title="Request an image of your character's current scene" onClick={(): void => { void requestImage(); }}>📷 Image</Button>
+        {features.imageGeneration && <Button id="btn-request-image" title="Request an image of your character's current scene" onClick={(): void => { void requestImage(); }}>📷 Image</Button>}
+        {features.videoGeneration && <Button id="btn-request-video" title="Generate a short video of recent events" onClick={(): void => { void requestVideo(); }}>🎬 Video</Button>}
       </ToolbarRow>
     </Toolbar>
 

@@ -4,6 +4,14 @@ import { render } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { useContentWarningGate } from '../content-warning';
+import {
+  fetchGenerationFeatures,
+  latestVideoCompletion,
+  latestVideoFailure,
+  requestSceneVideo,
+  VIDEO_AFFORDANCE,
+  videoRequestMessage,
+} from '../media-generation';
 import { ActionSections, ActivityRows, LiveQueuedRows, type TuiActivityRow, type TuiActionRow } from './live-projections';
 import { ExitList, InventoryList, MemberList } from './world-lists';
 
@@ -43,6 +51,7 @@ type Model = {
   connected: boolean;
   control: Control | null;
   eventsPrimed: boolean;
+  features: { imageGeneration: boolean; videoGeneration: boolean };
   playerId: string;
   projection: Projection | null;
   queueProjection: QueueProjection | null;
@@ -101,9 +110,12 @@ interface WebTuiPlayRuntime {
 interface WebTuiApiRuntime {
   applyConfigToInput(options: Record<string, unknown>): Promise<unknown>;
   applyServerParam(options: Record<string, unknown>): void;
+  claimHeaders(control: Control | null): Record<string, string>;
+  mediaUrl(base: string, path: unknown): string;
   normalizeBase(value: string): string;
   requestSceneImage(base: string, characterId: string, control: Control | null): Promise<unknown>;
-  sendJson(base: string, path: string): Promise<unknown>;
+  fetchFeatures?(base: string): Promise<{ image_generation?: boolean; video_generation?: boolean }>;
+  sendJson(base: string, path: string, init?: RequestInit): Promise<unknown>;
   setServerInUrl(base: string): void;
 }
 
@@ -149,6 +161,7 @@ const pageWindow = window as unknown as Window & { app?: WebTuiFacade };
 export function WebTuiPage() {
   const initial: Model = {
     activity: [], characters: [], connected: false, control: null, eventsPrimed: false,
+    features: { imageGeneration: false, videoGeneration: false },
     playerId: '', projection: null, queued: [], queueProjection: null, selectedId: '',
     seenEventIds: new Set(), status: { kind: '', text: '○ Offline' },
   };
@@ -183,6 +196,8 @@ export function WebTuiPage() {
   const activityKeyRef = useRef(0);
   const eventImageRef = useRef('');
   const eventFailureRef = useRef<unknown>(null);
+  const eventVideoRef = useRef('');
+  const eventVideoFailureRef = useRef<unknown>(null);
   const pendingTargetRef = useRef(targetFromHash());
   const clientIdRef = useRef(String(play.persistentClientId(CLIENT_ID_KEY, 'web-tui')));
   const connectRef = useRef<(url: string) => void>(() => undefined);
@@ -257,6 +272,19 @@ export function WebTuiPage() {
       eventFailureRef.current = failure.epoch;
       if (!prime) additions.push({ kind: 'rejection', text: `${play.IMAGE_AFFORDANCE.FAIL_EMOJI} image request failed: ${failure.reason}` });
     }
+    const video = latestVideoCompletion(
+      events,
+      url => api.mediaUrl(baseRef.current, url),
+    );
+    if (video?.url && video.url !== eventVideoRef.current) {
+      eventVideoRef.current = video.url;
+      if (!prime) additions.push({ kind: 'system', text: `${VIDEO_AFFORDANCE.DELIVER_EMOJI} scene video ready: ${video.url}` });
+    }
+    const videoFailure = latestVideoFailure(events);
+    if (videoFailure && videoFailure.epoch !== eventVideoFailureRef.current) {
+      eventVideoFailureRef.current = videoFailure.epoch;
+      if (!prime) additions.push({ kind: 'rejection', text: `${VIDEO_AFFORDANCE.FAIL_EMOJI} video request failed: ${videoFailure.reason}` });
+    }
     if (!prime) additions.push(...drained.lines);
     update({
       activity: [...current.activity, ...additions.map(line => ({ ...line, key: `activity-${++activityKeyRef.current}` }))].slice(-ACTIVITY_LIMIT) as Model['activity'],
@@ -271,10 +299,24 @@ export function WebTuiPage() {
     const token = ++refreshTokenRef.current;
     let claimRequest = false;
     try {
-      const list = await play.fetchCharacterList(base);
+      const [list, features] = await Promise.all([
+        play.fetchCharacterList(base),
+        api.fetchFeatures
+          ? api.fetchFeatures(base).then(value => ({
+            imageGeneration: value.image_generation === true,
+            videoGeneration: value.video_generation === true,
+          }))
+          : fetchGenerationFeatures(api.sendJson, base),
+      ]);
       if (!mountedRef.current || token !== refreshTokenRef.current || base !== baseRef.current || !modelRef.current.connected) return;
       const characters = list.characters ?? [];
-      update({ characters });
+      update({
+        characters,
+        features: {
+          imageGeneration: features.imageGeneration,
+          videoGeneration: features.videoGeneration,
+        },
+      });
       const playerId = modelRef.current.playerId;
       if (playerId && !characters.some((character: Character) => character.id === playerId)) {
         dropPlayer();
@@ -580,6 +622,14 @@ export function WebTuiPage() {
     }
     await refreshRef.current();
   };
+  const requestVideo = async () => {
+    if (!modelRef.current.playerId) activity('Select a character before requesting a video.');
+    else {
+      try { activity(videoRequestMessage(await requestSceneVideo(api, baseRef.current, modelRef.current.control))); }
+      catch (error) { activity(`${VIDEO_AFFORDANCE.REQUEST_EMOJI} ${message(error)}`, 'rejection'); }
+    }
+    await refreshRef.current();
+  };
   const openSheet = () => {
     const current = modelRef.current;
     if (!current.playerId) { activity('Select a character before opening a sheet.'); return; }
@@ -657,7 +707,8 @@ export function WebTuiPage() {
         <button id="btn-release-character" type="button" disabled={!model.playerId} onClick={() => claimDialogRef.current?.showModal()}>
           {!model.playerId || !model.control ? 'Play' : model.control.active === false ? 'Play' : 'Step away'}
         </button>
-        <button id="btn-request-image" type="button" title="Request an image of your current scene" onClick={() => { void requestImage(); }}>📷 Image</button>
+        {model.features.imageGeneration && <button id="btn-request-image" type="button" title="Request an image of your current scene" onClick={() => { void requestImage(); }}>📷 Image</button>}
+        {model.features.videoGeneration && <button id="btn-request-video" type="button" title="Generate a short video of recent events" onClick={() => { void requestVideo(); }}>🎬 Video</button>}
         <button id="btn-open-sheet" type="button" title="Open the selected or current character sheet" onClick={openSheet}>▣ Sheet</button>
       </div>
     </div>

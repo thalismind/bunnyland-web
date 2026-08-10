@@ -4,6 +4,12 @@ import { render } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import { useContentWarningGate } from '../content-warning';
+import {
+  fetchGenerationFeatures,
+  latestVideoCompletion,
+  requestSceneVideo,
+  videoRequestMessage,
+} from '../media-generation';
 import { useSecondBoundaryTick } from '../use-second-boundary-tick';
 import { StageItems } from './stage';
 import { updateSpeechBubbles, type SpeechBubble } from './speech-bubbles';
@@ -17,10 +23,12 @@ export interface ToonRuntime {
   api: {
     applyConfigToInput(options: { connect: (server: unknown) => void; isConnected: () => boolean }): Promise<unknown>;
     applyServerParam(options: { connect: (server: unknown) => void }): void;
+    claimHeaders(control: Control | null): Record<string, string>;
     mediaUrl(base: string, path: unknown): string;
     normalizeBase(server: unknown): string;
     requestSceneImage(base: string, characterId: string, control: Control | null): Promise<Json>;
-    sendJson(base: string, path: string): Promise<unknown>;
+    fetchFeatures?(base: string): Promise<{ image_generation?: boolean; video_generation?: boolean }>;
+    sendJson(base: string, path: string, init?: RequestInit): Promise<unknown>;
     setServerInUrl(base: string): void;
   };
   play: Record<string, unknown>;
@@ -171,6 +179,8 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const [showIcons, setShowIcons] = useState(() => playCall<boolean>(runtime, 'iconPreference', ICON_PREF_KEY, true));
   const [activeAction, setActiveAction] = useState<{ action: Json; fields: ActionField[] } | null>(null);
   const [eventImage, setEventImage] = useState('');
+  const [eventVideo, setEventVideo] = useState('');
+  const [features, setFeatures] = useState({ imageGeneration: false, videoGeneration: false });
   const [lightbox, setLightbox] = useState(false);
   const [loading, setLoading] = useState(true);
   const [claimOpen, setClaimOpen] = useState(false);
@@ -229,9 +239,21 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     const generation = ++refreshGeneration.current;
     let claimRequest = false;
     try {
-      const lobby = await playCall<Promise<{ characters: CharacterSummary[]; epoch: number }>>(runtime, 'fetchCharacterList', base);
+      const [lobby, featureStatus] = await Promise.all([
+        playCall<Promise<{ characters: CharacterSummary[]; epoch: number }>>(runtime, 'fetchCharacterList', base),
+        runtime.api.fetchFeatures
+          ? runtime.api.fetchFeatures(base).then(value => ({
+            imageGeneration: value.image_generation === true,
+            videoGeneration: value.video_generation === true,
+          }))
+          : fetchGenerationFeatures(runtime.api.sendJson, base),
+      ]);
       if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current) return;
       setCharacterList(lobby.characters || []);
+      setFeatures({
+        imageGeneration: featureStatus.imageGeneration,
+        videoGeneration: featureStatus.videoGeneration,
+      });
       const id = playerRef.current;
       if (!id) { setStatus(`● Live · epoch ${lobby.epoch || 0}s`); return; }
       const currentControl = controlRef.current;
@@ -268,6 +290,11 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       setSpeechBubbles(current => updateSpeechBubbles(current, recentMessages));
       const latest = playCall<{ url?: string } | null>(runtime, 'latestImageCompletion', recentMessages, { base, purpose: 'event' });
       if (latest?.url) setEventImage(latest.url);
+      const latestVideo = latestVideoCompletion(
+        recentMessages,
+        url => runtime.api.mediaUrl(base, url),
+      );
+      if (latestVideo?.url) setEventVideo(latestVideo.url);
       setStatus('● Live');
     } catch (error) {
       if (!mounted.current || generation !== refreshGeneration.current || base !== baseRef.current) return;
@@ -382,6 +409,16 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       const result = await runtime.api.requestSceneImage(baseRef.current, playerId, controlRef.current);
       setStatus(playCall<string>(runtime, 'imageRequestMessage', result));
       if (result.url) setEventImage(String(runtime.api.mediaUrl(baseRef.current, result.url)));
+    } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
+  };
+  const requestVideo = async (): Promise<void> => {
+    if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before requesting a video.'); return; }
+    try {
+      const result = await requestSceneVideo(runtime.api, baseRef.current, controlRef.current);
+      setStatus(videoRequestMessage(result));
+      if (typeof result === 'object' && result !== null && 'url' in result && result.url) {
+        setEventVideo(String(runtime.api.mediaUrl(baseRef.current, result.url)));
+      }
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
   };
   const openSheet = (): void => {
@@ -517,14 +554,15 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
     </div><div class="toolbar-row" id="toolbar-row2">
       <label for="api-url">Server:</label><input id="api-url" value={apiUrl} onInput={event => setApiUrl(event.currentTarget.value)} />
       <Button id="btn-connect" onClick={() => {
-        if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); setSpeechBubbles([]); runtime.api.setServerInUrl(''); }
+        if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); setSpeechBubbles([]); setFeatures({ imageGeneration: false, videoGeneration: false }); runtime.api.setServerInUrl(''); }
         else { const base = String(runtime.api.normalizeBase(apiUrl) || ''); baseRef.current = base; setConnected(true); setLoading(false); setStatus('● Connected'); runtime.api.setServerInUrl(base); void refresh(); }
       }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span id="api-status">{status}</span>
     </div><div class="toolbar-row" id="toolbar-row3">
       <label for="player-select">Character:</label><select id="player-select" value={playerId} onChange={event => { void selectPlayer(event.currentTarget.value); }}>
         <option value="">— select to play —</option>{[...characterList].sort((a, b) => a.name.localeCompare(b.name)).map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
       </select><Button id="btn-release-character" disabled={!playerId} onClick={() => setClaimOpen(true)}>{control?.active === false ? 'Resume' : control ? 'Idle' : 'Claim'}</Button>
-      <Button id="btn-request-image" onClick={() => { void requestImage(); }}>📷 Image</Button>
+      {features.imageGeneration && <Button id="btn-request-image" onClick={() => { void requestImage(); }}>📷 Image</Button>}
+      {features.videoGeneration && <Button id="btn-request-video" onClick={() => { void requestVideo(); }}>🎬 Video</Button>}
       <Button id="btn-open-sheet" onClick={openSheet}>▣ Sheet</Button><Button id="btn-follow" onClick={() => { setLocalPos(null); void refresh(); stageRef.current?.focus(); }}>⌖ Follow character</Button><span class="toolbar-sep">|</span>
       <label><input type="checkbox" id="debug-bounds" checked={debugBounds} onChange={event => setDebugBounds(event.currentTarget.checked)} /> Bounds</label><span class="toolbar-sep">|</span><span id="room-title">{room ? playCall<string>(runtime, 'entityName', room) : connected ? 'No room' : 'Not connected'}</span>
     </div></div>
@@ -564,6 +602,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       <div id="actions"><div id="actions-header">⚔ Actions</div>
         {projection?.portrait?.url && <img id="player-portrait" src={String(runtime.api.mediaUrl(baseRef.current, projection.portrait.url))} alt="Your character's portrait" />}
         {eventImage && <img id="event-image" src={eventImage} alt="Latest requested scene image" onClick={() => setLightbox(true)} />}
+        {eventVideo && <video id="event-video" src={eventVideo} aria-label="Latest generated scene video" controls playsInline preload="metadata" />}
         <div id="actions-body"><div id="pt-summary">{points ? <><span class="pt ap">⚡ {num(points.action)} / {num(points.action_max)} AP</span><span class="pt fp">🔹 {num(points.focus)} / {num(points.focus_max)} FP</span></> : <span class="pt-empty">Select a character to play as and see their actions.</span>}</div>
           <div id="target-line"><span>Target: {selectedId || '—'}</span><Button id="btn-clear-target" disabled={!selectedId} onClick={() => selectTarget('')}>Clear Target</Button></div>
           <div id="action-filter-row"><input id="action-filter" value={actionFilter} placeholder="Search actions" onInput={event => setActionFilter(event.currentTarget.value)} /><Button id="action-filter-clear" onClick={() => setActionFilter('')}>Clear</Button><label class="icon-toggle"><input id="show-action-icons" type="checkbox" checked={showIcons} onChange={event => { setShowIcons(event.currentTarget.checked); playCall(runtime, 'setIconPreference', ICON_PREF_KEY, event.currentTarget.checked); }} /> Icons</label></div>

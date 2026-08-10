@@ -107,15 +107,20 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
     fetchContentFlags: vi.fn(async () => ({
       world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
     })),
+    fetchFeatures: vi.fn(async () => ({ image_generation: true, video_generation: false })),
     formatPoints: (value) => String(Number(value || 0)),
     iconPreference: () => true,
     imageAffordance: { DELIVER_EMOJI: '📸', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '📷' },
     imageRequestMessage: () => '👀 image requested',
+    videoAffordance: { DELIVER_EMOJI: '🎞️', FAIL_EMOJI: '⚠️', REQUEST_EMOJI: '🎬' },
+    videoRequestMessage: () => '👀 video requested',
     initClientMenu: () => ({ close: closeMenu }),
     isClaimNotFoundError: (error) => (error as { status?: number })?.status === 404,
     isReferenceArg: (argument) => argument.kind === 'entity',
     latestImageCompletion: () => null,
     latestImageFailure: () => null,
+    latestVideoCompletion: () => null,
+    latestVideoFailure: () => null,
     normalizeBase: (url) => url.replace(/\/$/, ''),
     orderActionsByAvailability: (actions) => actions,
     persistentClientId: () => 'client:repl',
@@ -124,6 +129,7 @@ function services(projection: () => CharacterProjection = () => PROJECTION) {
     releaseWebClaim: vi.fn(async () => ({})),
     releaseWebController: vi.fn(async () => ({})),
     requestSceneImage: vi.fn(async () => ({ ok: true })),
+    requestSceneVideo: vi.fn(async () => ({ ok: true })),
     resolveTargetName: (value, candidates) => candidates.find((item) => item.label === value || item.value === value) || null,
     serverFromUrl: () => '/api',
     setIconPreference: vi.fn(),
@@ -154,6 +160,18 @@ afterEach(() => {
 });
 
 describe('full Web REPL page', () => {
+  it('hides generation buttons unless each feature is advertised', async () => {
+    const runtime = services();
+    vi.mocked(runtime.service.fetchFeatures!).mockResolvedValue({
+      image_generation: false,
+      video_generation: true,
+    });
+    const view = render(<WebReplPage services={runtime.service} />);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    expect(view.container.querySelector('#btn-request-image')).toBeNull();
+    expect(view.container.querySelector('#btn-request-video')).toBeTruthy();
+  });
+
   it('claims immediately when the world has no entry content', async () => {
     const runtime = services();
     vi.mocked(runtime.service.fetchContentFlags).mockResolvedValue({
