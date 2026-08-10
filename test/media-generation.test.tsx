@@ -6,7 +6,7 @@ import {
   latestVideoFailure,
   requestSceneVideo,
   videoRequestMessage,
-} from '../src/media-generation';
+} from '../src/media-generation.ts';
 
 describe('optional media generation helpers', () => {
   it('normalizes independent image and video feature flags', () => {
