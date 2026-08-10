@@ -124,6 +124,15 @@ export function renderMarkdown(value: unknown): string {
   return blocks.join('');
 }
 
+export function splitReplyParagraphs(value: unknown): string[] {
+  const normalized = String(value || '').replace(/\r\n?/g, '\n');
+  const paragraphs = normalized
+    .split(/\n[ \t]*\n+/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+  return paragraphs.length ? paragraphs : [normalized.trim()];
+}
+
 export function chatStorageKey(clientId: string, characterId: string): string {
   return `${HISTORY_PREFIX}${clientId}.${characterId}`;
 }

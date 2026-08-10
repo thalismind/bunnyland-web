@@ -5,6 +5,7 @@ import {
   formatActionCall,
   loadChatState,
   renderMarkdown,
+  splitReplyParagraphs,
 } from '../src/character/chat-state.ts';
 import { legacyCharacterUrl } from '../src/character/redirect.ts';
 
@@ -34,6 +35,10 @@ describe('character chat state', () => {
       parameters: { target_id: 'red apple', quiet: true },
       tool: 'take',
     })).toBe('take — target: red apple, quiet: true');
+
+    expect(splitReplyParagraphs('First.\r\n \r\nSecond.\n\n\nThird.')).toEqual([
+      'First.', 'Second.', 'Third.',
+    ]);
   });
 });
 

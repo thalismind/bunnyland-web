@@ -188,6 +188,42 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#vitals')).toBeTruthy();
   });
 
+  it('reveals reply paragraphs as separate visual messages without splitting history', async () => {
+    const reply = 'First thought.\n\nSecond thought.';
+    const runtime = makeServices();
+    runtime.services.sendJson = vi.fn(async (_base, path) => {
+      if (path.endsWith('/public/features')) {
+        return { character_chat: true, character_sheets: true };
+      }
+      if (path.endsWith('/jobs')) return {
+        id: 'job:paragraphs', result: { reply }, status: 'succeeded',
+      };
+      return {};
+    });
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent)
+      .toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+    fireEvent.click(view.container.querySelector('#separate-paragraphs-toggle')!);
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, { target: { value: 'Think' } });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+
+    await waitFor(() => expect(view.container.querySelectorAll('.message.character')).toHaveLength(1));
+    expect(view.container.querySelector('#transcript')?.textContent).toContain('First thought.');
+    expect(view.container.querySelector('#transcript')?.textContent).not.toContain('Second thought.');
+    const stored = JSON.parse(localStorage.getItem(
+      'bunnyland.characterChat.history.chat-test-client.character:one',
+    ) || '{}') as { messages?: Array<{ role?: string; text?: string }> };
+    expect(stored.messages?.filter(message => message.role === 'character')).toEqual([
+      { command_id: 'job:paragraphs', role: 'character', text: reply },
+    ]);
+    expect(localStorage.getItem('bunnyland.characterChat.separateParagraphs')).toBe('1');
+
+    await waitFor(() => expect(view.container.querySelectorAll('.message.character')).toHaveLength(2));
+    expect(view.container.querySelector('#transcript')?.textContent).toContain('Second thought.');
+  });
+
   it('shows tool parameters with entity display names in chat history', async () => {
     const runtime = makeServices();
     runtime.services.sendJson = vi.fn(async (_base, path) => {
