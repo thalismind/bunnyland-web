@@ -13,16 +13,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
   actionSummary,
+  clearChatState,
+  clearSessionChatStates,
   formatActionCall,
   type ChatAction,
-  chatStorageKey,
   HISTORY_LIMIT,
   historyForPayload,
   type JsonObject,
   loadChatState,
   plainMessageHtml,
+  persistSessionChatStates,
   renderMarkdown,
   saveChatState,
+  splitReplyParagraphs,
   type StoredMessage,
 } from './chat-state';
 import {
@@ -38,6 +41,8 @@ import './page.css';
 const DOCUMENT_TITLE_BASE = 'Bunnyland Character';
 const CHAT_CLIENT_ID_KEY = 'bunnyland.characterChat.clientId';
 const MARKDOWN_KEY = 'bunnyland.characterChat.markdown';
+const SEPARATE_PARAGRAPHS_KEY = 'bunnyland.characterChat.separateParagraphs';
+const PARAGRAPH_REVEAL_DELAY_MS = 200;
 const LOBBY_POLL_INTERVAL_MS = 2000;
 const PENDING_POLL_MS = 2000;
 
@@ -384,6 +389,12 @@ export function CharacterPage({
   const [assigningController, setAssigningController] = useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [markdownEnabled, setMarkdownEnabled] = useState(() => localStorage.getItem(MARKDOWN_KEY) !== '0');
+  const [separateParagraphs, setSeparateParagraphs] = useState(
+    () => localStorage.getItem(SEPARATE_PARAGRAPHS_KEY) === '1',
+  );
+  const [paragraphRevealCounts, setParagraphRevealCounts] = useState<Map<string, number>>(
+    () => new Map(),
+  );
   const [rememberDevice, setRememberDevice] = useState(() => rememberOnThisDevice());
   const [, forceRender] = useState(0);
   const aliveRef = useRef(true);
@@ -395,6 +406,8 @@ export function CharacterPage({
   const chatClientIdRef = useRef('');
   const requestGeneration = useRef(0);
   const pendingPolls = useRef(new Map<string, number>());
+  const paragraphRevealTimers = useRef(new Map<string, number[]>());
+  const separateParagraphsRef = useRef(separateParagraphs);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
   const portraitUploadRef = useRef<HTMLInputElement>(null);
   const spriteUploadRef = useRef<HTMLInputElement>(null);
@@ -406,6 +419,7 @@ export function CharacterPage({
   selectedIdRef.current = selectedId;
   projectionRef.current = projection;
   chatClientIdRef.current = chatClientId;
+  separateParagraphsRef.current = separateParagraphs;
   const chatLifecycle = characterChatLifecycle(projection);
 
   const bumpHistory = useCallback((): void => setHistoryRevision((value) => value + 1), []);
@@ -454,6 +468,56 @@ export function CharacterPage({
     }
   }, []);
 
+  const clearParagraphReveals = useCallback((characterId?: string): void => {
+    const prefix = characterId ? `${characterId}\u0000` : '';
+    for (const [key, timers] of paragraphRevealTimers.current) {
+      if (prefix && !key.startsWith(prefix)) continue;
+      for (const timer of timers) window.clearTimeout(timer);
+      paragraphRevealTimers.current.delete(key);
+    }
+    setParagraphRevealCounts((current) => {
+      if (!prefix && current.size === 0) return current;
+      const next = new Map(current);
+      if (!prefix) next.clear();
+      else for (const key of next.keys()) if (key.startsWith(prefix)) next.delete(key);
+      return next.size === current.size ? current : next;
+    });
+  }, []);
+
+  const appendCharacterReply = useCallback((
+    characterId: string,
+    reply: string,
+    jobId: string,
+  ): void => {
+    const state = loadChatState(chatClientIdRef.current, characterId);
+    if (state.messages.some(
+      (message) => message.role === 'character' && message.command_id === jobId,
+    )) return;
+    const paragraphs = splitReplyParagraphs(reply);
+    if (separateParagraphsRef.current && paragraphs.length > 1) {
+      const key = `${characterId}\u0000${jobId}`;
+      const prior = paragraphRevealTimers.current.get(key) || [];
+      for (const timer of prior) window.clearTimeout(timer);
+      setParagraphRevealCounts((current) => new Map(current).set(key, 1));
+      const timers = paragraphs.slice(1).map((_paragraph, index) => window.setTimeout(() => {
+        const visible = index + 2;
+        setParagraphRevealCounts((current) => {
+          if (!current.has(key)) return current;
+          const next = new Map(current);
+          if (visible >= paragraphs.length) next.delete(key);
+          else next.set(key, visible);
+          return next;
+        });
+        if (visible >= paragraphs.length) paragraphRevealTimers.current.delete(key);
+      }, PARAGRAPH_REVEAL_DELAY_MS * (index + 1)));
+      paragraphRevealTimers.current.set(key, timers);
+    }
+    updateChatState(characterId, (messages) => [
+      ...messages,
+      { role: 'character', text: reply, command_id: jobId },
+    ]);
+  }, [updateChatState]);
+
   const startPendingPoll = useCallback((characterId: string, jobId: string, immediate = false): void => {
     const base = apiBaseRef.current;
     if (!base || !jobId) return;
@@ -486,11 +550,7 @@ export function CharacterPage({
             }
             return;
           }
-          if (result.reply) updateChatState(characterId, (messages) => (
-            messages.some((message) => message.role === 'character' && message.command_id === jobId)
-              ? messages
-              : [...messages, { role: 'character', text: String(result.reply), command_id: jobId }]
-          ));
+          if (result.reply) appendCharacterReply(characterId, String(result.reply), jobId);
           if (selectedIdRef.current === characterId) {
             setChatStatus(action?.tool ? `${action.tool}: ${action.status}` : 'Action finished.');
           }
@@ -505,7 +565,7 @@ export function CharacterPage({
       }
     };
     pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, immediate ? 0 : PENDING_POLL_MS));
-  }, [services, setCharacterTyping, updateChatState, upsertAction]);
+  }, [appendCharacterReply, services, setCharacterTyping, upsertAction]);
 
   const refresh = useCallback(async (): Promise<void> => {
     const base = apiBaseRef.current;
@@ -550,6 +610,7 @@ export function CharacterPage({
     requestGeneration.current += 1;
     setCharacterTyping(selectedIdRef.current, false);
     clearPendingPolls(selectedIdRef.current);
+    clearParagraphReveals(selectedIdRef.current);
     const next = id || '';
     selectedIdRef.current = next;
     projectionRef.current = null;
@@ -566,11 +627,12 @@ export function CharacterPage({
       url.hash = next ? encodeURIComponent(next) : '';
       history.replaceState(null, '', url);
     }
-  }, [clearPendingPolls, setCharacterTyping]);
+  }, [clearParagraphReveals, clearPendingPolls, setCharacterTyping]);
 
   const disconnect = useCallback((syncUrl = true): void => {
     requestGeneration.current += 1;
     clearPendingPolls();
+    clearParagraphReveals();
     connectedRef.current = false;
     apiBaseRef.current = '';
     setConnected(false);
@@ -588,7 +650,7 @@ export function CharacterPage({
     setChatStatus('Select a character to start chatting.');
     setTypingCharacterIds(new Set());
     if (syncUrl) services.setServerInUrl('');
-  }, [clearPendingPolls, services]);
+  }, [clearParagraphReveals, clearPendingPolls, services]);
 
   const connect = useCallback((url: string): void => {
     if (!url) return;
@@ -678,6 +740,7 @@ export function CharacterPage({
 
   useEffect(() => {
     aliveRef.current = true;
+    const revealTimers = paragraphRevealTimers.current;
     services.initTheme();
     const menu = services.initClientMenu();
     const nextClientId = services.persistentClientId(CHAT_CLIENT_ID_KEY, 'character-chat');
@@ -705,6 +768,10 @@ export function CharacterPage({
       aliveRef.current = false;
       requestGeneration.current += 1;
       clearPendingPolls();
+      for (const timers of revealTimers.values()) {
+        for (const timer of timers) window.clearTimeout(timer);
+      }
+      revealTimers.clear();
       window.removeEventListener('hashchange', onHashChange);
       menu?.close?.();
     };
@@ -791,7 +858,8 @@ export function CharacterPage({
   const chatTyping = typingCharacterIds.has(selectedId);
   const transcriptItems = useMemo<TranscriptItem[]>(() => {
     const occurrences = new Map<string, number>();
-    return selectedChatState.messages.map((message) => {
+    const items: TranscriptItem[] = [];
+    for (const message of selectedChatState.messages) {
       const action = message.action || {};
       const baseKey = message.command_id
         ? `${message.role}:${message.command_id}`
@@ -799,33 +867,44 @@ export function CharacterPage({
       const occurrence = occurrences.get(baseKey) || 0;
       occurrences.set(baseKey, occurrence + 1);
       const key = `${baseKey}:${occurrence}`;
-      if (message.role === 'action') return {
-        commandId: message.command_id || '',
-        icon: services.actionIcon({
-          command_type: String(action.tool || 'action').trim().toLowerCase().replaceAll('_', '-'),
-          tool_name: action.tool || 'action',
-        }),
-        key,
-        kind: 'action',
-        status: String(action.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase(),
-        text: message.text || actionSummary(action),
-        tool: formatActionCall(action),
-      };
-      return {
-        html: markdownEnabled ? renderMarkdown(message.text) : plainMessageHtml(message.text),
-        key,
+      if (message.role === 'action') {
+        items.push({
+          commandId: message.command_id || '',
+          icon: services.actionIcon({
+            command_type: String(action.tool || 'action').trim().toLowerCase().replaceAll('_', '-'),
+            tool_name: action.tool || 'action',
+          }),
+          key,
+          kind: 'action',
+          status: String(action.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase(),
+          text: message.text || actionSummary(action),
+          tool: formatActionCall(action),
+        });
+        continue;
+      }
+      const paragraphs = separateParagraphs && message.role === 'character'
+        ? splitReplyParagraphs(message.text)
+        : [message.text];
+      const revealKey = message.command_id ? `${selectedId}\u0000${message.command_id}` : '';
+      const visible = revealKey
+        ? paragraphRevealCounts.get(revealKey) ?? paragraphs.length
+        : paragraphs.length;
+      paragraphs.slice(0, visible).forEach((paragraph, paragraphIndex) => items.push({
+        html: markdownEnabled ? renderMarkdown(paragraph) : plainMessageHtml(paragraph),
+        key: paragraphIndex === 0 ? key : `${key}:paragraph:${paragraphIndex}`,
         kind: 'message',
         plain: !markdownEnabled,
         role: message.role === 'user' ? 'user' : 'character',
-      };
-    });
-  }, [markdownEnabled, selectedChatState.messages, services]);
+      }));
+    }
+    return items;
+  }, [markdownEnabled, paragraphRevealCounts, selectedChatState.messages, selectedId, separateParagraphs, services]);
 
   useLayoutEffect(() => {
     if (view === 'chat' && transcriptRef.current && followTranscriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
-  }, [chatClientId, chatTyping, historyRevision, markdownEnabled, selectedId, view]);
+  }, [chatClientId, chatTyping, historyRevision, markdownEnabled, paragraphRevealCounts, selectedId, separateParagraphs, view]);
 
   const submitChat = async (): Promise<void> => {
     const message = chatDraft.trim();
@@ -857,10 +936,7 @@ export function CharacterPage({
       if (!aliveRef.current) return;
       const jobId = String(job.id || '');
       if (result.reply && jobId) {
-        updateChatState(characterId, (messages) => [
-          ...messages,
-          { role: 'character', text: String(result.reply), command_id: jobId },
-        ]);
+        appendCharacterReply(characterId, String(result.reply), jobId);
       }
       const action = result.action && typeof result.action === 'object' ? result.action as ChatAction : null;
       if (action?.tool) upsertAction(characterId, action, jobId);
@@ -1107,12 +1183,26 @@ export function CharacterPage({
                     // Turning this off stops persisting transcripts and clears any already
                     // cached narrative on this device.
                     setRememberOnThisDevice(remember);
-                    if (!remember) {
-                      bumpHistory();
-                    }
+                    if (remember) persistSessionChatStates();
+                    else clearSessionChatStates();
+                    bumpHistory();
                   }}
                   type="checkbox"
                 /> Remember on this device
+              </label>
+              <label class="chat-toggle" for="separate-paragraphs-toggle">
+                <input
+                  checked={separateParagraphs}
+                  id="separate-paragraphs-toggle"
+                  onChange={(event): void => {
+                    const enabled = event.currentTarget.checked;
+                    setSeparateParagraphs(enabled);
+                    separateParagraphsRef.current = enabled;
+                    localStorage.setItem(SEPARATE_PARAGRAPHS_KEY, enabled ? '1' : '0');
+                    if (!enabled) clearParagraphReveals();
+                  }}
+                  type="checkbox"
+                /> Separate reply paragraphs
               </label>
               <Button
                 disabled={!selectedId || !hasChatHistory}
@@ -1121,7 +1211,8 @@ export function CharacterPage({
                   if (!selectedId) return;
                   setCharacterTyping(selectedId, false);
                   clearPendingPolls(selectedId);
-                  localStorage.removeItem(chatStorageKey(chatClientId, selectedId));
+                  clearParagraphReveals(selectedId);
+                  clearChatState(chatClientId, selectedId);
                   bumpHistory();
                   setChatStatus(`Cleared local chat history for ${characterName || selectedId}.`);
                 }}
@@ -1231,6 +1322,7 @@ if (root) {
       // user of a shared device.
       if (auth.status === 'anonymous') {
         clearRememberedNarrative();
+        clearSessionChatStates();
       }
     }, [auth.status]);
     return (

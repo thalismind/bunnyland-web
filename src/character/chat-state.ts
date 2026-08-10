@@ -25,6 +25,7 @@ export interface ChatState {
 
 const HISTORY_PREFIX = 'bunnyland.characterChat.history.';
 export const HISTORY_LIMIT = 24;
+const sessionChatStates = new Map<string, ChatState>();
 
 function escapeHtml(value: unknown): string {
   return String(value || '').replace(/[&<>"']/g, character => ({
@@ -124,31 +125,77 @@ export function renderMarkdown(value: unknown): string {
   return blocks.join('');
 }
 
+export function splitReplyParagraphs(value: unknown): string[] {
+  const normalized = String(value || '').replace(/\r\n?/g, '\n');
+  const paragraphs = normalized
+    .split(/\n[ \t]*\n+/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+  return paragraphs.length ? paragraphs : [normalized.trim()];
+}
+
 export function chatStorageKey(clientId: string, characterId: string): string {
   return `${HISTORY_PREFIX}${clientId}.${characterId}`;
 }
 
 export function loadChatState(clientId: string, characterId: string): ChatState {
+  const key = chatStorageKey(clientId, characterId);
+  if (!rememberOnThisDevice()) {
+    const session = sessionChatStates.get(key);
+    return session
+      ? { summary: session.summary, messages: [...session.messages] }
+      : { summary: '', messages: [] };
+  }
   try {
-    const parsed = JSON.parse(localStorage.getItem(chatStorageKey(clientId, characterId)) || '{}') as Partial<ChatState>;
-    return {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}') as Partial<ChatState>;
+    const state = {
       summary: String(parsed.summary || ''),
       messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-HISTORY_LIMIT) : [],
     };
+    sessionChatStates.set(key, state);
+    return { summary: state.summary, messages: [...state.messages] };
   } catch {
     return { summary: '', messages: [] };
   }
 }
 
 export function saveChatState(clientId: string, characterId: string, state: ChatState): void {
+  const key = chatStorageKey(clientId, characterId);
+  const bounded = {
+    summary: String(state.summary || ''),
+    messages: state.messages.slice(-HISTORY_LIMIT),
+  };
+  sessionChatStates.set(key, bounded);
   if (!rememberOnThisDevice()) {
     return;
   }
   try {
-    localStorage.setItem(chatStorageKey(clientId, characterId), JSON.stringify({
-      summary: String(state.summary || ''),
-      messages: state.messages.slice(-HISTORY_LIMIT),
-    }));
+    localStorage.setItem(key, JSON.stringify(bounded));
+  } catch {
+    // Local persistence is optional.
+  }
+}
+
+export function clearChatState(clientId: string, characterId: string): void {
+  const key = chatStorageKey(clientId, characterId);
+  sessionChatStates.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Local persistence is optional.
+  }
+}
+
+export function clearSessionChatStates(): void {
+  sessionChatStates.clear();
+}
+
+export function persistSessionChatStates(): void {
+  if (!rememberOnThisDevice()) return;
+  try {
+    for (const [key, state] of sessionChatStates) {
+      localStorage.setItem(key, JSON.stringify(state));
+    }
   } catch {
     // Local persistence is optional.
   }

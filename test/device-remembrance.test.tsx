@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { saveChatState } from '../src/character/chat-state.ts';
+import {
+  clearChatState,
+  clearSessionChatStates,
+  loadChatState,
+  persistSessionChatStates,
+  saveChatState,
+} from '../src/character/chat-state.ts';
 import {
   clearRememberedNarrative,
   rememberOnThisDevice,
@@ -9,7 +15,10 @@ import {
 
 const HISTORY_KEY = 'bunnyland.characterChat.history.client-a.character:one';
 
-afterEach(() => localStorage.clear());
+afterEach(() => {
+  clearSessionChatStates();
+  localStorage.clear();
+});
 
 describe('device remembrance', () => {
   it('remembers by default', () => {
@@ -33,12 +42,16 @@ describe('device remembrance', () => {
     setRememberOnThisDevice(false);
     saveChatState('client-a', 'character:one', state);
     expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
+    expect(loadChatState('client-a', 'character:one')).toEqual(state);
 
     setRememberOnThisDevice(true);
-    saveChatState('client-a', 'character:one', state);
+    persistSessionChatStates();
     expect(localStorage.getItem(HISTORY_KEY)).not.toBeNull();
 
-    clearRememberedNarrative();
+    clearChatState('client-a', 'character:one');
     expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
+    expect(loadChatState('client-a', 'character:one')).toEqual({ messages: [], summary: '' });
+
+    clearRememberedNarrative();
   });
 });
