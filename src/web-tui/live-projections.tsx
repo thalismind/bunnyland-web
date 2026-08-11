@@ -6,7 +6,13 @@ export interface TuiActivityRow {
   icon: string;
   key: string;
   kind: string;
+  media?: TuiActivityMedia;
   text: string;
+}
+
+export interface TuiActivityMedia {
+  kind: 'image' | 'video';
+  url: string;
 }
 
 export interface TuiActionRow {
@@ -32,7 +38,16 @@ export function ActivityRows({ rows }: { rows: readonly TuiActivityRow[] }) {
   if (rows.length === 0) return <div class="empty">No recent activity.</div>;
   return <>{rows.map((row) => (
     <div class={`activity-row${row.kind ? ` kind-${row.kind}` : ''}`} data-activity-key={row.key} key={row.key}>
-      {row.icon && <span class="action-icon">{row.icon}</span>}{row.text}
+      <div class="activity-row-copy">{row.icon && <span class="action-icon">{row.icon}</span>}{row.text}</div>
+      {row.media && <div class={`activity-media activity-media-${row.media.kind}`}>
+        {row.media.kind === 'image'
+          ? <a aria-label="Open generated image" class="activity-media-link" href={row.media.url} rel="noopener noreferrer" target="_blank">
+            <img alt="Generated scene" loading="lazy" src={row.media.url} /><span>Open image ↗</span>
+          </a>
+          : <><video controls preload="metadata" src={row.media.url}>
+            <a href={row.media.url}>Open generated video</a>
+          </video><a class="activity-media-open" href={row.media.url} rel="noopener noreferrer" target="_blank">Open video ↗</a></>}
+      </div>}
     </div>
   ))}</>;
 }

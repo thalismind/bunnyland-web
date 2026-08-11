@@ -68,7 +68,9 @@ const play = {
   videoRequestMessage: vi.fn(() => 'video requested'),
   inventoryEntries: vi.fn((value: typeof projection | null) => value?.inventory ?? []),
   isClaimNotFoundError: vi.fn((error: unknown) => (error as { status?: number })?.status === 404),
-  latestImageCompletion: vi.fn(() => null),
+  latestImageCompletion: vi.fn<(
+    events: unknown[], options: unknown,
+  ) => { url: string } | null>(() => null),
   latestImageFailure: vi.fn(() => null),
   latestVideoCompletion: vi.fn(() => null),
   latestVideoFailure: vi.fn(() => null),
@@ -124,6 +126,8 @@ beforeEach(() => {
     world_id: 'world-1', world_epoch: 7, title: 'Clover City', description: '', content_flags: [],
   });
   bunnylandApi.fetchFeatures.mockResolvedValue({ image_generation: true, video_generation: false });
+  bunnylandApi.mediaUrl.mockImplementation((_base: string, path: unknown) => String(path));
+  play.latestImageCompletion.mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -287,6 +291,30 @@ describe('WebTuiPage', () => {
     await waitFor(() => expect(fetchCharacterList).toHaveBeenCalledTimes(calls + 1));
     expect(view.container.querySelector('[data-entity="character:2"]')).toBe(member);
     expect(view.container.querySelector('[data-action-key="world:tell:tell"]')).toBe(actionRow);
+  });
+
+  it('resolves and embeds image and video completions while priming activity', async () => {
+    const imageUrl = '/v1/public/media/events/scene.png';
+    const videoUrl = '/v1/public/media/videos/scene.mp4';
+    play.fetchCharacterRecentEvents.mockResolvedValue({
+      events: [{
+        data: {
+          event_type: 'VideoGenerationCompletedEvent',
+          event: { entity_id: 'history:1', url: videoUrl, world_epoch: 8 },
+        },
+      }],
+    });
+    play.latestImageCompletion.mockReturnValue({ url: `/api${imageUrl}` });
+    bunnylandApi.mediaUrl.mockImplementation((_base: string, path: unknown) => `/api${String(path)}`);
+    const view = render(<WebTuiPage />);
+    await connectAndSelect(view.container);
+    await waitFor(() => expect(view.container.querySelector('.activity-media-image img')).toBeTruthy());
+    expect(view.container.querySelector('.activity-media-image img')?.getAttribute('src')).toBe(`/api${imageUrl}`);
+    expect(view.container.querySelector('.activity-media-image a')?.getAttribute('href')).toBe(`/api${imageUrl}`);
+    expect(view.container.querySelector('.activity-media-video video')?.getAttribute('src')).toBe(`/api${videoUrl}`);
+    expect(view.container.querySelector('.activity-media-open')?.getAttribute('href')).toBe(`/api${videoUrl}`);
+    expect(view.container.querySelector('#activity')?.textContent).toContain('scene image ready');
+    expect(view.container.querySelector('#activity')?.textContent).toContain('scene video ready');
   });
 
   it('submits action forms through local state and removes live, timer, listener, and facade resources', async () => {

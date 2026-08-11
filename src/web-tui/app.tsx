@@ -12,7 +12,14 @@ import {
   VIDEO_AFFORDANCE,
   videoRequestMessage,
 } from '../media-generation';
-import { ActionSections, ActivityRows, LiveQueuedRows, type TuiActivityRow, type TuiActionRow } from './live-projections';
+import {
+  ActionSections,
+  ActivityRows,
+  LiveQueuedRows,
+  type TuiActivityMedia,
+  type TuiActivityRow,
+  type TuiActionRow,
+} from './live-projections';
 import { ExitList, InventoryList, MemberList } from './world-lists';
 
 type JsonObject = Record<string, unknown> & {
@@ -45,8 +52,16 @@ type Projection = JsonObject & {
   worldEpoch?: number;
 };
 type QueueProjection = JsonObject & { characterId?: string; commands?: JsonObject[] };
+type ActivityEntry = {
+  icon?: string;
+  key: string;
+  kind?: string;
+  media?: TuiActivityMedia;
+  text: string;
+};
+type ActivityDraft = Omit<ActivityEntry, 'key'>;
 type Model = {
-  activity: (JsonObject & { key: string; kind?: string; text: string })[];
+  activity: ActivityEntry[];
   characters: Character[];
   connected: boolean;
   control: Control | null;
@@ -81,7 +96,10 @@ interface WebTuiPlayRuntime {
   clearClaimControl(key: string, characterId: string): void;
   controlFromResponse(data: JsonObject, characterId: string, options: { active: boolean }): Control;
   createPlayerLiveUpdates(options: Record<string, unknown>): { close(): void };
-  drainNarratedEvents(messages: unknown[], options: Record<string, unknown>): { lines: Array<JsonObject & { text: string }>; seenIds: Set<string> };
+  drainNarratedEvents(messages: unknown[], options: Record<string, unknown>): {
+    lines: Array<Omit<ActivityDraft, 'media'>>;
+    seenIds: Set<string>;
+  };
   entityIcon(entity: JsonObject): string;
   fetchCharacterList(base: string): Promise<{ characters: Character[]; epoch: number }>;
   fetchCharacterRecentEvents(base: string, characterId: string, control: Control | null): Promise<{ events?: JsonObject[] }>;
@@ -261,11 +279,15 @@ export function WebTuiPage() {
       roomOf: (id: string) => id === current.playerId ? current.projection?.room?.id ?? null : null,
       seenIds: current.seenEventIds,
     });
-    const additions: JsonObject[] = [];
+    const additions: ActivityDraft[] = [];
     const image = play.latestImageCompletion(events, { base: baseRef.current, purpose: 'event' });
     if (image?.url && image.url !== eventImageRef.current) {
       eventImageRef.current = image.url;
-      if (!prime) additions.push({ kind: 'system', text: `${play.IMAGE_AFFORDANCE.DELIVER_EMOJI} scene image ready: ${image.url}` });
+      additions.push({
+        kind: 'system',
+        media: { kind: 'image', url: image.url },
+        text: `${play.IMAGE_AFFORDANCE.DELIVER_EMOJI} scene image ready`,
+      });
     }
     const failure = play.latestImageFailure(events, { purpose: 'event' });
     if (failure && failure.epoch !== eventFailureRef.current) {
@@ -278,7 +300,11 @@ export function WebTuiPage() {
     );
     if (video?.url && video.url !== eventVideoRef.current) {
       eventVideoRef.current = video.url;
-      if (!prime) additions.push({ kind: 'system', text: `${VIDEO_AFFORDANCE.DELIVER_EMOJI} scene video ready: ${video.url}` });
+      additions.push({
+        kind: 'system',
+        media: { kind: 'video', url: video.url },
+        text: `${VIDEO_AFFORDANCE.DELIVER_EMOJI} scene video ready`,
+      });
     }
     const videoFailure = latestVideoFailure(events);
     if (videoFailure && videoFailure.epoch !== eventVideoFailureRef.current) {
@@ -287,7 +313,7 @@ export function WebTuiPage() {
     }
     if (!prime) additions.push(...drained.lines);
     update({
-      activity: [...current.activity, ...additions.map(line => ({ ...line, key: `activity-${++activityKeyRef.current}` }))].slice(-ACTIVITY_LIMIT) as Model['activity'],
+      activity: [...current.activity, ...additions.map(line => ({ ...line, key: `activity-${++activityKeyRef.current}` }))].slice(-ACTIVITY_LIMIT),
       seenEventIds: drained.seenIds,
     });
   };
@@ -737,7 +763,7 @@ export function WebTuiPage() {
         <div id="inventory-title" class="pane-title">Inventory</div><div id="inventory" class="option-list" tabIndex={0} aria-labelledby="inventory-title"><InventoryList empty={model.playerId ? 'Nothing carried.' : 'Select a character above.'}
           items={inventory.map(item => ({ icon: item.icon || '', id: item.id || '', kind: item.kind || '', label: item.label || '', selected: item.id === model.selectedId }))} onSelect={id => selectTarget(id)} /></div>
         <div id="activity-title" class="pane-title">Activity</div><div id="activity" class="option-list" tabIndex={0} aria-labelledby="activity-title"><ActivityRows rows={model.activity.map(line => ({
-          icon: showIcons ? line.icon || '' : '', key: line.key, kind: line.kind || '', text: line.text,
+          icon: showIcons ? line.icon || '' : '', key: line.key, kind: line.kind || '', media: line.media, text: line.text,
         })) as TuiActivityRow[]} /></div>
       </section>
       <aside id="actions-pane" role="tabpanel" aria-labelledby="tab-actions" data-mobile-active={mobilePane === 'actions'}><div id="action-controls">

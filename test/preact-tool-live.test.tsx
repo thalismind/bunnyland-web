@@ -27,6 +27,33 @@ afterEach(() => {
 });
 
 describe('Web TUI live projections', () => {
+  it('embeds generated images and videos with direct links', () => {
+    const view = render(<ActivityRows rows={[
+      {
+        icon: '🖼', key: 'image-1', kind: 'event', text: 'Image generation completed.',
+        media: { kind: 'image', url: '/api/v1/public/media/events/scene.png' },
+      },
+      {
+        icon: '🎞️', key: 'video-1', kind: 'event', text: 'Video generation completed.',
+        media: { kind: 'video', url: '/api/v1/public/media/videos/scene.mp4' },
+      },
+    ]} />);
+
+    const image = view.container.querySelector<HTMLImageElement>('.activity-media-image img');
+    const imageLink = view.container.querySelector<HTMLAnchorElement>('.activity-media-image a');
+    const video = view.container.querySelector<HTMLVideoElement>('.activity-media-video video');
+    const videoLink = view.container.querySelector<HTMLAnchorElement>('.activity-media-open');
+    expect(image?.getAttribute('src')).toBe('/api/v1/public/media/events/scene.png');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(imageLink?.getAttribute('href')).toBe('/api/v1/public/media/events/scene.png');
+    expect(imageLink?.getAttribute('target')).toBe('_blank');
+    expect(video?.getAttribute('src')).toBe('/api/v1/public/media/videos/scene.mp4');
+    expect(video?.controls).toBe(true);
+    expect(video?.preload).toBe('metadata');
+    expect(videoLink?.getAttribute('href')).toBe('/api/v1/public/media/videos/scene.mp4');
+    expect(videoLink?.getAttribute('target')).toBe('_blank');
+  });
+
   it('ticks on second boundaries, pauses while hidden, and refreshes on visibility', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.100Z'));

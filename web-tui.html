@@ -119,6 +119,30 @@
       border-left-color: var(--bl-warn);
       color: var(--bl-text);
     }
+    .activity-media { margin-top: 6px; }
+    .activity-media img,
+    .activity-media video {
+      display: block;
+      width: 100%;
+      max-height: min(42vh, 360px);
+      border: 1px solid var(--bl-border-muted);
+      border-radius: var(--bl-radius-sm);
+      background: #000;
+      object-fit: contain;
+    }
+    .activity-media-link,
+    .activity-media-open {
+      display: grid;
+      gap: 4px;
+      color: var(--bl-accent-strong);
+      font-size: var(--bl-text-xs);
+      text-decoration: none;
+    }
+    .activity-media-open { display: inline-block; margin-top: 4px; }
+    .activity-media-link:hover span,
+    .activity-media-link:focus-visible span,
+    .activity-media-open:hover,
+    .activity-media-open:focus-visible { text-decoration: underline; }
     .empty {
       color: var(--bl-text-muted);
       font-size: var(--bl-text-sm);

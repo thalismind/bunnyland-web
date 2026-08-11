@@ -551,6 +551,52 @@ def narrate_event(page) -> None:
         raise AssertionError(f"activity row collapsed: row={row_width}, pane={pane_width}")
 
 
+def render_generated_media(page) -> None:
+    image_url = "/api/v1/public/media/events/scene.png"
+    video_url = "/api/v1/public/media/videos/scene.mp4"
+    EVENTS["events"] = [
+        {
+            "data": {
+                "event_type": "ImageGenerationCompletedEvent",
+                "event": {
+                    "entity_id": "history:image",
+                    "event_id": "event-image-1",
+                    "purpose": "event",
+                    "url": "/v1/public/media/events/scene.png",
+                    "world_epoch": 9,
+                },
+            },
+        },
+        {
+            "data": {
+                "event_type": "VideoGenerationCompletedEvent",
+                "event": {
+                    "entity_id": "history:video",
+                    "event_id": "event-video-1",
+                    "purpose": "event",
+                    "url": "/v1/public/media/videos/scene.mp4",
+                    "world_epoch": 10,
+                },
+            },
+        },
+    ]
+    page.evaluate("() => window.app.refresh()")
+
+    image = page.locator("#activity .activity-media-image img")
+    image_link = page.locator("#activity .activity-media-image a")
+    video = page.locator("#activity .activity-media-video video")
+    video_link = page.locator("#activity .activity-media-open")
+    expect(image).to_have_attribute("src", image_url)
+    expect(image).to_have_attribute("loading", "lazy")
+    expect(image_link).to_have_attribute("href", image_url)
+    expect(image_link).to_have_attribute("target", "_blank")
+    expect(video).to_have_attribute("src", video_url)
+    expect(video).to_have_attribute("controls", "")
+    expect(video).to_have_attribute("preload", "metadata")
+    expect(video_link).to_have_attribute("href", video_url)
+    expect(video_link).to_have_attribute("target", "_blank")
+
+
 def cancel_queued_command(page) -> None:
     with page.expect_response("**/play/claims/*/commands/*"):
         page.locator('#queued .option[data-cancel-command="queued-1"]').click()
@@ -579,6 +625,7 @@ def main() -> None:
         preselect_selected_target(page)
         preselect_inventory_target(page)
         update_fallback_and_release(page)
+        render_generated_media(page)
         narrate_event(page)
         cancel_queued_command(page)
         click_door_queues_move(page, posted)
