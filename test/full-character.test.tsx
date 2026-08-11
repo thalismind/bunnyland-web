@@ -344,6 +344,96 @@ describe('full Character page', () => {
     expect(view.container.querySelector('#tab-chat')?.getAttribute('aria-label')).toBe('Chat, history available');
   });
 
+  it('queues chat media and makes character illustration consent explicit', async () => {
+    localStorage.setItem(
+      'bunnyland.characterChat.history.chat-test-client.character:one',
+      JSON.stringify({
+        allowCharacterMedia: false,
+        messages: [
+          { role: 'user', text: 'Shall we dance?' },
+          { role: 'character', text: 'Under the lanterns.' },
+        ],
+        summary: '',
+      }),
+    );
+    const runtime = makeServices(undefined, {
+      character_chat: true,
+      character_chat_media_tools: true,
+      character_sheets: true,
+      chat_image_generation: true,
+      chat_video_generation: true,
+    });
+    runtime.services.sendJson = vi.fn(async (_base, path, options) => {
+      if (path.endsWith('/public/features')) return {
+        character_chat: true,
+        character_chat_media_tools: true,
+        character_sheets: true,
+        chat_image_generation: true,
+        chat_video_generation: true,
+      };
+      if (path.endsWith('/media-jobs')) return {
+        id: 'media:one', kind: 'chat_image', status: 'queued', result: {},
+      };
+      if (path.endsWith('/media-jobs/media%3Aone')) return {
+        id: 'media:one',
+        kind: 'chat_image',
+        status: 'succeeded',
+        result: {
+          enhanced_prompt: 'Hazel twirls beneath glowing paper lanterns in a moonlit garden.',
+          url: '/media/chat.png',
+        },
+      };
+      if (path.endsWith('/jobs')) return {
+        id: 'job:chat', status: 'succeeded', result: { reply: 'I can picture it.' },
+      };
+      return JSON.parse(options?.body || '{}') as Record<string, unknown>;
+    });
+    const view = render(<CharacterPage services={runtime.services} />);
+    await waitFor(() => expect(view.container.querySelector('#character-name')?.textContent).toBe('Dr. Hazel'));
+    fireEvent.click(view.container.querySelector('#tab-chat')!);
+
+    expect(view.container.querySelector('#chat-media-warning')?.textContent).toContain(
+      'do not perform actions or change the world',
+    );
+    fireEvent.click(view.container.querySelector('#character-media-toggle')!);
+    fireEvent.input(view.container.querySelector('#chat-media-focus')!, {
+      target: { value: 'Hazel twirling beneath the lanterns' },
+    });
+    fireEvent.click(view.container.querySelector('#btn-chat-image')!);
+
+    await waitFor(() => expect(runtime.services.sendJson).toHaveBeenCalledWith(
+      '/api',
+      '/chat/characters/character%3Aone/media-jobs',
+      expect.objectContaining({
+        body: expect.stringContaining('Hazel twirling beneath the lanterns'),
+        method: 'POST',
+      }),
+    ));
+    expect(view.container.querySelector('.chat-media-card')?.textContent).toContain(
+      'no actions were performed',
+    );
+    expect(view.container.querySelector('.chat-media-marker')?.textContent).toContain('📷pending');
+    await waitFor(() => expect(
+      view.container.querySelector<HTMLImageElement>('.chat-media-card img')?.src,
+    ).toContain('/api/media/chat.png'), { timeout: 3000 });
+    expect(view.container.querySelector<HTMLImageElement>('.chat-media-card img')?.alt).toBe(
+      'Hazel twirls beneath glowing paper lanterns in a moonlit garden.',
+    );
+
+    fireEvent.input(view.container.querySelector('#chat-input')!, {
+      target: { value: 'What did you imagine?' },
+    });
+    fireEvent.click(view.container.querySelector('#btn-send')!);
+    await waitFor(() => {
+      const chatCall = vi.mocked(runtime.services.sendJson).mock.calls.find(
+        ([, path]) => path.endsWith('/jobs') && !path.endsWith('/media-jobs'),
+      );
+      expect(JSON.parse(String(chatCall?.[2]?.body))).toMatchObject({
+        allow_character_media: true,
+      });
+    });
+  });
+
   it('keeps history available but makes non-LLM character chat read-only', async () => {
     localStorage.setItem(
       'bunnyland.characterChat.history.chat-test-client.character:one',

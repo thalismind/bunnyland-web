@@ -48,6 +48,55 @@ describe('Transcript', () => {
     expect(document.activeElement).toBe(composer);
     composer.remove();
   });
+
+  it('marks pending chat media and uses enhanced prompts for accessible results', () => {
+    const shared = {
+      error: '', focus: 'Juniper under lanterns', status: 'queued', url: '',
+    };
+    const view = render(<Transcript emptyMessage="Empty" items={[{
+      ...shared,
+      enhancedPrompt: '',
+      key: 'media:image',
+      kind: 'media',
+      mediaKind: 'chat_image',
+    }, {
+      ...shared,
+      enhancedPrompt: '',
+      key: 'media:video',
+      kind: 'media',
+      mediaKind: 'chat_video',
+    }]} />);
+    expect(view.container.querySelectorAll('.chat-media-marker')[0]?.textContent).toContain(
+      '📷pending',
+    );
+    expect(view.container.querySelectorAll('.chat-media-marker')[1]?.textContent).toContain(
+      '🎬pending',
+    );
+
+    view.rerender(<Transcript emptyMessage="Empty" items={[{
+      ...shared,
+      enhancedPrompt: 'A luminous portrait of Juniper beneath paper lanterns.',
+      key: 'media:image',
+      kind: 'media',
+      mediaKind: 'chat_image',
+      status: 'succeeded',
+      url: '/image.png',
+    }, {
+      ...shared,
+      enhancedPrompt: 'Juniper twirls as the lantern-lit camera glides closer.',
+      key: 'media:video',
+      kind: 'media',
+      mediaKind: 'chat_video',
+      status: 'succeeded',
+      url: '/video.mp4',
+    }]} />);
+    expect(view.container.querySelector('img')?.alt).toBe(
+      'A luminous portrait of Juniper beneath paper lanterns.',
+    );
+    expect(view.container.querySelector('video')?.getAttribute('aria-label')).toBe(
+      'Juniper twirls as the lantern-lit camera glides closer.',
+    );
+  });
 });
 
 describe('character sheet sections', () => {

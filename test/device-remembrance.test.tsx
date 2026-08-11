@@ -50,7 +50,11 @@ describe('device remembrance', () => {
 
     clearChatState('client-a', 'character:one');
     expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
-    expect(loadChatState('client-a', 'character:one')).toEqual({ messages: [], summary: '' });
+    expect(loadChatState('client-a', 'character:one')).toEqual({
+      allowCharacterMedia: false,
+      messages: [],
+      summary: '',
+    });
 
     clearRememberedNarrative();
   });

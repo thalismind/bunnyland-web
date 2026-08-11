@@ -17,6 +17,7 @@ import {
   clearSessionChatStates,
   formatActionCall,
   type ChatAction,
+  type ChatMediaJob,
   HISTORY_LIMIT,
   historyForPayload,
   type JsonObject,
@@ -123,6 +124,9 @@ interface FeatureStatus {
   character_chat?: boolean;
   allow_sleeping_character_chat?: boolean;
   character_sheets?: boolean;
+  chat_image_generation?: boolean;
+  chat_video_generation?: boolean;
+  character_chat_media_tools?: boolean;
 }
 
 export type CharacterView = 'chat' | 'sheet';
@@ -381,6 +385,7 @@ export function CharacterPage({
   const [statusNote, setStatusNote] = useState('');
   const [chatStatus, setChatStatus] = useState('Select a character to start chatting.');
   const [chatDraft, setChatDraft] = useState('');
+  const [mediaFocus, setMediaFocus] = useState('');
   const [chatClientId, setChatClientId] = useState('');
   const [typingCharacterIds, setTypingCharacterIds] = useState<Set<string>>(() => new Set());
   const [llmControllers, setLlmControllers] = useState<LlmControllerOption[]>([]);
@@ -406,9 +411,13 @@ export function CharacterPage({
   const chatClientIdRef = useRef('');
   const requestGeneration = useRef(0);
   const pendingPolls = useRef(new Map<string, number>());
+  const pendingMediaPolls = useRef(new Map<string, number>());
   const paragraphRevealTimers = useRef(new Map<string, number[]>());
   const separateParagraphsRef = useRef(separateParagraphs);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const startMediaPollRef = useRef<(characterId: string, media: ChatMediaJob) => void>(
+    () => undefined,
+  );
   const portraitUploadRef = useRef<HTMLInputElement>(null);
   const spriteUploadRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -460,11 +469,42 @@ export function CharacterPage({
     });
   }, [updateChatState]);
 
+  const setCharacterMediaPermission = useCallback((characterId: string, allowed: boolean): void => {
+    const state = loadChatState(chatClientIdRef.current, characterId);
+    state.allowCharacterMedia = allowed;
+    saveChatState(chatClientIdRef.current, characterId, state);
+    bumpHistory();
+  }, [bumpHistory]);
+
+  const upsertMedia = useCallback((characterId: string, media: ChatMediaJob): void => {
+    updateChatState(characterId, (messages) => {
+      const next: StoredMessage = {
+        command_id: media.id,
+        media,
+        role: 'media',
+        text: media.focus || '',
+      };
+      const index = messages.findIndex(
+        (message) => message.role === 'media' && message.media?.id === media.id,
+      );
+      if (index < 0) return [...messages, next];
+      return messages.map((message, messageIndex) => messageIndex === index ? next : message);
+    });
+  }, [updateChatState]);
+
   const clearPendingPolls = useCallback((characterId?: string): void => {
     for (const [key, timer] of pendingPolls.current) {
       if (characterId && !key.startsWith(`${characterId}:`)) continue;
       window.clearTimeout(timer);
       pendingPolls.current.delete(key);
+    }
+  }, []);
+
+  const clearPendingMediaPolls = useCallback((characterId?: string): void => {
+    for (const [key, timer] of pendingMediaPolls.current) {
+      if (characterId && !key.startsWith(`${characterId}:`)) continue;
+      window.clearTimeout(timer);
+      pendingMediaPolls.current.delete(key);
     }
   }, []);
 
@@ -538,6 +578,7 @@ export function CharacterPage({
           ? result.action as ChatAction
           : null;
         if (action?.tool) upsertAction(characterId, action, jobId);
+        if (action?.media_job) startMediaPollRef.current(characterId, action.media_job);
         if (response.status === 'succeeded' || response.status === 'failed') {
           pendingPolls.current.delete(key);
           setCharacterTyping(characterId, false);
@@ -567,6 +608,62 @@ export function CharacterPage({
     pendingPolls.current.set(key, window.setTimeout(() => { void poll(); }, immediate ? 0 : PENDING_POLL_MS));
   }, [appendCharacterReply, services, setCharacterTyping, upsertAction]);
 
+  const startMediaPoll = useCallback((characterId: string, initial: ChatMediaJob): void => {
+    const base = apiBaseRef.current;
+    if (!base || !initial.id) return;
+    const key = `${characterId}:${initial.id}`;
+    upsertMedia(characterId, initial);
+    if (initial.status === 'succeeded' || initial.status === 'failed'
+      || pendingMediaPolls.current.has(key)) return;
+    const poll = async (): Promise<void> => {
+      try {
+        const response = await services.sendJson(
+          base,
+          `/chat/characters/${encodeURIComponent(characterId)}/media-jobs/${encodeURIComponent(initial.id)}`,
+        );
+        if (!aliveRef.current) return;
+        const result = response.result && typeof response.result === 'object'
+          ? response.result as JsonObject
+          : {};
+        const failure = response.failure && typeof response.failure === 'object'
+          ? response.failure as JsonObject
+          : {};
+        const status = String(response.status || 'failed');
+        upsertMedia(characterId, {
+          ...initial,
+          enhancedPrompt: typeof result.enhanced_prompt === 'string'
+            ? result.enhanced_prompt
+            : initial.enhancedPrompt || '',
+          error: String(failure.detail || result.error || ''),
+          status,
+          url: typeof result.url === 'string' && result.url
+            ? services.mediaUrl(base, result.url)
+            : initial.url || '',
+        });
+        if (status === 'succeeded' || status === 'failed') {
+          pendingMediaPolls.current.delete(key);
+          return;
+        }
+        pendingMediaPolls.current.set(
+          key,
+          window.setTimeout(() => { void poll(); }, PENDING_POLL_MS),
+        );
+      } catch (error) {
+        pendingMediaPolls.current.delete(key);
+        upsertMedia(characterId, {
+          ...initial,
+          error: errorMessage(error),
+          status: 'failed',
+        });
+      }
+    };
+    pendingMediaPolls.current.set(
+      key,
+      window.setTimeout(() => { void poll(); }, PENDING_POLL_MS),
+    );
+  }, [services, upsertMedia]);
+  startMediaPollRef.current = startMediaPoll;
+
   const refresh = useCallback(async (): Promise<void> => {
     const base = apiBaseRef.current;
     if (!connectedRef.current || !base) return;
@@ -589,6 +686,10 @@ export function CharacterPage({
           if (message.role === 'action' && message.action?.status === 'queued' && message.job_id) {
             startPendingPoll(selected, message.job_id);
           }
+          if (message.role === 'media' && message.media
+            && !['succeeded', 'failed'].includes(message.media.status)) {
+            startMediaPollRef.current(selected, message.media);
+          }
         }
       } else {
         setProjection(null);
@@ -610,6 +711,7 @@ export function CharacterPage({
     requestGeneration.current += 1;
     setCharacterTyping(selectedIdRef.current, false);
     clearPendingPolls(selectedIdRef.current);
+    clearPendingMediaPolls(selectedIdRef.current);
     clearParagraphReveals(selectedIdRef.current);
     const next = id || '';
     selectedIdRef.current = next;
@@ -620,6 +722,7 @@ export function CharacterPage({
     setUploadState('');
     setUploadingPurpose('');
     setChatDraft('');
+    setMediaFocus('');
     followTranscriptRef.current = true;
     setChatStatus(next ? 'Loading character…' : 'Select a character to start chatting.');
     if (options.updateHash) {
@@ -627,11 +730,12 @@ export function CharacterPage({
       url.hash = next ? encodeURIComponent(next) : '';
       history.replaceState(null, '', url);
     }
-  }, [clearParagraphReveals, clearPendingPolls, setCharacterTyping]);
+  }, [clearParagraphReveals, clearPendingMediaPolls, clearPendingPolls, setCharacterTyping]);
 
   const disconnect = useCallback((syncUrl = true): void => {
     requestGeneration.current += 1;
     clearPendingPolls();
+    clearPendingMediaPolls();
     clearParagraphReveals();
     connectedRef.current = false;
     apiBaseRef.current = '';
@@ -644,13 +748,14 @@ export function CharacterPage({
     setPortraitState('');
     setUploadState('');
     setUploadingPurpose('');
+    setMediaFocus('');
     setStatusKind('');
     setApiStatus('○ Offline');
     setStatusNote('');
     setChatStatus('Select a character to start chatting.');
     setTypingCharacterIds(new Set());
     if (syncUrl) services.setServerInUrl('');
-  }, [clearParagraphReveals, clearPendingPolls, services]);
+  }, [clearParagraphReveals, clearPendingMediaPolls, clearPendingPolls, services]);
 
   const connect = useCallback((url: string): void => {
     if (!url) return;
@@ -768,6 +873,7 @@ export function CharacterPage({
       aliveRef.current = false;
       requestGeneration.current += 1;
       clearPendingPolls();
+      clearPendingMediaPolls();
       for (const timers of revealTimers.values()) {
         for (const timer of timers) window.clearTimeout(timer);
       }
@@ -775,7 +881,7 @@ export function CharacterPage({
       window.removeEventListener('hashchange', onHashChange);
       menu?.close?.();
     };
-  }, [clearPendingPolls, connect, selectCharacter, services]);
+  }, [clearPendingMediaPolls, clearPendingPolls, connect, selectCharacter, services]);
 
   useEffect(() => {
     const titleName = projection?.characterName
@@ -853,8 +959,11 @@ export function CharacterPage({
   const uploadDisabled = !connected || !apiBase || !selectedId || Boolean(uploadingPurpose);
   const selectedChatState = selectedId && chatClientId
     ? loadChatState(chatClientId, selectedId)
-    : { summary: '', messages: [] };
+    : { allowCharacterMedia: false, summary: '', messages: [] };
   const hasChatHistory = Boolean(selectedChatState.summary || selectedChatState.messages.length);
+  const hasConversationalHistory = Boolean(
+    selectedChatState.summary || historyForPayload(selectedChatState.messages).length,
+  );
   const chatTyping = typingCharacterIds.has(selectedId);
   const transcriptItems = useMemo<TranscriptItem[]>(() => {
     const occurrences = new Map<string, number>();
@@ -867,6 +976,19 @@ export function CharacterPage({
       const occurrence = occurrences.get(baseKey) || 0;
       occurrences.set(baseKey, occurrence + 1);
       const key = `${baseKey}:${occurrence}`;
+      if (message.role === 'media' && message.media) {
+        items.push({
+          enhancedPrompt: message.media.enhancedPrompt || '',
+          error: message.media.error || '',
+          focus: message.media.focus || '',
+          key,
+          kind: 'media',
+          mediaKind: message.media.kind,
+          status: message.media.status,
+          url: message.media.url || '',
+        });
+        continue;
+      }
       if (message.role === 'action') {
         items.push({
           commandId: message.command_id || '',
@@ -929,6 +1051,7 @@ export function CharacterPage({
           message,
           history_summary: state.summary || '',
           history: historyForPayload(state.messages),
+          allow_character_media: state.allowCharacterMedia,
         }),
         method: 'POST',
       });
@@ -940,6 +1063,7 @@ export function CharacterPage({
       }
       const action = result.action && typeof result.action === 'object' ? result.action as ChatAction : null;
       if (action?.tool) upsertAction(characterId, action, jobId);
+      if (action?.media_job) startMediaPoll(characterId, action.media_job);
       if (job.status === 'queued' || job.status === 'running' || action?.status === 'queued') {
         if (jobId) startPendingPoll(characterId, jobId);
         setChatStatus(result.reply ? 'Waiting for action result...' : 'Chat queued. Waiting for reply…');
@@ -961,6 +1085,54 @@ export function CharacterPage({
       setChatStatus(errorMessage(error));
       setStatusKind('err');
       setApiStatus(`⚠ ${errorMessage(error)}`);
+    }
+  };
+
+  const requestChatMedia = async (kind: 'chat_image' | 'chat_video'): Promise<void> => {
+    const characterId = selectedIdRef.current;
+    const base = apiBaseRef.current;
+    if (!characterId || !base || !hasConversationalHistory) return;
+    const state = loadChatState(chatClientIdRef.current, characterId);
+    const focus = mediaFocus.trim();
+    setChatStatus(`Requesting chat ${kind === 'chat_video' ? 'video' : 'image'}…`);
+    try {
+      const job = await services.sendJson(
+        base,
+        `/chat/characters/${encodeURIComponent(characterId)}/media-jobs`,
+        {
+          body: JSON.stringify({
+            kind,
+            focus,
+            history_summary: state.summary || '',
+            history: historyForPayload(state.messages),
+          }),
+          method: 'POST',
+        },
+      );
+      if (!aliveRef.current || characterId !== selectedIdRef.current) return;
+      const result = job.result && typeof job.result === 'object' ? job.result as JsonObject : {};
+      const media: ChatMediaJob = {
+        enhancedPrompt: typeof result.enhanced_prompt === 'string'
+          ? result.enhanced_prompt
+          : '',
+        focus,
+        id: String(job.id || ''),
+        kind,
+        status: String(job.status || 'queued'),
+        url: typeof result.url === 'string' && result.url
+          ? services.mediaUrl(base, result.url)
+          : '',
+      };
+      if (!media.id) throw new Error('Chat media request did not return a job id.');
+      setMediaFocus('');
+      startMediaPoll(characterId, media);
+      setChatStatus(
+        `${kind === 'chat_video' ? 'Video' : 'Image'} illustration queued. No world action was performed.`,
+      );
+    } catch (error) {
+      if (aliveRef.current && characterId === selectedIdRef.current) {
+        setChatStatus(errorMessage(error));
+      }
     }
   };
 
@@ -1204,6 +1376,22 @@ export function CharacterPage({
                   type="checkbox"
                 /> Separate reply paragraphs
               </label>
+              {features?.character_chat_media_tools && <label
+                class="chat-toggle"
+                for="character-media-toggle"
+                title="Media directions are illustrative only and never change the world."
+              >
+                <input
+                  checked={selectedChatState.allowCharacterMedia}
+                  id="character-media-toggle"
+                  onChange={(event): void => {
+                    if (selectedId) {
+                      setCharacterMediaPermission(selectedId, event.currentTarget.checked);
+                    }
+                  }}
+                  type="checkbox"
+                /> Allow character illustrations
+              </label>}
               <Button
                 disabled={!selectedId || !hasChatHistory}
                 id="btn-clear-history"
@@ -1211,6 +1399,7 @@ export function CharacterPage({
                   if (!selectedId) return;
                   setCharacterTyping(selectedId, false);
                   clearPendingPolls(selectedId);
+                  clearPendingMediaPolls(selectedId);
                   clearParagraphReveals(selectedId);
                   clearChatState(chatClientId, selectedId);
                   bumpHistory();
@@ -1281,6 +1470,34 @@ export function CharacterPage({
             id="composer"
             onSubmit={(event): void => { event.preventDefault(); void submitChat(); }}
           >
+            {(features?.chat_image_generation || features?.chat_video_generation) && <div
+              id="chat-media-controls"
+            >
+              <label for="chat-media-focus">Visual focus or detail</label>
+              <input
+                id="chat-media-focus"
+                maxLength={500}
+                onInput={(event): void => setMediaFocus(event.currentTarget.value)}
+                placeholder="Optional subject, action, mood, or framing"
+                type="text"
+                value={mediaFocus}
+              />
+              {features?.chat_image_generation && <Button
+                disabled={!hasConversationalHistory}
+                id="btn-chat-image"
+                onClick={(): void => { void requestChatMedia('chat_image'); }}
+                type="button"
+              >📷 Image</Button>}
+              {features?.chat_video_generation && <Button
+                disabled={!hasConversationalHistory}
+                id="btn-chat-video"
+                onClick={(): void => { void requestChatMedia('chat_video'); }}
+                type="button"
+              >🎬 Video</Button>}
+              <small id="chat-media-warning">
+                Media directions are illustrative only and do not perform actions or change the world.
+              </small>
+            </div>}
             <textarea
               aria-label="Message"
               aria-describedby={chatReadOnly ? 'chat-read-only' : undefined}
