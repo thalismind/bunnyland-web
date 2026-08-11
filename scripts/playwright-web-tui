@@ -546,9 +546,14 @@ def narrate_event(page) -> None:
     row_width = page.locator("#activity .activity-row").filter(has_text="too tired").evaluate(
         "row => row.getBoundingClientRect().width"
     )
+    copy_width = page.locator("#activity .activity-row-copy").filter(has_text="too tired").evaluate(
+        "copy => copy.getBoundingClientRect().width"
+    )
     pane_width = page.locator("#activity").evaluate("pane => pane.getBoundingClientRect().width")
     if row_width < pane_width * 0.9:
         raise AssertionError(f"activity row collapsed: row={row_width}, pane={pane_width}")
+    if copy_width < row_width * 0.9:
+        raise AssertionError(f"activity copy collapsed: copy={copy_width}, row={row_width}")
 
 
 def render_generated_media(page) -> None:
