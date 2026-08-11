@@ -8,17 +8,30 @@ export interface ChatAction extends JsonObject {
   reason?: string;
   status?: string;
   tool?: string;
+  media_job?: ChatMediaJob;
+}
+
+export interface ChatMediaJob {
+  enhancedPrompt?: string;
+  error?: string;
+  focus?: string;
+  id: string;
+  kind: 'chat_image' | 'chat_video';
+  status: string;
+  url?: string;
 }
 
 export interface StoredMessage {
   action?: ChatAction;
   command_id?: string;
   job_id?: string;
-  role: 'action' | 'character' | 'user';
+  media?: ChatMediaJob;
+  role: 'action' | 'character' | 'media' | 'user';
   text: string;
 }
 
 export interface ChatState {
+  allowCharacterMedia: boolean;
   messages: StoredMessage[];
   summary: string;
 }
@@ -143,25 +156,35 @@ export function loadChatState(clientId: string, characterId: string): ChatState 
   if (!rememberOnThisDevice()) {
     const session = sessionChatStates.get(key);
     return session
-      ? { summary: session.summary, messages: [...session.messages] }
-      : { summary: '', messages: [] };
+      ? {
+        allowCharacterMedia: session.allowCharacterMedia,
+        summary: session.summary,
+        messages: [...session.messages],
+      }
+      : { allowCharacterMedia: false, summary: '', messages: [] };
   }
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || '{}') as Partial<ChatState>;
     const state = {
+      allowCharacterMedia: parsed.allowCharacterMedia === true,
       summary: String(parsed.summary || ''),
       messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-HISTORY_LIMIT) : [],
     };
     sessionChatStates.set(key, state);
-    return { summary: state.summary, messages: [...state.messages] };
+    return {
+      allowCharacterMedia: state.allowCharacterMedia,
+      summary: state.summary,
+      messages: [...state.messages],
+    };
   } catch {
-    return { summary: '', messages: [] };
+    return { allowCharacterMedia: false, summary: '', messages: [] };
   }
 }
 
 export function saveChatState(clientId: string, characterId: string, state: ChatState): void {
   const key = chatStorageKey(clientId, characterId);
   const bounded = {
+    allowCharacterMedia: state.allowCharacterMedia,
     summary: String(state.summary || ''),
     messages: state.messages.slice(-HISTORY_LIMIT),
   };
@@ -210,6 +233,10 @@ export function historyForPayload(messages: readonly StoredMessage[]): Array<{ r
 
 export function actionSummary(action: ChatAction): string {
   const tool = action.tool || 'action';
+  if (action.media_job) {
+    const medium = action.media_job.kind === 'chat_video' ? 'Video' : 'Image';
+    return `${medium} illustration requested. Visual directions do not perform actions or change the world.`;
+  }
   if (action.status === 'queued') return `${tool} queued as a game action. Results will appear here when it finishes.`;
   if (action.status === 'executed') return `${tool} finished.`;
   if (action.status === 'rejected') return `${tool} failed${action.reason ? `: ${action.reason}` : '.'}`;
