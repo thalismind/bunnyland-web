@@ -26,7 +26,7 @@ type ControlClaim = {
   claimId?: string;
 };
 
-type VideoRequestApi<Control extends ControlClaim> = {
+type MediaRequestApi<Control extends ControlClaim> = {
   claimHeaders(control: Control | null): Record<string, string>;
   sendJson(base: string, path: string, init?: RequestInit): Promise<unknown>;
 };
@@ -65,16 +65,56 @@ export async function fetchGenerationFeatures(
 }
 
 export async function requestSceneVideo<Control extends ControlClaim>(
-  api: VideoRequestApi<Control>,
+  api: MediaRequestApi<Control>,
   base: string,
   control: Control | null,
+  eventId = '',
 ): Promise<unknown> {
   if (!control?.claimId) throw new Error('A character claim is required');
   return api.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
     method: 'POST',
     headers: api.claimHeaders(control),
-    body: JSON.stringify({ kind: 'scene_video' }),
+    body: JSON.stringify({
+      kind: 'scene_video',
+      ...(eventId ? { event_id: eventId } : {}),
+    }),
   });
+}
+
+export async function requestSceneImage<Control extends ControlClaim>(
+  api: MediaRequestApi<Control>,
+  base: string,
+  control: Control | null,
+  eventId = '',
+): Promise<unknown> {
+  if (!control?.claimId) throw new Error('A character claim is required');
+  return api.sendJson(base, `/play/claims/${encodeURIComponent(control.claimId)}/jobs`, {
+    method: 'POST',
+    headers: api.claimHeaders(control),
+    body: JSON.stringify({
+      kind: 'scene_image',
+      ...(eventId ? { event_id: eventId } : {}),
+    }),
+  });
+}
+
+export function latestMediaEventId(messages: unknown[]): string {
+  let latest = '';
+  let latestEpoch = Number.NEGATIVE_INFINITY;
+  for (const message of messages) {
+    const event = messageEvent(message);
+    const type = messageType(message);
+    if (!event || type.startsWith('ImageGeneration') || type.startsWith('VideoGeneration')) {
+      continue;
+    }
+    const visibility = String(event.visibility ?? '');
+    const eventId = String(event.event_id ?? '');
+    const epoch = Number(event.world_epoch ?? 0);
+    if (!eventId || !['public', 'room'].includes(visibility) || epoch < latestEpoch) continue;
+    latest = eventId;
+    latestEpoch = epoch;
+  }
+  return latest;
 }
 
 export function videoRequestMessage(result: unknown): string {

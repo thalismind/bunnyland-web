@@ -6,8 +6,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { useContentWarningGate } from '../content-warning';
 import {
   fetchGenerationFeatures,
+  latestMediaEventId,
   latestVideoCompletion,
   latestVideoFailure,
+  requestSceneImage,
   requestSceneVideo,
   VIDEO_AFFORDANCE,
   videoRequestMessage,
@@ -131,7 +133,7 @@ interface WebTuiApiRuntime {
   claimHeaders(control: Control | null): Record<string, string>;
   mediaUrl(base: string, path: unknown): string;
   normalizeBase(value: string): string;
-  requestSceneImage(base: string, characterId: string, control: Control | null): Promise<unknown>;
+  requestSceneImage(base: string, characterId: string, control: Control | null, eventId?: string): Promise<unknown>;
   fetchFeatures?(base: string): Promise<{ image_generation?: boolean; video_generation?: boolean }>;
   sendJson(base: string, path: string, init?: RequestInit): Promise<unknown>;
   setServerInUrl(base: string): void;
@@ -216,6 +218,7 @@ export function WebTuiPage() {
   const eventFailureRef = useRef<unknown>(null);
   const eventVideoRef = useRef('');
   const eventVideoFailureRef = useRef<unknown>(null);
+  const latestMediaEventRef = useRef('');
   const pendingTargetRef = useRef(targetFromHash());
   const clientIdRef = useRef(String(play.persistentClientId(CLIENT_ID_KEY, 'web-tui')));
   const connectRef = useRef<(url: string) => void>(() => undefined);
@@ -272,6 +275,7 @@ export function WebTuiPage() {
       ?? modelRef.current.characters.find(character => character.id === id)?.name ?? null;
 
   const drainEvents = (events: JsonObject[], prime: boolean) => {
+    latestMediaEventRef.current = latestMediaEventId(events);
     const current = modelRef.current;
     const drained = play.drainNarratedEvents(events, {
       nameFor,
@@ -643,7 +647,7 @@ export function WebTuiPage() {
   const requestImage = async () => {
     if (!modelRef.current.playerId) activity('Select a character before requesting an image.');
     else {
-      try { activity(play.imageRequestMessage(await api.requestSceneImage(baseRef.current, modelRef.current.playerId, modelRef.current.control))); }
+      try { activity(play.imageRequestMessage(await requestSceneImage(api, baseRef.current, modelRef.current.control, latestMediaEventRef.current))); }
       catch (error) { activity(`${play.IMAGE_AFFORDANCE.REQUEST_EMOJI} ${message(error)}`, 'rejection'); }
     }
     await refreshRef.current();
@@ -651,7 +655,7 @@ export function WebTuiPage() {
   const requestVideo = async () => {
     if (!modelRef.current.playerId) activity('Select a character before requesting a video.');
     else {
-      try { activity(videoRequestMessage(await requestSceneVideo(api, baseRef.current, modelRef.current.control))); }
+      try { activity(videoRequestMessage(await requestSceneVideo(api, baseRef.current, modelRef.current.control, latestMediaEventRef.current))); }
       catch (error) { activity(`${VIDEO_AFFORDANCE.REQUEST_EMOJI} ${message(error)}`, 'rejection'); }
     }
     await refreshRef.current();

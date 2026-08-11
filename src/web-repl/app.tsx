@@ -23,9 +23,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { useContentWarningGate } from '../content-warning';
 import {
+  latestMediaEventId,
   latestVideoCompletion as latestLocalVideoCompletion,
   latestVideoFailure as latestLocalVideoFailure,
   requestSceneVideo as requestLocalSceneVideo,
+  requestSceneImage as requestLocalSceneImage,
   VIDEO_AFFORDANCE,
   videoRequestMessage as localVideoRequestMessage,
 } from '../media-generation';
@@ -153,10 +155,10 @@ export interface WebReplServices {
     base: string, payload: Record<string, unknown>, control: ControlClaim,
   ) => Promise<ClaimResult>;
   requestSceneImage: (
-    base: string, characterId: string, control: ControlClaim | null,
+    base: string, characterId: string, control: ControlClaim | null, eventId?: string,
   ) => Promise<unknown>;
   requestSceneVideo: (
-    base: string, characterId: string, control: ControlClaim | null,
+    base: string, characterId: string, control: ControlClaim | null, eventId?: string,
   ) => Promise<unknown>;
   videoRequestMessage: (result: unknown) => string;
   resolveTargetName: (value: string, candidates: TargetOption[]) => TargetOption | null;
@@ -220,11 +222,17 @@ function browserServices(): WebReplServices {
     videoRequestMessage: localVideoRequestMessage,
     initClientMenu: () => browser.BunnylandUI.initClientMenu(),
     normalizeBase: (url) => browser.BunnylandApi.normalizeBase(url),
-    requestSceneImage: (base, id, control) => browser.BunnylandApi.requestSceneImage(base, id, control),
-    requestSceneVideo: (base, _id, control) => requestLocalSceneVideo(
+    requestSceneImage: (base, _id, control, eventId) => requestLocalSceneImage(
       browser.BunnylandApi,
       base,
       control,
+      eventId,
+    ),
+    requestSceneVideo: (base, _id, control, eventId) => requestLocalSceneVideo(
+      browser.BunnylandApi,
+      base,
+      control,
+      eventId,
     ),
     serverFromUrl: () => browser.BunnylandApi.serverFromUrl(),
     setServerInUrl: (base) => browser.BunnylandApi.setServerInUrl(base),
@@ -324,6 +332,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   const eventImageFailureEpoch = useRef<number | null>(null);
   const eventVideoUrl = useRef('');
   const eventVideoFailureEpoch = useRef<number | null>(null);
+  const latestMediaEventRef = useRef('');
   const clientId = useRef(services.persistentClientId(CLIENT_ID_KEY, 'web-repl'));
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -378,6 +387,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
   }, [allTargets]);
 
   const drainEvents = useCallback((messages: unknown[], prime: boolean): void => {
+    latestMediaEventRef.current = latestMediaEventId(messages);
     const drained = services.drainNarratedEvents(messages, {
       seenIds: seenEventIds.current,
       playerId: playerIdRef.current,
@@ -857,7 +867,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       return;
     }
     try {
-      const result = await services.requestSceneImage(apiBaseRef.current, playerIdRef.current, controlRef.current);
+      const result = await services.requestSceneImage(apiBaseRef.current, playerIdRef.current, controlRef.current, latestMediaEventRef.current);
       write(services.imageRequestMessage(result), 'ok');
     } catch (error) {
       write(`${services.imageAffordance.REQUEST_EMOJI} ${errorMessage(error)}`, 'error');
@@ -870,7 +880,7 @@ export function WebReplPage({ services = DEFAULT_BROWSER_SERVICES }: WebReplPage
       return;
     }
     try {
-      const result = await services.requestSceneVideo(apiBaseRef.current, playerIdRef.current, controlRef.current);
+      const result = await services.requestSceneVideo(apiBaseRef.current, playerIdRef.current, controlRef.current, latestMediaEventRef.current);
       write(services.videoRequestMessage(result), 'ok');
     } catch (error) {
       write(`${services.videoAffordance.REQUEST_EMOJI} ${errorMessage(error)}`, 'error');

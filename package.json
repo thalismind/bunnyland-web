@@ -3,8 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync:ui": "node scripts/sync-ui-web.mjs",
-    "check:ui": "node scripts/sync-ui-web.mjs --check",
     "lint": "npm run lint:js && npm run lint:css && npm run lint:html",
     "lint:js": "eslint \"**/*.{js,ts,tsx,html}\"",
     "lint:css": "stylelint \"**/*.{css,html}\"",
@@ -13,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "build": "vite build && node scripts/check-player-entry-budgets.mjs",
     "check:player-budgets": "node scripts/check-player-entry-budgets.mjs",
-    "check": "npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@bunnyland/ui-web": "0.2.6",

@@ -4,7 +4,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+const PACKAGE_ASSETS = new Set([
+  'bunnyland-api.js',
+  'bunnyland-play.js',
+  'bunnyland-ui.css',
+  'bunnyland-ui.js',
+]);
+
+function sourceFile(filename) {
+  const asset = path.basename(filename);
+  if (!PACKAGE_ASSETS.has(asset)) return filename;
+  return fileURLToPath(import.meta.resolve(`@bunnyland/ui-web/assets/${asset}`));
+}
 
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -71,7 +85,8 @@ function loadBrowserAssets(files) {
   context.window = context;
   vm.createContext(context);
   for (const file of files) {
-    vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: file });
+    const source = sourceFile(file);
+    vm.runInContext(fs.readFileSync(source, 'utf8'), context, { filename: source });
   }
   return context;
 }
@@ -214,6 +229,7 @@ test('client menu carries server and focus between focused player pages only', (
 
 test('web styles use defined shared tokens and retain accessible player-page rules', () => {
   const files = [
+    sourceFile('assets/bunnyland-ui.css'),
     ...filesWithExtensions('assets', new Set(['.css'])),
     ...filesWithExtensions('src', new Set(['.css'])),
     ...fs.readdirSync('.').filter(filename => path.extname(filename) === '.html'),
@@ -221,7 +237,7 @@ test('web styles use defined shared tokens and retain accessible player-page rul
   const styles = files.map(filename => fs.readFileSync(filename, 'utf8')).join('\n');
   const defined = new Set([...styles.matchAll(/(--bl-[a-z0-9-]+)\s*:/g)].map(match => match[1]));
   const used = new Set([...styles.matchAll(/var\((--bl-[a-z0-9-]+)/g)].map(match => match[1]));
-  const sharedCss = fs.readFileSync('assets/bunnyland-ui.css', 'utf8');
+  const sharedCss = fs.readFileSync(sourceFile('assets/bunnyland-ui.css'), 'utf8');
   const toonCss = fs.readFileSync('src/toon-client/toon.css', 'utf8');
   const landing = fs.readFileSync('index.html', 'utf8');
 
@@ -238,6 +254,8 @@ test('web styles use defined shared tokens and retain accessible player-page rul
 
 test('web runtime uses shared dialogs instead of native browser prompts', () => {
   const runtimeFiles = [
+    sourceFile('assets/bunnyland-api.js'),
+    sourceFile('assets/bunnyland-ui.js'),
     ...filesWithExtensions('assets', new Set(['.js'])),
     ...filesWithExtensions('src', new Set(['.ts', '.tsx'])),
   ];
@@ -405,7 +423,7 @@ test('BunnylandApi prompts before configured player-auth autoconnect', async () 
 });
 
 test('Character page is in the client menu and sends bounded local history', () => {
-  const ui = fs.readFileSync('assets/bunnyland-ui.js', 'utf8');
+  const ui = fs.readFileSync(sourceFile('assets/bunnyland-ui.js'), 'utf8');
   const page = fs.readFileSync('src/character/page.tsx', 'utf8');
   const state = fs.readFileSync('src/character/chat-state.ts', 'utf8');
 
@@ -586,7 +604,7 @@ test('BunnylandPlay scopes room projections to the claimed character', async () 
   assert.equal(calls[0][2].headers['X-Bunnyland-Claim-Secret'], 'claim-secret');
 });
 
-test('browser pages load the shared API helper without manual cache keys', () => {
+test('browser pages load the package-backed API entry through Vite', () => {
   const pages = [
     'behavior-editor.html',
     'character-memory.html',
@@ -604,14 +622,15 @@ test('browser pages load the shared API helper without manual cache keys', () =>
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-api\.js/,
-      `${page} must load the shared API helper`,
+      /src\/ui-web-package\.ts/,
+      `${page} must load the package-backed helper entry`,
     );
-    assert.doesNotMatch(html, /assets\/bunnyland-api\.js\?v=/);
+    assert.doesNotMatch(html, /assets\/bunnyland-api\.js/);
   }
   const editor = fs.readFileSync('world-editor.html', 'utf8');
   const editorApp = fs.readFileSync('src/world-editor/app.tsx', 'utf8');
   assert.doesNotMatch(editor, /assets\/bunnyland-api\.js/);
+  assert.match(editor, /src\/ui-web-package\.ts/);
   assert.match(editorApp, /from '@bunnyland\/ui-web\/api'/);
 });
 
@@ -647,7 +666,7 @@ test('styled Vite pages load the consolidated responsive tool stylesheet', () =>
   }
 });
 
-test('browser pages load the shared UI helper without manual cache keys', () => {
+test('browser pages load package-backed UI through Vite', () => {
   const pages = [
     'behavior-editor.html',
     'character-memory.html',
@@ -667,14 +686,14 @@ test('browser pages load the shared UI helper without manual cache keys', () => 
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-ui\.js/,
-      `${page} must load the shared UI helper`,
+      /src\/ui-web-package\.ts/,
+      `${page} must load the package-backed helper entry`,
     );
-    assert.doesNotMatch(html, /assets\/bunnyland-ui\.js\?v=/);
+    assert.doesNotMatch(html, /assets\/bunnyland-ui\.js/);
   }
 });
 
-test('player pages load the shared play helper without manual cache keys', () => {
+test('player pages load package-backed play helpers through Vite', () => {
   const pages = [
     'toon-client.html',
     'web-tui.html',
@@ -685,10 +704,10 @@ test('player pages load the shared play helper without manual cache keys', () =>
     const html = fs.readFileSync(page, 'utf8');
     assert.match(
       html,
-      /assets\/bunnyland-play\.js/,
-      `${page} must load the shared play helper`,
+      /src\/ui-web-package\.ts/,
+      `${page} must load the package-backed helper entry`,
     );
-    assert.doesNotMatch(html, /assets\/bunnyland-play\.js\?v=/);
+    assert.doesNotMatch(html, /assets\/bunnyland-play\.js/);
   }
 });
 
@@ -850,6 +869,7 @@ test('BunnylandApi builds media URLs and image-request requests', async () => {
   assert.equal(scene.status, 'queued');
   assert.equal(calls[0].url, 'http://example.test/play/claims/claim%3A1/jobs');
   assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { kind: 'scene_image' });
 
   await BunnylandApi.requestEventImage('http://example.test', 'rec:9', 'dramatic');
   assert.equal(calls[1].url, 'http://example.test/admin/world/generation-jobs');

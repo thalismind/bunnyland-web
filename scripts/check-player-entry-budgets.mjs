@@ -5,12 +5,8 @@ import { gzipSync } from 'node:zlib';
 const distUrl = new URL('../dist/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('.vite/manifest.json', distUrl), 'utf8'));
 const compatibilityAssets = new Set([
-  'assets/bunnyland-api.js',
-  'assets/bunnyland-play.js',
   'assets/bunnyland-responsive.css',
   'assets/bunnyland-themes.css',
-  'assets/bunnyland-ui.css',
-  'assets/bunnyland-ui.js',
 ]);
 const routes = [
   { html: 'web-tui.html' },

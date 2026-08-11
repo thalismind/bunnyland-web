@@ -17,12 +17,12 @@ identical.
 - Prefer short labels. Important state should be visible, but labels must not compress,
   overlap, or require users to expand nodes to read them.
 - Match existing controls before inventing new ones. Reuse shared CSS variables and
-  component patterns from `assets/bunnyland-ui.css`.
+  component patterns from `@bunnyland/ui-web/assets/bunnyland-ui.css`.
 
 ## Foundation
 
 The shared base style is published by `@bunnyland/ui-web` and synced into this repo as
-`assets/bunnyland-ui.css`.
+`@bunnyland/ui-web/assets/bunnyland-ui.css`.
 
 - Theme selection is page-level: `BunnylandUI.setTheme('midnight')` applies a root class
   such as `bl-theme-midnight`, and that class overrides CSS variables. Current palettes

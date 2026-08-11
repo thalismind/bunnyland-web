@@ -6,7 +6,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import { useContentWarningGate } from '../content-warning';
 import {
   fetchGenerationFeatures,
+  latestMediaEventId,
   latestVideoCompletion,
+  requestSceneImage,
   requestSceneVideo,
   videoRequestMessage,
 } from '../media-generation';
@@ -26,7 +28,7 @@ export interface ToonRuntime {
     claimHeaders(control: Control | null): Record<string, string>;
     mediaUrl(base: string, path: unknown): string;
     normalizeBase(server: unknown): string;
-    requestSceneImage(base: string, characterId: string, control: Control | null): Promise<Json>;
+    requestSceneImage(base: string, characterId: string, control: Control | null, eventId?: string): Promise<Json>;
     fetchFeatures?(base: string): Promise<{ image_generation?: boolean; video_generation?: boolean }>;
     sendJson(base: string, path: string, init?: RequestInit): Promise<unknown>;
     setServerInUrl(base: string): void;
@@ -203,6 +205,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const characterListRef = useRef<CharacterSummary[]>([]);
   const seenIds = useRef(new Set<string>());
   const primed = useRef(false);
+  const latestMediaEventRef = useRef('');
   const stageRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   const refreshGeneration = useRef(0);
@@ -281,6 +284,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       roomRef.current = room;
       setRoomProjection(room);
       const recentMessages = Array.isArray(recent.events) ? recent.events : [];
+      latestMediaEventRef.current = latestMediaEventId(recentMessages);
       const drained = playCall<{ lines: Activity[]; seenIds: Set<string> }>(runtime, 'drainNarratedEvents', recentMessages, {
         seenIds: seenIds.current, playerId: id, roomOf: () => character.room?.id || null, nameFor: () => null,
       });
@@ -406,7 +410,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const requestImage = async (): Promise<void> => {
     if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before requesting an image.'); return; }
     try {
-      const result = await runtime.api.requestSceneImage(baseRef.current, playerId, controlRef.current);
+      const result = await requestSceneImage(runtime.api, baseRef.current, controlRef.current, latestMediaEventRef.current) as Json;
       setStatus(playCall<string>(runtime, 'imageRequestMessage', result));
       if (result.url) setEventImage(String(runtime.api.mediaUrl(baseRef.current, result.url)));
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
@@ -414,7 +418,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const requestVideo = async (): Promise<void> => {
     if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before requesting a video.'); return; }
     try {
-      const result = await requestSceneVideo(runtime.api, baseRef.current, controlRef.current);
+      const result = await requestSceneVideo(runtime.api, baseRef.current, controlRef.current, latestMediaEventRef.current);
       setStatus(videoRequestMessage(result));
       if (typeof result === 'object' && result !== null && 'url' in result && result.url) {
         setEventVideo(String(runtime.api.mediaUrl(baseRef.current, result.url)));

@@ -155,7 +155,7 @@ deploy-specific settings:
   when `false` it just fills the field and waits for you to click **Connect Live**.
 - `themes` adds deployment-specific theme choices to the shared web theme selector.
   Each entry needs a `value` such as `server-night` and a human-readable `label`;
-  serve CSS for `:root.bl-theme-<value>` after `assets/bunnyland-ui.css`.
+  serve CSS for `:root.bl-theme-<value>` after the `@bunnyland/ui-web` package CSS.
 - `theme` sets the deployment default theme when the visitor has not already saved a
   preference. A URL with `?theme=<value>` overrides both and saves that theme.
 
