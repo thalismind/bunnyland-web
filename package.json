@@ -16,7 +16,7 @@
     "check": "npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@bunnyland/ui-web": "0.2.5",
+    "@bunnyland/ui-web": "0.2.6",
     "litegraph.js": "0.7.13",
     "preact": "^10.29.0"
   },

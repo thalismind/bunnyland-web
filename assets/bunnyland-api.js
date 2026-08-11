@@ -295,7 +295,12 @@
       assertSameOriginBase(url);
       return url;
     }
-    return `${assertSameOriginBase(base)}${url}`;
+    const normalized = assertSameOriginBase(base);
+    const version = normalized.match(/(\/v[0-9]+)$/)?.[1] || '';
+    const path = version && url.startsWith(`${version}/`)
+      ? url.slice(version.length)
+      : url;
+    return `${normalized}${path}`;
   }
 
   async function requestSceneImage(base, characterId, control = null) {

@@ -828,6 +828,8 @@ test('BunnylandApi builds media URLs and image-request requests', async () => {
   const { BunnylandApi } = context;
 
   assert.equal(BunnylandApi.mediaUrl('http://example.test/', '/public/media/portraits/a.png'), 'http://example.test/public/media/portraits/a.png');
+  assert.equal(BunnylandApi.mediaUrl('/api/v1/', '/v1/public/media/portraits/a.png'), '/api/v1/public/media/portraits/a.png');
+  assert.equal(BunnylandApi.mediaUrl('http://example.test/v1/', '/v1/public/media/portraits/a.png'), 'http://example.test/v1/public/media/portraits/a.png');
   assert.throws(
     () => BunnylandApi.mediaUrl('http://example.test', 'https://cdn.test/x.png'),
     /page origin/,
