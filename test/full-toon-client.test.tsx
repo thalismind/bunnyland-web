@@ -282,6 +282,25 @@ describe('ToonPage', () => {
     expect(test.submitted[0]).toMatchObject({ command_type: 'say', payload: { text: 'hello toon' }, on_insufficient_points: 'queue' });
   });
 
+  it('renders action rows as dialog-aware buttons and disables unavailable actions', async () => {
+    const test = harness([], { description: '', title: '' });
+    test.runtime.play.actionAvailable = action => (action as { tool_name?: string }).tool_name !== 'tell';
+    test.runtime.play.actionUnavailableReason = action => (action as { tool_name?: string }).tool_name === 'tell' ? 'No one is in range.' : '';
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
+
+    const say = view.container.querySelector<HTMLButtonElement>('.verb[data-tool="say"]')!;
+    const tell = view.container.querySelector<HTMLButtonElement>('.verb[data-tool="tell"]')!;
+    expect(say.tagName).toBe('BUTTON');
+    expect(say.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(tell.disabled).toBe(true);
+    expect(tell.title).toBe('No one is in range.');
+  });
+
   it('clears an expired claim and leaves the selected character ready to reclaim', async () => {
     const test = harness();
     const view = render(<ToonPage runtime={test.runtime} />);
@@ -334,5 +353,83 @@ describe('ToonPage', () => {
     history.replaceState(null, '', `?server=${encodeURIComponent('/api')}#${encodeURIComponent(OTHER)}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
     await waitFor(() => expect(view.container.querySelector(`[data-id="${OTHER}"].selected`)).toBeTruthy());
+  });
+
+  it('registers complete Toon help and labels the character surface as Profile / Chat', () => {
+    const test = harness();
+    const initHelp = vi.fn();
+    test.runtime.ui.initHelp = initHelp;
+    const view = render(<ToonPage runtime={test.runtime} />);
+
+    expect(initHelp).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Bunnyland Toon — controls',
+      sections: expect.arrayContaining([
+        expect.objectContaining({ title: 'World and movement' }),
+        expect.objectContaining({ title: 'Actions and queue' }),
+        expect.objectContaining({ title: 'Media and character details' }),
+      ]),
+    }));
+    expect(view.getByRole('button', { name: /Profile \/ Chat/ })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Help' })).toBeTruthy();
+  });
+
+  it('switches the small-screen World and Actions tab state', () => {
+    const test = harness();
+    const view = render(<ToonPage runtime={test.runtime} />);
+    const world = view.getByRole('tab', { name: 'World' });
+    const actions = view.getByRole('tab', { name: 'Actions' });
+    expect(world.getAttribute('aria-selected')).toBe('true');
+    expect(view.container.querySelector('#main')?.classList.contains('mobile-pane-world')).toBe(true);
+
+    fireEvent.click(actions);
+
+    expect(actions.getAttribute('aria-selected')).toBe('true');
+    expect(world.getAttribute('aria-selected')).toBe('false');
+    expect(view.container.querySelector('#main')?.classList.contains('mobile-pane-actions')).toBe(true);
+    fireEvent.keyDown(actions, { key: 'ArrowLeft' });
+    expect(world.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(world);
+  });
+
+  it('opens the claim as a labelled modal and restores focus after Escape', async () => {
+    const test = harness([], { description: '', title: '' });
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(view.container.querySelector('.verb[data-tool="say"]')).toBeTruthy());
+    const trigger = view.getByRole('button', { name: 'Idle' });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    expect(view.getByRole('dialog', { name: 'Character claim' })).toBeTruthy();
+    expect(document.activeElement).toBe(view.container.querySelector('#claim-fallback'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('dialog', { name: 'Character claim' })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('opens scene images in a labelled modal and announces target changes', async () => {
+    const test = harness([], { description: '', title: '' });
+    test.runtime.play.latestImageCompletion = () => ({ url: '/media/scene.png' });
+    const view = render(<ToonPage runtime={test.runtime} />);
+    fireEvent.input(view.container.querySelector('#api-url')!, { target: { value: '/api' } });
+    fireEvent.click(view.container.querySelector('#btn-connect')!);
+    await waitFor(() => expect(view.container.querySelectorAll('#player-select option')).toHaveLength(2));
+    fireEvent.change(view.container.querySelector('#player-select')!, { target: { value: CHARACTER } });
+    await waitFor(() => expect(view.container.querySelector('#event-image-button')).toBeTruthy());
+
+    const sprite = view.getByRole('button', { name: 'Target Marlow' });
+    fireEvent.click(sprite);
+    expect(view.container.querySelector('.bl-visually-hidden[aria-live="polite"]')?.textContent).toBe('Target selected: Marlow.');
+
+    const imageTrigger = view.getByRole('button', { name: 'Open latest requested scene image' });
+    imageTrigger.focus();
+    fireEvent.click(imageTrigger);
+    expect(view.getByRole('dialog', { name: 'Latest scene image' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('dialog', { name: 'Latest scene image' })).toBeNull());
+    expect(document.activeElement).toBe(imageTrigger);
   });
 });

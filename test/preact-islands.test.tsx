@@ -66,4 +66,37 @@ describe('StageItems', () => {
     expect(updated).toBe(original);
     expect((updated as HTMLElement).style.left).toBe('30px');
   });
+
+  it('exposes sprites and doors as keyboard-operable buttons with state', () => {
+    const onDoor = vi.fn();
+    const onSprite = vi.fn();
+    const sprite = {
+      glyph: '🐰', id: 'bunny-1', isPlayer: false, label: 'Clover', layer: 20,
+      left: 10, scale: 1, selected: true, top: 20,
+    };
+    const view = render(<StageItems
+      doors={[{
+        direction: 'north', id: 'door-1', label: 'Garden', position: { top: '14px' },
+        title: 'Walk through Garden',
+      }, {
+        direction: 'south', disabled: true, id: 'door-2', label: 'Cellar',
+        position: { bottom: '14px' }, title: 'Cannot walk through Cellar right now',
+      }]}
+      onDoor={onDoor}
+      onSprite={onSprite}
+      sprites={[sprite]}
+    />);
+
+    const spriteButton = view.getByRole('button', { name: 'Clear target Clover' });
+    expect(spriteButton.getAttribute('aria-pressed')).toBe('true');
+    spriteButton.focus();
+    fireEvent.keyDown(spriteButton, { key: 'Enter' });
+    fireEvent.click(spriteButton);
+    expect(onSprite).toHaveBeenCalledWith('bunny-1');
+
+    const door = view.getByRole('button', { name: 'Walk through Garden' });
+    fireEvent.click(door);
+    expect(onDoor).toHaveBeenCalledWith('door-1');
+    expect(view.getByRole('button', { name: 'Cannot walk through Cellar right now' }).hasAttribute('disabled')).toBe(true);
+  });
 });

@@ -25,6 +25,7 @@ export interface ToonSprite {
 
 export interface ToonDoor {
   direction: string;
+  disabled?: boolean;
   id: string;
   label: string;
   position: Partial<Record<'bottom' | 'left' | 'right' | 'top', string>>;

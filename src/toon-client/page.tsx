@@ -20,6 +20,8 @@ import './toon.css';
 
 type Json = Record<string, unknown>;
 type Dynamic = (...args: unknown[]) => unknown;
+interface HelpItem { desc?: string; key?: string; label: string }
+interface HelpSection { items: HelpItem[]; title: string }
 
 export interface ToonRuntime {
   api: {
@@ -36,7 +38,7 @@ export interface ToonRuntime {
   play: Record<string, unknown>;
   ui: {
     initClientMenu(): { close?: () => void } | void;
-    initHelp(options: { sections: unknown[]; title: string }): void;
+    initHelp(options: { intro?: string; sections: HelpSection[]; title: string }): void;
   };
 }
 
@@ -76,6 +78,74 @@ function errorMessage(error: unknown): string { return error instanceof Error ? 
 function targetFromHash(): string {
   try { return decodeURIComponent(location.hash.replace(/^#/, '')).trim(); }
   catch { return ''; }
+}
+
+function focusableDialogElements(dialog: HTMLDialogElement): HTMLElement[] {
+  return [...dialog.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+  )].filter(element => !element.hidden);
+}
+
+function useModalDialog(
+  dialogRef: { current: HTMLDialogElement | null },
+  open: boolean,
+  onClose: () => void,
+  initialFocusSelector?: string,
+): void {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useLayoutEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+    const initialFocus = initialFocusSelector
+      ? dialog.querySelector<HTMLElement>(initialFocusSelector)
+      : focusableDialogElements(dialog)[0];
+    initialFocus?.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableDialogElements(dialog);
+      if (!focusable.length) { event.preventDefault(); return; }
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey
+        ? (index <= 0 ? focusable.length - 1 : index - 1)
+        : (index < 0 || index === focusable.length - 1 ? 0 : index + 1);
+      event.preventDefault();
+      focusable[next]?.focus();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (dialog.open && typeof dialog.close === 'function') dialog.close();
+      else dialog.removeAttribute('open');
+      previousFocus?.focus();
+    };
+  }, [dialogRef, initialFocusSelector, open]);
+}
+
+function ImageDialog({ onClose, open, src }: { onClose: () => void; open: boolean; src: string }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useModalDialog(dialogRef, open, onClose, '.image-lightbox-close');
+  return <dialog
+    aria-labelledby="image-lightbox-title"
+    id="image-lightbox"
+    onCancel={event => { event.preventDefault(); onClose(); }}
+    ref={dialogRef}
+  >
+    <div class="image-lightbox-header">
+      <h2 id="image-lightbox-title">Latest scene image</h2>
+      <Button aria-label="Close scene image" class="image-lightbox-close" onClick={onClose}>Close</Button>
+    </div>
+    <img src={src} alt="Requested scene image" />
+  </dialog>;
 }
 
 interface ActionFormProps {
@@ -186,6 +256,9 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const [lightbox, setLightbox] = useState(false);
   const [loading, setLoading] = useState(true);
   const [claimOpen, setClaimOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<'actions' | 'world'>('world');
+  const [announcement, setAnnouncement] = useState('');
+  const [urgentAnnouncement, setUrgentAnnouncement] = useState('');
   const [claimFallback, setClaimFallback] = useState('suspend');
   const [claimController, setClaimController] = useState('');
   const [claimTimeout, setClaimTimeout] = useState('30');
@@ -207,6 +280,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const primed = useRef(false);
   const latestMediaEventRef = useRef('');
   const stageRef = useRef<HTMLDivElement>(null);
+  const claimDialogRef = useRef<HTMLDialogElement>(null);
   const mounted = useRef(true);
   const refreshGeneration = useRef(0);
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
@@ -217,6 +291,8 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   activityRef.current = activityLines; characterListRef.current = characterList;
   selectedRef.current = selectedId;
 
+  useModalDialog(claimDialogRef, claimOpen, () => setClaimOpen(false), '#claim-fallback');
+
   const projectionHasTarget = useCallback((id: string): boolean => {
     if (!id || !projectionRef.current) return false;
     return id === playerRef.current
@@ -224,18 +300,37 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       || (projectionRef.current.inventory || []).some(item => item.id === id)
       || Object.values(projectionRef.current.targetGroups || {}).some(group => group.some(target => (target.value || target.id) === id));
   }, []);
+  const targetName = useCallback((id: string): string => {
+    if (id === playerRef.current) {
+      return characterListRef.current.find(character => character.id === id)?.name || id;
+    }
+    const entity = (roomRef.current?.entities || roomRef.current?.room?.entities || []).find(candidate => candidate.id === id);
+    if (entity) return playCall<string>(runtime, 'entityName', entity);
+    const inventory = (projectionRef.current?.inventory || []).find(item => item.id === id);
+    if (inventory) return String(inventory.name || inventory.id || id);
+    for (const group of Object.values(projectionRef.current?.targetGroups || {})) {
+      const target = group.find(candidate => (candidate.value || candidate.id) === id);
+      if (target) return target.label;
+    }
+    return id;
+  }, [runtime]);
   const selectTarget = useCallback((id: string, writeHash = true): void => {
     pendingTargetRef.current = '';
     selectedRef.current = id;
     setSelectedId(id);
+    setAnnouncement(id ? `Target selected: ${targetName(id)}.` : 'Target cleared.');
     if (!writeHash) return;
     const url = new URL(location.href);
     url.hash = id ? encodeURIComponent(id) : '';
     history.pushState(null, '', url);
-  }, []);
+  }, [targetName]);
 
   const playerInView = useCallback(() => Boolean(playerRef.current && projectionRef.current?.room?.id && roomRef.current?.room?.id === projectionRef.current.room.id), []);
-  const appendActivity = useCallback((line: Activity) => setActivityLines(current => [...current, line].slice(-8)), []);
+  const appendActivity = useCallback((line: Activity) => {
+    setActivityLines(current => [...current, line].slice(-8));
+    if (line.kind === 'rejection') setUrgentAnnouncement(line.text);
+    else setAnnouncement(line.text);
+  }, []);
   const refreshOnce = useCallback(async (): Promise<void> => {
     const base = baseRef.current;
     if (!base) return;
@@ -339,6 +434,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       payload, cost, lane: playCall<string>(runtime, 'actionLane', action), on_insufficient_points: 'queue',
     }, currentControl);
     if (result.queued === false) { appendActivity({ text: String(result.reason || 'Command rejected.'), kind: 'rejection' }); return false; }
+    setAnnouncement(result.queued === true ? 'Action queued.' : 'Action submitted.');
     await refresh();
     return true;
   }, [appendActivity, refresh, runtime]);
@@ -353,7 +449,9 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       }, stored);
       const next = playCall<Control>(runtime, 'controlFromResponse', data, id, { active: true });
       playCall(runtime, 'storeClaimControl', CLIENT_ID_KEY, next);
-      if (mounted.current && playerRef.current === id) { controlRef.current = next; setControl(next); await refresh(); }
+      if (mounted.current && playerRef.current === id) {
+        controlRef.current = next; setControl(next); setAnnouncement('Character claimed.'); await refresh();
+      }
     } catch (error) { if (mounted.current) setStatus(`⚠ ${errorMessage(error)}`); }
   }, [refresh, runtime]);
 
@@ -382,7 +480,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         ...playCall<Json>(runtime, 'claimSettings'), character_id: playerId, client_id: clientId, claim_id: controlRef.current.claimId,
       }, controlRef.current);
       const next = playCall<Control>(runtime, 'controlFromResponse', data, playerId, { active: controlRef.current.active !== false });
-      controlRef.current = next; setControl(next); playCall(runtime, 'storeClaimControl', CLIENT_ID_KEY, next); setStatus('● Idle settings saved');
+      controlRef.current = next; setControl(next); playCall(runtime, 'storeClaimControl', CLIENT_ID_KEY, next); setStatus('● Idle settings saved'); setAnnouncement('Idle settings saved.');
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
   };
   const releaseController = async (): Promise<void> => {
@@ -393,7 +491,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
         ...playCall<Json>(runtime, 'claimSettings'), character_id: playerId, client_id: clientId, claim_id: controlRef.current.claimId,
       }, controlRef.current);
       const next = playCall<Control>(runtime, 'controlFromResponse', data, playerId, { active: false });
-      controlRef.current = next; setControl(next); playCall(runtime, 'storeClaimControl', CLIENT_ID_KEY, next); await refresh();
+      controlRef.current = next; setControl(next); playCall(runtime, 'storeClaimControl', CLIENT_ID_KEY, next); setAnnouncement('Character controller is idle.'); await refresh();
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
   };
   const releaseClaim = async (): Promise<void> => {
@@ -404,7 +502,7 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       await playCall<Promise<Json>>(runtime, 'releaseWebClaim', baseRef.current, {
         character_id: id, client_id: clientId, claim_id: controlRef.current.claimId,
       }, controlRef.current);
-      playCall(runtime, 'clearClaimControl', CLIENT_ID_KEY, id); setClaimOpen(false); selectPlayer('');
+      playCall(runtime, 'clearClaimControl', CLIENT_ID_KEY, id); setClaimOpen(false); setAnnouncement('Character claim released.'); selectPlayer('');
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
   };
   const requestImage = async (): Promise<void> => {
@@ -425,18 +523,42 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       }
     } catch (error) { setStatus(`⚠ ${errorMessage(error)}`); }
   };
-  const openSheet = (): void => {
-    if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before opening a sheet.'); return; }
+  const openProfile = (): void => {
+    if (!baseRef.current || !playerId) { setStatus('⚠ Select a character before opening Profile / Chat.'); return; }
     const target = selectedId && characterList.some(character => character.id === selectedId) ? selectedId : playerId;
     const href = playCall<string>(runtime, 'characterHref', baseRef.current, target);
     const opened = window.open(href, '_blank', 'noopener');
-    setStatus(opened ? '● Opened character sheet.' : `⚠ Sheet URL: ${href}`);
+    setStatus(opened ? '● Opened Profile / Chat.' : `⚠ Profile / Chat URL: ${href}`);
   };
 
   useEffect(() => {
     mounted.current = true;
     runtime.ui.initClientMenu();
-    runtime.ui.initHelp({ title: 'Bunnyland Toon — controls', sections: [] });
+    runtime.ui.initHelp({
+      title: 'Bunnyland Toon — controls',
+      intro: 'Toon is a visual player client. Choose a character, explore the current room, select targets, and use the Actions pane to act.',
+      sections: [
+        { title: 'Playing', items: [
+          { label: 'Choose a character', desc: 'Use the Character selector to claim someone and enter their current room.', key: 'Character' },
+          { label: 'Claims and idle handoff', desc: 'Claim or resume control, configure what happens while you are away, idle the controller, or release the character.', key: 'Claim / Idle' },
+        ] },
+        { title: 'World and movement', items: [
+          { label: 'Move', desc: 'Focus the World pane and use arrow keys or WASD. You can also click or tap the floor.', key: 'Arrows / WASD' },
+          { label: 'Choose a target', desc: 'Click, tap, or keyboard-activate a character, object, or inventory item. Activate it again or use Clear Target to clear it.' },
+          { label: 'Change rooms', desc: 'Activate a door to use the available movement action for that exit.' },
+        ] },
+        { title: 'Actions and queue', items: [
+          { label: 'Run an action', desc: 'Actions show their AP or FP cost. Choose one, then complete any required target or text fields.' },
+          { label: 'Queued actions', desc: 'An action you cannot afford yet can wait for a later tick. Activate a queued row to cancel it.' },
+          { label: 'Mobile panes', desc: 'Use World and Actions above the scene to switch between the room and action list on a small screen.' },
+        ] },
+        { title: 'Media and character details', items: [
+          { label: 'Scene media', desc: 'When enabled by the server, Image and Video request a view of the latest scene. Open an image for a larger accessible preview.' },
+          { label: 'Profile and chat', desc: 'Open the selected character, or your own character, to see their profile and chat.', key: 'Profile / Chat' },
+          { label: 'Switch clients or theme', desc: 'The Menu lists the other player clients and appearance settings.', key: 'Menu' },
+        ] },
+      ],
+    });
     const connect = (server: unknown): void => {
       const base = String(runtime.api.normalizeBase(server) || '');
       if (!base) return;
@@ -541,43 +663,57 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
       selected: entity.id === selectedId,
     };
   });
+  const exitAction = actions.find(item => playCall<Json[]>(runtime, 'actionArguments', item).some(argument => argument.target_group === 'exits'));
+  const exitActionAvailable = exitAction ? playCall<boolean>(runtime, 'actionAvailable', exitAction) : false;
   const doors: ToonDoor[] = (room?.exits || []).map(exit => {
     const direction = (exit.direction || '').toLowerCase(); const [x, y] = DIR_EDGE[direction] || [1, 0]; const margin = '14px';
-    return { id: exit.id, direction, label: exit.label, position: {
+    return { id: exit.id, direction, disabled: !exitActionAvailable, label: exit.label, position: {
       ...(x === 0 ? { left: '50%' } : x < 0 ? { left: margin } : { right: margin }),
       ...(y === 0 ? { top: '50%' } : y < 0 ? { top: margin } : { bottom: margin }),
-    }, title: `Walk through ${exit.label}`,
+    }, title: exitActionAvailable ? `Walk through ${exit.label}` : `Cannot walk through ${exit.label} right now`,
     ...(x === 0 ? { transform: 'translateX(-50%)' } : y === 0 ? { transform: 'translateY(-50%)' } : {}) };
   });
 
   return <>
+    <div class="bl-visually-hidden" aria-atomic="true" aria-live="polite">{announcement}</div>
+    <div class="bl-visually-hidden" aria-atomic="true" role="alert">{urgentAnnouncement}</div>
     {loading && <div id="loading-overlay"><div class="loading-card"><div class="loading-title">Bunnyland</div><pre class="loading-bunny"> /)_/\\{`\n`}( =.= ){`\n`} )   ({`\n`}(__ __)</pre></div></div>}
     <div id="toolbar"><div class="toolbar-row toolbar-heading" id="toolbar-row1">
       <span class="toolbar-brand"><img src="favicon.png" alt="" /> Bunnyland Toon</span>
-      <Button id="btn-client-menu" class="client-menu-button">Menu</Button><Button id="btn-help">?</Button>
+      <Button id="btn-client-menu" class="client-menu-button">Menu</Button><Button aria-label="Help" id="btn-help" title="Help — Toon controls (press ?)">?</Button>
     </div><div class="toolbar-row" id="toolbar-row2">
       <label for="api-url">Server:</label><input id="api-url" value={apiUrl} onInput={event => setApiUrl(event.currentTarget.value)} />
       <Button id="btn-connect" onClick={() => {
         if (connected) { baseRef.current = ''; setConnected(false); setStatus('○ Offline'); setProjection(null); setRoomProjection(null); setSpeechBubbles([]); setFeatures({ imageGeneration: false, videoGeneration: false }); runtime.api.setServerInUrl(''); }
         else { const base = String(runtime.api.normalizeBase(apiUrl) || ''); baseRef.current = base; setConnected(true); setLoading(false); setStatus('● Connected'); runtime.api.setServerInUrl(base); void refresh(); }
-      }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span id="api-status">{status}</span>
+      }}>{connected ? 'Disconnect' : 'Connect Live'}</Button><span aria-atomic="true" aria-live="polite" id="api-status" role={status.startsWith('⚠') ? 'alert' : 'status'}>{status}</span>
     </div><div class="toolbar-row" id="toolbar-row3">
       <label for="player-select">Character:</label><select id="player-select" value={playerId} onChange={event => { void selectPlayer(event.currentTarget.value); }}>
         <option value="">— select to play —</option>{[...characterList].sort((a, b) => a.name.localeCompare(b.name)).map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
       </select><Button id="btn-release-character" disabled={!playerId} onClick={() => setClaimOpen(true)}>{control?.active === false ? 'Resume' : control ? 'Idle' : 'Claim'}</Button>
       {features.imageGeneration && <Button id="btn-request-image" onClick={() => { void requestImage(); }}>📷 Image</Button>}
       {features.videoGeneration && <Button id="btn-request-video" onClick={() => { void requestVideo(); }}>🎬 Video</Button>}
-      <Button id="btn-open-sheet" onClick={openSheet}>▣ Sheet</Button><Button id="btn-follow" onClick={() => { setLocalPos(null); void refresh(); stageRef.current?.focus(); }}>⌖ Follow character</Button><span class="toolbar-sep">|</span>
+      <Button id="btn-open-sheet" onClick={openProfile}>▣ Profile / Chat</Button><Button id="btn-follow" onClick={() => { setLocalPos(null); void refresh(); stageRef.current?.focus(); }}>⌖ Follow character</Button><span class="toolbar-sep">|</span>
       <label><input type="checkbox" id="debug-bounds" checked={debugBounds} onChange={event => setDebugBounds(event.currentTarget.checked)} /> Bounds</label><span class="toolbar-sep">|</span><span id="room-title">{room ? playCall<string>(runtime, 'entityName', room) : connected ? 'No room' : 'Not connected'}</span>
     </div></div>
-    <dialog id="claim-dialog" open={claimOpen}><form method="dialog" class="claim-dialog-form" onSubmit={() => setClaimOpen(false)}><h3>Claim</h3>
+    <dialog aria-labelledby="claim-dialog-title" id="claim-dialog" onCancel={event => { event.preventDefault(); setClaimOpen(false); }} ref={claimDialogRef}><form method="dialog" class="claim-dialog-form" onSubmit={() => setClaimOpen(false)}><div class="dialog-heading"><h2 id="claim-dialog-title">Character claim</h2><Button aria-label="Close character claim" class="dialog-close" onClick={() => setClaimOpen(false)}>Close</Button></div>
       <label for="claim-fallback">Idle controller</label><select id="claim-fallback" value={claimFallback} onChange={event => setClaimFallback(event.currentTarget.value)}><option value="suspend">Suspended</option><option value="llm">LLM</option><option value="controller">Existing controller</option></select>
       <label for="claim-fallback-controller">Idle controller ID</label><input type="text" id="claim-fallback-controller" spellcheck={false} placeholder="entity_..." value={claimController} onInput={event => setClaimController(event.currentTarget.value)} />
       <label for="claim-timeout">Idle timeout minutes</label><input type="number" id="claim-timeout" min="5" max="60" step="1" value={claimTimeout} onInput={event => setClaimTimeout(event.currentTarget.value)} />
-      <div class="dialog-actions"><Button id="btn-dialog-claim" onClick={() => { void claim(playerId); }}>{control?.active === false ? 'Resume' : 'Claim'}</Button><Button id="btn-dialog-save-fallback" onClick={() => { void updateFallback(); }}>Save Idle</Button><Button id="btn-dialog-release-controller" onClick={() => { void releaseController(); }}>Idle</Button><Button id="btn-dialog-release-claim" onClick={() => { void releaseClaim(); }}>Release</Button><Button onClick={() => setClaimOpen(false)}>Close</Button></div>
+      <div class="dialog-actions"><Button id="btn-dialog-claim" onClick={() => { void claim(playerId); }}>{control?.active === false ? 'Resume' : 'Claim'}</Button><Button id="btn-dialog-save-fallback" onClick={() => { void updateFallback(); }}>Save Idle</Button><Button id="btn-dialog-release-controller" onClick={() => { void releaseController(); }}>Idle</Button><Button id="btn-dialog-release-claim" onClick={() => { void releaseClaim(); }}>Release</Button></div>
     </form></dialog>
-    <div id="main" class="app-split">
-      <div id="stage-wrapper">{activeAction && <ActionForm runtime={runtime} {...activeAction} initialTarget={selectedId} onClose={() => setActiveAction(null)} onSubmit={payload => { const action = activeAction.action; setActiveAction(null); void postCommand(action, payload); }} />}
+    <div aria-label="Toon views" class="mobile-pane-tabs" onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const pane = event.key === 'ArrowLeft' || event.key === 'Home' ? 'world' : 'actions';
+      setMobilePane(pane);
+      document.getElementById(`mobile-${pane}-tab`)?.focus();
+    }} role="tablist">
+      <Button aria-controls="stage-wrapper" aria-selected={mobilePane === 'world'} id="mobile-world-tab" onClick={() => setMobilePane('world')} role="tab" tabIndex={mobilePane === 'world' ? 0 : -1}>World</Button>
+      <Button aria-controls="actions" aria-selected={mobilePane === 'actions'} id="mobile-actions-tab" onClick={() => setMobilePane('actions')} role="tab" tabIndex={mobilePane === 'actions' ? 0 : -1}>Actions</Button>
+    </div>
+    <div id="main" class={`app-split mobile-pane-${mobilePane}`}>
+      <div aria-labelledby="mobile-world-tab" id="stage-wrapper" role="tabpanel">{activeAction && <ActionForm runtime={runtime} {...activeAction} initialTarget={selectedId} onClose={() => setActiveAction(null)} onSubmit={payload => { const action = activeAction.action; setActiveAction(null); void postCommand(action, payload); }} />}
         <div id="stage" class={debugBounds ? 'debug-bounds' : ''} ref={stageRef} tabIndex={0} onKeyDown={event => {
           if (!playerInView()) return;
           const deltas: Record<string, [number, number]> = {
@@ -596,30 +732,30 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
           if (!playerInView() || !stageRef.current || event.target !== event.currentTarget) return;
           const box = stageRef.current.getBoundingClientRect(); setLocalPos({ x: ((event.clientX - box.left) / box.width) * ROOM_WIDTH, y: ((event.clientY - box.top) / box.height) * ROOM_HEIGHT }); setLocalDirty(true);
         }}><div id="room-bg">{room ? `“${playCall<string>(runtime, 'entityName', room)}”` : ''}</div><div id="stage-items"><StageItems bubbles={speechBubbles} sprites={sprites} doors={doors} onSprite={id => selectTarget(selectedRef.current === id ? '' : id)} onDoor={id => {
-          const action = actions.find(item => playCall<Json[]>(runtime, 'actionArguments', item).some(argument => argument.target_group === 'exits'));
-          const argument = action && playCall<Json[]>(runtime, 'actionArguments', action).find(item => item.target_group === 'exits');
-          if (action && argument) void postCommand(action, { [String(argument.key)]: id });
+          const argument = exitAction && playCall<Json[]>(runtime, 'actionArguments', exitAction).find(item => item.target_group === 'exits');
+          if (exitAction && argument) void postCommand(exitAction, { [String(argument.key)]: id });
         }} /></div></div>
-        <div id="stage-hint">{playerInView() ? 'Click or use arrow keys / WASD to move · click a door to walk to the next room' : 'Select a character to move'}</div>
+        <div id="stage-hint">{playerInView() ? 'Click or use arrow keys / WASD to move · activate a door to walk to the next room' : 'Select a character to move'}</div>
         <div id="stage-empty" class={room ? 'hidden' : ''}><div class="title">No room to show</div><div>Connect to a running server, then select a character to play as.</div></div>
       </div>
-      <div id="actions"><div id="actions-header">⚔ Actions</div>
+      <div aria-labelledby="mobile-actions-tab" id="actions" role="tabpanel"><div id="actions-header">⚔ Actions</div>
         {projection?.portrait?.url && <img id="player-portrait" src={String(runtime.api.mediaUrl(baseRef.current, projection.portrait.url))} alt="Your character's portrait" />}
-        {eventImage && <img id="event-image" src={eventImage} alt="Latest requested scene image" onClick={() => setLightbox(true)} />}
+        {eventImage && <button aria-haspopup="dialog" aria-label="Open latest requested scene image" id="event-image-button" onClick={() => setLightbox(true)} type="button"><img id="event-image" src={eventImage} alt="Latest requested scene image" /></button>}
         {eventVideo && <video id="event-video" src={eventVideo} aria-label="Latest generated scene video" controls playsInline preload="metadata" />}
         <div id="actions-body"><div id="pt-summary">{points ? <><span class="pt ap">⚡ {num(points.action)} / {num(points.action_max)} AP</span><span class="pt fp">🔹 {num(points.focus)} / {num(points.focus_max)} FP</span></> : <span class="pt-empty">Select a character to play as and see their actions.</span>}</div>
           <div id="target-line"><span>Target: {selectedId || '—'}</span><Button id="btn-clear-target" disabled={!selectedId} onClick={() => selectTarget('')}>Clear Target</Button></div>
           <div id="action-filter-row"><input id="action-filter" value={actionFilter} placeholder="Search actions" onInput={event => setActionFilter(event.currentTarget.value)} /><Button id="action-filter-clear" onClick={() => setActionFilter('')}>Clear</Button><label class="icon-toggle"><input id="show-action-icons" type="checkbox" checked={showIcons} onChange={event => { setShowIcons(event.currentTarget.checked); playCall(runtime, 'setIconPreference', ICON_PREF_KEY, event.currentTarget.checked); }} /> Icons</label></div>
           {['world', 'focus'].map(lane => <div key={lane}><div class="action-section-title">{lane === 'world' ? 'World actions' : 'Focus actions'}</div><div class="verb-list">{filtered.filter(action => playCall<string>(runtime, 'actionLane', action) === lane).map(action => {
-            const tool = playCall<string>(runtime, 'actionTool', action); const cost = playCall<{ action: number; focus: number }>(runtime, 'actionCost', action); const available = playCall<boolean>(runtime, 'actionAvailable', action); const reason = playCall<string>(runtime, 'actionUnavailableReason', action); const targeted = playCall<Json[]>(runtime, 'actionArguments', action).some(arg => arg.target_group);
-            return <div class={`verb ready${available ? '' : ' unavailable'}`} data-tool={tool} key={tool} onClick={() => openAction(action)}><span class="verb-name">{showIcons && <span class="action-icon">{playCall<string>(runtime, 'actionIcon', action)}</span>}{playCall<string>(runtime, 'actionTitle', action)}</span><span class="verb-cost">{targeted && <span class="verb-note">⌖ target</span>}{cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}{!cost.action && !cost.focus && <span class="cost free">free</span>}{reason && <span class="verb-reason">{reason}</span>}</span></div>;
+            const tool = playCall<string>(runtime, 'actionTool', action); const cost = playCall<{ action: number; focus: number }>(runtime, 'actionCost', action); const available = playCall<boolean>(runtime, 'actionAvailable', action); const reason = playCall<string>(runtime, 'actionUnavailableReason', action); const argumentsList = playCall<Json[]>(runtime, 'actionArguments', action); const targeted = argumentsList.some(arg => arg.target_group);
+            return <Button aria-haspopup={argumentsList.length ? 'dialog' : undefined} class={`verb ready${available ? '' : ' unavailable'}`} data-tool={tool} disabled={!available} key={tool} onClick={() => openAction(action)} title={reason || undefined}><span class="verb-name">{showIcons && <span class="action-icon">{playCall<string>(runtime, 'actionIcon', action)}</span>}{playCall<string>(runtime, 'actionTitle', action)}</span><span class="verb-cost">{targeted && <span class="verb-note">⌖ target</span>}{cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}{!cost.action && !cost.focus && <span class="cost free">free</span>}{reason && <span class="verb-reason">{reason}</span>}</span></Button>;
           })}</div></div>)}
           <div class="action-section-title">Inventory</div><div class="inventory-list">{playCall<Array<{ icon: string; id: string; kind: string; label: string }>>(runtime, 'inventoryEntries', projection).map(item => <Button class={`inventory-item${selectedId === item.id ? ' selected' : ''}`} key={item.id} onClick={() => selectTarget(selectedRef.current === item.id ? '' : item.id)}><span class="verb-name">{showIcons && item.icon} {item.label}</span><span class="inventory-item-kind">{item.kind}</span></Button>)}</div>
-          <div id="queued-title" class="action-section-title">Queued actions<QueuedCountdown projection={queueProjection} runtime={runtime} /></div><div class="queued-list">{commands.length ? commands.map(command => <Button class="queued-action" data-cancel-command={String(command.command_id || '')} key={String(command.command_id)} onClick={() => { void playCall<Promise<Json>>(runtime, 'cancelQueuedCommand', baseRef.current, playerId, command.command_id, controlRef.current).then(refresh); }}><div class="queued-action-head"><span class="queued-action-name">{playCall<string>(runtime, 'queuedCommandName', command, actions)}</span><span class="queued-action-lane">{String(command.lane || '')}</span></div><div class="queued-action-detail">{[playCall<string>(runtime, 'queuedCommandCost', command), playCall<string>(runtime, 'queuedCommandDetail', command)].filter(Boolean).join(' · ')}</div></Button>) : <div class="queued-empty">No queued actions.</div>}</div>
+          <div id="queued-title" class="action-section-title">Queued actions<QueuedCountdown projection={queueProjection} runtime={runtime} /></div><div class="queued-list">{commands.length ? commands.map(command => <Button class="queued-action" data-cancel-command={String(command.command_id || '')} key={String(command.command_id)} onClick={() => { void playCall<Promise<Json>>(runtime, 'cancelQueuedCommand', baseRef.current, playerId, command.command_id, controlRef.current).then(async () => { setAnnouncement('Queued action cancelled.'); await refresh(); }); }}><div class="queued-action-head"><span class="queued-action-name">{playCall<string>(runtime, 'queuedCommandName', command, actions)}</span><span class="queued-action-lane">{String(command.lane || '')}</span></div><div class="queued-action-detail">{[playCall<string>(runtime, 'queuedCommandCost', command), playCall<string>(runtime, 'queuedCommandDetail', command)].filter(Boolean).join(' · ')}</div></Button>) : <div class="queued-empty">No queued actions.</div>}</div>
           <div class="action-section-title">Activity</div><div class="activity-list">{activityLines.length ? activityLines.map((line, index) => <div class={`activity-row ${line.kind ? `kind-${line.kind}` : ''}`} key={`${line.text}:${index}`}>{showIcons && line.icon} {line.text}</div>) : <div class="activity-empty">No recent activity.</div>}</div>
         </div>
-      </div>{lightbox && <div id="image-lightbox" onClick={() => setLightbox(false)}><img src={eventImage} alt="Requested scene image" /></div>}
+      </div>
     </div>
+    <ImageDialog onClose={() => setLightbox(false)} open={lightbox} src={eventImage} />
     {warningDialog}
   </>;
 }
