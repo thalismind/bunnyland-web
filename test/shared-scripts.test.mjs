@@ -118,11 +118,11 @@ test('nginx compresses text, revalidates routes, and caches only hashed assets i
   assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^BUNNYLAND_/);
 });
 
-test('nginx blocks the real admin prefix and bounds API traffic and uploads', () => {
+test('nginx defaults admin APIs closed and bounds proxied traffic and uploads', () => {
   const nginx = fs.readFileSync('nginx/default.conf.template', 'utf8');
   const dockerfile = fs.readFileSync('Dockerfile', 'utf8');
 
-  assert.match(nginx, /location \/api\/v1\/admin\/ \{\s*return 403;/);
+  assert.match(nginx, /location \/api\/v1\/admin\/ \{\s*include \/tmp\/bunnyland-admin-policy\.conf;/);
   assert.doesNotMatch(nginx, /location \/api\/admin\//);
   assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=bunnyland_api:/);
   assert.match(nginx, /limit_conn_zone \$binary_remote_addr zone=bunnyland_api_conn:/);
@@ -130,6 +130,7 @@ test('nginx blocks the real admin prefix and bounds API traffic and uploads', ()
   assert.match(nginx, /limit_conn bunnyland_api_conn \$\{BUNNYLAND_EDGE_API_CONNECTIONS\}/);
   assert.match(nginx, /client_max_body_size \$\{BUNNYLAND_EDGE_MAX_BODY_SIZE\}/);
   assert.match(dockerfile, /BUNNYLAND_EDGE_MAX_BODY_SIZE=12m/);
+  assert.match(dockerfile, /BUNNYLAND_EDGE_ADMIN_ENABLED=false/);
 });
 
 class MapStorage {

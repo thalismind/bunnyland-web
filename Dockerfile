@@ -16,6 +16,7 @@ ENV BUNNYLAND_API_UPSTREAM=http://server:8765 \
     BUNNYLAND_EDGE_API_BURST=60 \
     BUNNYLAND_EDGE_API_CONNECTIONS=24 \
     BUNNYLAND_EDGE_MAX_BODY_SIZE=12m \
+    BUNNYLAND_EDGE_ADMIN_ENABLED=false \
     BUNNYLAND_DISCORD_URL= \
     BUNNYLAND_3D_URL= \
     BUNNYLAND_WEB_THEME= \
@@ -33,6 +34,7 @@ COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 # per-deployment client settings come from the frontend environment, not a baked file.
 COPY docker/config.json.template /usr/share/nginx/bunnyland-config.json.template
 COPY docker/40-render-web-config.sh /docker-entrypoint.d/40-render-web-config.sh
+COPY docker/41-render-admin-policy.sh /docker-entrypoint.d/41-render-admin-policy.sh
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
