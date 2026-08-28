@@ -23,6 +23,21 @@ class NginxResolverTests(unittest.TestCase):
         self.assertNotIn("resolver 127.0.0.11", template)
 
 
+class NginxForwardedProtocolTests(unittest.TestCase):
+    def test_ingress_protocol_is_preserved_with_direct_connection_fallback(self) -> None:
+        template = NGINX_TEMPLATE.read_text()
+
+        self.assertIn("map $http_x_forwarded_proto $bunnyland_forwarded_proto", template)
+        self.assertIn("'' $scheme;", template)
+        self.assertEqual(
+            template.count(
+                "proxy_set_header X-Forwarded-Proto $bunnyland_forwarded_proto;"
+            ),
+            2,
+        )
+        self.assertNotIn("proxy_set_header X-Forwarded-Proto $scheme;", template)
+
+
 class NginxAdminPolicyTests(unittest.TestCase):
     def _render(self, enabled: str) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as directory:
