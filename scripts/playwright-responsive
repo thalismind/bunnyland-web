@@ -169,6 +169,9 @@ def assert_web_tui_drawers(page) -> None:
 
 
 def assert_player_pane_bottom(page, name: str, pane: str) -> None:
+    mobile_actions = page.locator("#mobile-actions-tab")
+    if name == "toon-client.html" and mobile_actions.is_visible():
+        mobile_actions.click()
     bounds = page.evaluate(
         """pane => {
           const main = document.querySelector('#main').getBoundingClientRect();

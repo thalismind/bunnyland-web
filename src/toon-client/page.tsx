@@ -63,6 +63,7 @@ const CLIENT_ID_KEY = 'bunnyland.toon.clientId';
 const ICON_PREF_KEY = 'bunnyland.toon.showIcons';
 const ROOM_WIDTH = 100;
 const ROOM_HEIGHT = 100;
+const SPRITE_TOUCH_RADIUS = 22;
 const DIR_EDGE: Record<string, [number, number]> = {
   north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0],
   northeast: [1, -1], northwest: [-1, -1], southeast: [1, 1], southwest: [-1, 1],
@@ -656,10 +657,14 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
   const sprites: ToonSprite[] = members.map(entity => {
     const position = entity.sprite?.position as { x?: number; y?: number } | undefined;
     const pos = entity.id === playerId && localPos ? localPos : { x: num(position?.x), y: num(position?.y) };
+    const stageWidth = rect?.width || 800;
+    const stageHeight = rect?.height || 600;
     return {
       id: entity.id, glyph: playCall<string>(runtime, 'entityIcon', entity), imageUrl: String(entity.sprite?.image_url || ''),
       isPlayer: entity.id === playerId, label: playCall<string>(runtime, 'entityName', entity), layer: num(entity.sprite?.layer) || 20,
-      left: (pos.x / ROOM_WIDTH) * (rect?.width || 800), top: (pos.y / ROOM_HEIGHT) * (rect?.height || 600), scale: num(entity.sprite?.scale) || 1,
+      left: Math.min(Math.max((pos.x / ROOM_WIDTH) * stageWidth, SPRITE_TOUCH_RADIUS), stageWidth - SPRITE_TOUCH_RADIUS),
+      top: Math.min(Math.max((pos.y / ROOM_HEIGHT) * stageHeight, SPRITE_TOUCH_RADIUS), stageHeight - SPRITE_TOUCH_RADIUS),
+      scale: num(entity.sprite?.scale) || 1,
       selected: entity.id === selectedId,
     };
   });
@@ -747,7 +752,8 @@ export function ToonPage({ runtime }: { runtime: ToonRuntime }) {
           <div id="action-filter-row"><input id="action-filter" value={actionFilter} placeholder="Search actions" onInput={event => setActionFilter(event.currentTarget.value)} /><Button id="action-filter-clear" onClick={() => setActionFilter('')}>Clear</Button><label class="icon-toggle"><input id="show-action-icons" type="checkbox" checked={showIcons} onChange={event => { setShowIcons(event.currentTarget.checked); playCall(runtime, 'setIconPreference', ICON_PREF_KEY, event.currentTarget.checked); }} /> Icons</label></div>
           {['world', 'focus'].map(lane => <div key={lane}><div class="action-section-title">{lane === 'world' ? 'World actions' : 'Focus actions'}</div><div class="verb-list">{filtered.filter(action => playCall<string>(runtime, 'actionLane', action) === lane).map(action => {
             const tool = playCall<string>(runtime, 'actionTool', action); const cost = playCall<{ action: number; focus: number }>(runtime, 'actionCost', action); const available = playCall<boolean>(runtime, 'actionAvailable', action); const reason = playCall<string>(runtime, 'actionUnavailableReason', action); const argumentsList = playCall<Json[]>(runtime, 'actionArguments', action); const targeted = argumentsList.some(arg => arg.target_group);
-            return <Button aria-haspopup={argumentsList.length ? 'dialog' : undefined} class={`verb ready${available ? '' : ' unavailable'}`} data-tool={tool} disabled={!available} key={tool} onClick={() => openAction(action)} title={reason || undefined}><span class="verb-name">{showIcons && <span class="action-icon">{playCall<string>(runtime, 'actionIcon', action)}</span>}{playCall<string>(runtime, 'actionTitle', action)}</span><span class="verb-cost">{targeted && <span class="verb-note">⌖ target</span>}{cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}{!cost.action && !cost.focus && <span class="cost free">free</span>}{reason && <span class="verb-reason">{reason}</span>}</span></Button>;
+            const queueable = available || (action.meets_requirements !== false && action.has_required_target !== false && (action.enough_action_points === false || action.enough_focus_points === false));
+            return <Button aria-haspopup={argumentsList.length ? 'dialog' : undefined} class={`verb${queueable ? ' ready' : ''}${available ? '' : ' unavailable'}`} data-tool={tool} disabled={!queueable} key={tool} onClick={() => openAction(action)} title={reason || undefined}><span class="verb-name">{showIcons && <span class="action-icon">{playCall<string>(runtime, 'actionIcon', action)}</span>}{playCall<string>(runtime, 'actionTitle', action)}</span><span class="verb-cost">{targeted && <span class="verb-note">⌖ target</span>}{cost.action ? <span class="cost ap">{cost.action} AP</span> : null}{cost.focus ? <span class="cost fp">{cost.focus} FP</span> : null}{!cost.action && !cost.focus && <span class="cost free">free</span>}{reason && <span class="verb-reason">{reason}</span>}</span></Button>;
           })}</div></div>)}
           <div class="action-section-title">Inventory</div><div class="inventory-list">{playCall<Array<{ icon: string; id: string; kind: string; label: string }>>(runtime, 'inventoryEntries', projection).map(item => <Button class={`inventory-item${selectedId === item.id ? ' selected' : ''}`} key={item.id} onClick={() => selectTarget(selectedRef.current === item.id ? '' : item.id)}><span class="verb-name">{showIcons && item.icon} {item.label}</span><span class="inventory-item-kind">{item.kind}</span></Button>)}</div>
           <div id="queued-title" class="action-section-title">Queued actions<QueuedCountdown projection={queueProjection} runtime={runtime} /></div><div class="queued-list">{commands.length ? commands.map(command => <Button class="queued-action" data-cancel-command={String(command.command_id || '')} key={String(command.command_id)} onClick={() => { void playCall<Promise<Json>>(runtime, 'cancelQueuedCommand', baseRef.current, playerId, command.command_id, controlRef.current).then(async () => { setAnnouncement('Queued action cancelled.'); await refresh(); }); }}><div class="queued-action-head"><span class="queued-action-name">{playCall<string>(runtime, 'queuedCommandName', command, actions)}</span><span class="queued-action-lane">{String(command.lane || '')}</span></div><div class="queued-action-detail">{[playCall<string>(runtime, 'queuedCommandCost', command), playCall<string>(runtime, 'queuedCommandDetail', command)].filter(Boolean).join(' · ')}</div></Button>) : <div class="queued-empty">No queued actions.</div>}</div>
