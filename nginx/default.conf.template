@@ -14,7 +14,7 @@ gzip_comp_level 6;
 gzip_min_length 1024;
 gzip_types application/javascript application/json image/svg+xml text/css text/plain;
 
-resolver 127.0.0.11 ipv6=off valid=10s;
+resolver ${BUNNYLAND_DNS_RESOLVER} ipv6=off valid=10s;
 
 limit_req_zone $binary_remote_addr zone=bunnyland_api:10m rate=${BUNNYLAND_EDGE_API_RATE};
 limit_conn_zone $binary_remote_addr zone=bunnyland_api_conn:10m;

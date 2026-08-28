@@ -9,6 +9,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "docker" / "41-render-admin-policy.sh"
+DOCKERFILE = ROOT / "Dockerfile"
+NGINX_TEMPLATE = ROOT / "nginx" / "default.conf.template"
+
+
+class NginxResolverTests(unittest.TestCase):
+    def test_docker_resolver_is_the_portable_default(self) -> None:
+        dockerfile = DOCKERFILE.read_text()
+        template = NGINX_TEMPLATE.read_text()
+
+        self.assertIn("BUNNYLAND_DNS_RESOLVER=127.0.0.11", dockerfile)
+        self.assertIn("resolver ${BUNNYLAND_DNS_RESOLVER} ipv6=off valid=10s;", template)
+        self.assertNotIn("resolver 127.0.0.11", template)
 
 
 class NginxAdminPolicyTests(unittest.TestCase):
